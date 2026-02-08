@@ -16,6 +16,7 @@ export const ACTION_TRANSPOSE_OCTAVE_DOWN = 'transpose-octave-down';
 export const ACTION_APPLY_SCRIPT = 'apply-script';
 export const ACTION_TOGGLE_PLAYBACK = 'toggle-playback';
 export const ACTION_PLAY_FROM_ROW = 'play-from-row';
+export const ACTION_CYCLE_CHANNEL = 'cycle-channel';
 
 export interface BindableAction {
 	id: string;
@@ -41,12 +42,15 @@ export const BINDABLE_ACTIONS: BindableAction[] = [
 	},
 	{ id: ACTION_TOGGLE_PLAYBACK, label: 'Play / Pause', defaultShortcut: ' ' },
 	{ id: ACTION_PLAY_FROM_ROW, label: 'Play from row (hold)', defaultShortcut: 'Enter' },
+	{ id: ACTION_CYCLE_CHANNEL, label: 'Cycle channel', defaultShortcut: '`' },
 	{ id: ACTION_APPLY_SCRIPT, label: 'Apply Script...', defaultShortcut: 'Mod+Shift+S' }
 ];
 
 export const PATTERN_EDITOR_ACTION_IDS = new Set(
 	BINDABLE_ACTIONS.filter(
-		(a) => a.id !== ACTION_APPLY_SCRIPT && a.id !== ACTION_PLAY_FROM_ROW
+		(a) =>
+			a.id !== ACTION_APPLY_SCRIPT &&
+			a.id !== ACTION_PLAY_FROM_ROW
 	).map((a) => a.id)
 );
 

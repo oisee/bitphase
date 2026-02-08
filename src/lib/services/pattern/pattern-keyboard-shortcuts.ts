@@ -18,7 +18,8 @@ import {
 	ACTION_TRANSPOSE_OCTAVE_UP,
 	ACTION_TRANSPOSE_OCTAVE_DOWN,
 	ACTION_APPLY_SCRIPT,
-	ACTION_TOGGLE_PLAYBACK
+	ACTION_TOGGLE_PLAYBACK,
+	ACTION_CYCLE_CHANNEL
 } from '../../config/keybindings';
 
 export interface PatternKeyboardShortcutsContext {
@@ -140,6 +141,20 @@ function dispatchCommandAction(
 				ctx.onPausePlayback();
 			} else {
 				ctx.onTogglePlayback();
+			}
+			return true;
+		case ACTION_CYCLE_CHANNEL:
+			if (!ctx.isPlaying) {
+				const newState = PatternNavigationService.moveToNextChannel(
+					{
+						selectedRow: ctx.selectedRow,
+						currentPatternOrderIndex: ctx.currentPatternOrderIndex,
+						selectedColumn: ctx.selectedColumn
+					},
+					ctx.navigationContext
+				);
+				ctx.onClearSelection();
+				ctx.onSetSelectedColumn(newState.selectedColumn);
 			}
 			return true;
 		default:
