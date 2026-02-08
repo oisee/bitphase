@@ -1,0 +1,243 @@
+import { Project } from '../../models/project';
+import { Pattern } from '../../models/song';
+import { undoRedoStore } from '../../stores/undo-redo.svelte';
+import ConfirmModal from '../../components/Modal/ConfirmModal.svelte';
+import SettingsModal from '../../components/Settings/SettingsModal.svelte';
+import AboutModal from '../../components/Modal/AboutModal.svelte';
+import EffectsModal from '../../components/Modal/EffectsModal.svelte';
+import UserScriptsModal from '../../components/Modal/UserScriptsModal.svelte';
+import WavExportSettingsModal from '../../components/Modal/WavExportSettingsModal.svelte';
+import ProgressModal from '../../components/Modal/ProgressModal.svelte';
+import { ACTION_APPLY_SCRIPT } from '../../config/keybindings';
+import { AY_CHIP } from '../../chips/ay';
+import type { MenuActionContext } from './menu-action-context';
+
+function dispatchEditorKey(patternEditor: MenuActionContext['getPatternEditor'], key: string, modifiers?: { ctrlKey?: boolean; shiftKey?: boolean }) {
+	const editor = patternEditor();
+	const event = new KeyboardEvent('keydown', {
+		key,
+		ctrlKey: modifiers?.ctrlKey ?? false,
+		shiftKey: modifiers?.shiftKey ?? false,
+		bubbles: true
+	});
+	editor?.handleKeyDownFromMenu?.(event);
+}
+
+export function createMenuActionHandler(ctx: MenuActionContext) {
+	return async function handleMenuAction(data: { action: string; songIndex?: number }) {
+		try {
+			const patternEditor = ctx.getPatternEditor();
+
+			if (data.action === 'undo') {
+				undoRedoStore.undo();
+				return;
+			}
+
+			if (data.action === 'redo') {
+				undoRedoStore.redo();
+				return;
+			}
+
+			if (data.action === 'copy') {
+				dispatchEditorKey(ctx.getPatternEditor, 'c', { ctrlKey: true });
+				return;
+			}
+
+			if (data.action === 'cut') {
+				dispatchEditorKey(ctx.getPatternEditor, 'x', { ctrlKey: true });
+				return;
+			}
+
+			if (data.action === 'paste') {
+				dispatchEditorKey(ctx.getPatternEditor, 'v', { ctrlKey: true });
+				return;
+			}
+
+			if (data.action === 'paste-without-erasing') {
+				dispatchEditorKey(ctx.getPatternEditor, 'v', { ctrlKey: true, shiftKey: true });
+				return;
+			}
+
+			if (data.action === 'increment-value') {
+				dispatchEditorKey(ctx.getPatternEditor, '+');
+				return;
+			}
+
+			if (data.action === 'decrement-value') {
+				dispatchEditorKey(ctx.getPatternEditor, '-');
+				return;
+			}
+
+			if (data.action === 'transpose-octave-up') {
+				dispatchEditorKey(ctx.getPatternEditor, '+', { shiftKey: true });
+				return;
+			}
+
+			if (data.action === 'transpose-octave-down') {
+				dispatchEditorKey(ctx.getPatternEditor, '-', { shiftKey: true });
+				return;
+			}
+
+			if (data.action === 'playFromBeginning') {
+				if (ctx.playbackStore.isPlaying) {
+					ctx.playbackStore.isPlaying = false;
+					ctx.container.audioService.stop();
+				}
+				if (patternEditor) {
+					ctx.playbackStore.isPlaying = true;
+					patternEditor.resetToBeginning?.();
+					patternEditor.togglePlayback?.();
+				}
+				return;
+			}
+
+			if (data.action === 'playFromCursor') {
+				if (ctx.playbackStore.isPlaying) return;
+				if (patternEditor) {
+					ctx.playbackStore.isPlaying = true;
+					patternEditor.playFromCursor?.();
+				}
+				return;
+			}
+
+			if (data.action === 'togglePlayback') {
+				ctx.playbackStore.isPlaying = !ctx.playbackStore.isPlaying;
+				if (ctx.playbackStore.isPlaying) {
+					patternEditor?.togglePlayback?.();
+				} else {
+					ctx.container.audioService.stop();
+				}
+				return;
+			}
+
+			if (data.action === 'playPattern') {
+				if (ctx.playbackStore.isPlaying) {
+					ctx.playbackStore.isPlaying = false;
+					ctx.container.audioService.stop();
+				}
+				if (patternEditor) {
+					ctx.playbackStore.isPlaying = true;
+					patternEditor.playPattern?.();
+				}
+				return;
+			}
+
+			if (data.action === 'new-project') {
+				ctx.playbackStore.isPlaying = false;
+				ctx.container.audioService.stop();
+				await ctx.clearAutobackup();
+				const newProject = await ctx.projectService.resetProject(AY_CHIP);
+				ctx.applyProject(newProject);
+				ctx.resetPatternEditor();
+				return;
+			}
+
+			if (data.action === 'remove-song' && typeof data.songIndex === 'number') {
+				const index = data.songIndex;
+				if (ctx.getSongsLength() <= 1 || index < 0 || index >= ctx.getSongsLength()) return;
+				const confirmed = await ctx.open(ConfirmModal, {
+					message: `Remove song (${index + 1})? This cannot be undone.`
+				});
+				if (!confirmed) return;
+				ctx.playbackStore.isPlaying = false;
+				ctx.container.audioService.stop();
+				ctx.removeSong(index);
+				ctx.setActiveSongIndex(
+					Math.min(ctx.getActiveSongIndex(), Math.max(0, ctx.getSongsLength() - 1))
+				);
+				ctx.resetPatternEditor();
+				return;
+			}
+
+			if (data.action === 'new-song-ay') {
+				ctx.playbackStore.isPlaying = false;
+				ctx.container.audioService.stop();
+				const newSong = await ctx.projectService.createNewSong(AY_CHIP);
+				const project = ctx.getCurrentProject();
+				if (project.songs.length > 0 && project.patternOrder.length > 0) {
+					const refSong = project.songs[0] as unknown as { patterns: { id: number; length: number }[] };
+					const schema =
+						ctx.container.audioService.chipProcessors[0].chip.schema ?? newSong.getSchema();
+					const uniquePatternIds = [...new Set(project.patternOrder)];
+					newSong.patterns = uniquePatternIds.map((id) => {
+						const refPattern = refSong.patterns.find((p: { id: number }) => p.id === id);
+						const length = refPattern?.length ?? 64;
+						return new Pattern(id, length, schema);
+					});
+				}
+				ctx.addSong(newSong);
+				ctx.resetPatternEditor();
+				return;
+			}
+
+			if (data.action === 'settings') {
+				await ctx.open(SettingsModal, {});
+				return;
+			}
+
+			if (data.action === 'appearance') {
+				await ctx.open(SettingsModal, { initialTabId: 'appearance' });
+				return;
+			}
+
+			if (data.action === 'about') {
+				await ctx.open(AboutModal, {});
+				return;
+			}
+
+			if (data.action === 'effects') {
+				await ctx.open(EffectsModal, {});
+				return;
+			}
+
+			if (data.action === ACTION_APPLY_SCRIPT) {
+				const hasSelection = patternEditor?.hasSelection?.() ?? false;
+				const result = await ctx.open(UserScriptsModal, { hasSelection });
+				if (result && patternEditor?.applyScript) {
+					patternEditor.applyScript(result);
+				}
+				return;
+			}
+
+			if (data.action === 'save' || data.action === 'save-as') {
+				await ctx.handleFileExport(data.action, ctx.getCurrentProject());
+				return;
+			}
+
+			if (data.action === 'export-wav') {
+				const currentProject = ctx.getCurrentProject();
+				const wavSettings = await ctx.open(WavExportSettingsModal, { project: currentProject });
+				if (wavSettings) {
+					await ctx.open(ProgressModal, {
+						project: currentProject,
+						exportType: 'wav',
+						wavSettings
+					});
+				}
+				return;
+			}
+
+			if (data.action === 'export-psg') {
+				await ctx.open(ProgressModal, {
+					project: ctx.getCurrentProject(),
+					exportType: 'psg'
+				});
+				return;
+			}
+
+			const importedProject = await ctx.handleFileImport(data.action);
+			if (importedProject) {
+				ctx.playbackStore.isPlaying = false;
+				ctx.container.audioService.stop();
+				ctx.container.audioService.clearChipProcessors();
+				for (const _ of importedProject.songs) {
+					await ctx.container.audioService.addChipProcessor(AY_CHIP);
+				}
+				ctx.applyProject(importedProject);
+				ctx.resetPatternEditor();
+			}
+		} catch (error) {
+			console.error('Failed to handle menu action:', error);
+		}
+	};
+}

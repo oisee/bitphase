@@ -5,45 +5,33 @@
 	import { handleFileImport } from './lib/services/file/file-import';
 	import { handleFileExport } from './lib/services/file/file-export';
 	import { Project, Table } from './lib/models/project';
-	import { Pattern, type Song } from './lib/models/song';
+	import type { Song } from './lib/models/song';
 	import PatternEditor from './lib/components/Song/PatternEditor.svelte';
 	import ModalContainer from './lib/components/Modal/ModalContainer.svelte';
-	import ConfirmModal from './lib/components/Modal/ConfirmModal.svelte';
-	import ProgressModal from './lib/components/Modal/ProgressModal.svelte';
-	import WavExportSettingsModal from './lib/components/Modal/WavExportSettingsModal.svelte';
 	import { open } from './lib/services/modal/modal-service';
 	import { setContext } from 'svelte';
 	import { AudioService } from './lib/services/audio/audio-service';
 	import { ProjectService } from './lib/services/project/project-service';
-	import { PatternService } from './lib/services/pattern/pattern-service';
 	import { AY_CHIP } from './lib/chips/ay';
 	import { getChipByType } from './lib/chips/registry';
 	import SongView from './lib/components/Song/SongView.svelte';
 	import { playbackStore } from './lib/stores/playback.svelte';
 	import { settingsStore } from './lib/stores/settings.svelte';
-	import SettingsModal from './lib/components/Settings/SettingsModal.svelte';
-	import AboutModal from './lib/components/Modal/AboutModal.svelte';
-	import EffectsModal from './lib/components/Modal/EffectsModal.svelte';
-	import { undoRedoStore } from './lib/stores/undo-redo.svelte';
 	import { editorStateStore } from './lib/stores/editor-state.svelte';
 	import { themeStore } from './lib/stores/theme.svelte';
 	import { themeService } from './lib/services/theme/theme-service';
 	import { themeEditorStore } from './lib/stores/theme-editor.svelte';
 	import ThemeEditorModal from './lib/components/Theme/ThemeEditorModal.svelte';
-	import UserScriptsModal from './lib/components/Modal/UserScriptsModal.svelte';
 	import { tick } from 'svelte';
-
-	import { userScriptsStore } from './lib/stores/user-scripts.svelte';
 	import { keybindingsStore } from './lib/stores/keybindings.svelte';
 	import { ShortcutString } from './lib/utils/shortcut-string';
 	import { ACTION_APPLY_SCRIPT } from './lib/config/keybindings';
 	import { autobackupService } from './lib/services/backup/autobackup-service';
+	import { runAppBootstrap } from './lib/app-bootstrap';
+	import { createMenuActionHandler } from './lib/services/app/menu-action-handler';
+	import type { MenuActionContext } from './lib/services/app/menu-action-context';
 
-	settingsStore.init();
-	keybindingsStore.init();
-	editorStateStore.init();
-	themeStore.init(themeService);
-	userScriptsStore.init();
+	runAppBootstrap();
 
 	let lastAppliedThemeId = $state<string | null>(null);
 
@@ -221,319 +209,52 @@
 
 	let patternEditor: PatternEditor | null = $state(null);
 
-	async function handleMenuAction(data: { action: string }) {
-		try {
-			if (data.action === 'undo') {
-				undoRedoStore.undo();
-				return;
-			}
+	const menuActionContext: MenuActionContext = {
+		getPatternEditor: () => patternEditor,
+		getCurrentProject: () =>
+			new Project(
+				projectSettings.title,
+				projectSettings.author,
+				songs,
+				0,
+				patternOrder,
+				tables,
+				patternOrderColors
+			),
+		applyProject: (project) => {
+			projectSettings = {
+				title: project.name,
+				author: project.author,
+				initialSpeed: project.songs[0]?.initialSpeed ?? 3
+			};
+			songs = project.songs;
+			patternOrder = project.patternOrder;
+			patternOrderColors = project.patternOrderColors ?? {};
+			tables = project.tables;
+		},
+		removeSong: (index) => {
+			songs = songs.filter((_, i) => i !== index);
+			container.audioService.removeChipProcessor(index);
+		},
+		addSong: (song) => {
+			songs = [...songs, song];
+		},
+		setActiveSongIndex: (index) => {
+			activeSongIndex = index;
+		},
+		getSongsLength: () => songs.length,
+		getActiveSongIndex: () => activeSongIndex,
+		container,
+		projectService,
+		playbackStore,
+		open: open as MenuActionContext['open'],
+		handleFileImport,
+		handleFileExport,
+		clearAutobackup: () => autobackupService.clearAutobackup(),
+		resetPatternEditor: () => patternEditor?.resetToBeginning?.()
+	};
 
-			if (data.action === 'redo') {
-				undoRedoStore.redo();
-				return;
-			}
-
-			if (data.action === 'copy') {
-				const event = new KeyboardEvent('keydown', {
-					key: 'c',
-					ctrlKey: true,
-					bubbles: true
-				});
-				patternEditor?.handleKeyDownFromMenu?.(event);
-				return;
-			}
-
-			if (data.action === 'cut') {
-				const event = new KeyboardEvent('keydown', {
-					key: 'x',
-					ctrlKey: true,
-					bubbles: true
-				});
-				patternEditor?.handleKeyDownFromMenu?.(event);
-				return;
-			}
-
-			if (data.action === 'paste') {
-				const event = new KeyboardEvent('keydown', {
-					key: 'v',
-					ctrlKey: true,
-					bubbles: true
-				});
-				patternEditor?.handleKeyDownFromMenu?.(event);
-				return;
-			}
-
-			if (data.action === 'paste-without-erasing') {
-				const event = new KeyboardEvent('keydown', {
-					key: 'v',
-					ctrlKey: true,
-					shiftKey: true,
-					bubbles: true
-				});
-				patternEditor?.handleKeyDownFromMenu?.(event);
-				return;
-			}
-
-			if (data.action === 'increment-value') {
-				const event = new KeyboardEvent('keydown', {
-					key: '+',
-					bubbles: true
-				});
-				patternEditor?.handleKeyDownFromMenu?.(event);
-				return;
-			}
-
-			if (data.action === 'decrement-value') {
-				const event = new KeyboardEvent('keydown', {
-					key: '-',
-					bubbles: true
-				});
-				patternEditor?.handleKeyDownFromMenu?.(event);
-				return;
-			}
-
-			if (data.action === 'transpose-octave-up') {
-				const event = new KeyboardEvent('keydown', {
-					key: '+',
-					shiftKey: true,
-					bubbles: true
-				});
-				patternEditor?.handleKeyDownFromMenu?.(event);
-				return;
-			}
-
-			if (data.action === 'transpose-octave-down') {
-				const event = new KeyboardEvent('keydown', {
-					key: '-',
-					shiftKey: true,
-					bubbles: true
-				});
-				patternEditor?.handleKeyDownFromMenu?.(event);
-				return;
-			}
-
-			if (data.action === 'playFromBeginning') {
-				if (playbackStore.isPlaying) {
-					playbackStore.isPlaying = false;
-					container.audioService.stop();
-				}
-
-				if (patternEditor) {
-					playbackStore.isPlaying = true;
-					patternEditor.resetToBeginning();
-					patternEditor.togglePlayback();
-				}
-
-				return;
-			}
-
-			if (data.action === 'playFromCursor') {
-				if (playbackStore.isPlaying) {
-					return;
-				}
-
-				if (patternEditor) {
-					playbackStore.isPlaying = true;
-					patternEditor.playFromCursor();
-				}
-
-				return;
-			}
-
-			if (data.action === 'togglePlayback') {
-				playbackStore.isPlaying = !playbackStore.isPlaying;
-
-				if (playbackStore.isPlaying) {
-					patternEditor?.togglePlayback();
-				} else {
-					container.audioService.stop();
-				}
-				return;
-			}
-
-			if (data.action === 'playPattern') {
-				if (playbackStore.isPlaying) {
-					playbackStore.isPlaying = false;
-					container.audioService.stop();
-				}
-
-				if (patternEditor) {
-					playbackStore.isPlaying = true;
-					patternEditor.playPattern();
-				}
-				return;
-			}
-
-			if (data.action === 'new-project') {
-				playbackStore.isPlaying = false;
-				container.audioService.stop();
-
-				await autobackupService.clearAutobackup();
-
-				const newProject = await projectService.resetProject(AY_CHIP);
-
-				projectSettings = {
-					title: newProject.name,
-					author: newProject.author,
-					initialSpeed: newProject.songs[0]?.initialSpeed ?? 3
-				};
-				songs = newProject.songs;
-				patternOrder = newProject.patternOrder;
-				patternOrderColors = newProject.patternOrderColors ?? {};
-				tables = newProject.tables;
-
-				patternEditor?.resetToBeginning();
-				return;
-			}
-
-			if (
-				data.action === 'remove-song' &&
-				typeof (data as unknown as { songIndex?: number }).songIndex === 'number'
-			) {
-				const index = (data as unknown as { songIndex: number }).songIndex;
-				if (songs.length <= 1 || index < 0 || index >= songs.length) return;
-				const confirmed = await open(ConfirmModal, {
-					message: `Remove song (${index + 1})? This cannot be undone.`
-				});
-				if (!confirmed) return;
-				playbackStore.isPlaying = false;
-				container.audioService.stop();
-				songs = songs.filter((_, i) => i !== index);
-				container.audioService.removeChipProcessor(index);
-				activeSongIndex = Math.min(activeSongIndex, Math.max(0, songs.length - 1));
-				patternEditor?.resetToBeginning();
-				return;
-			}
-
-			if (data.action === 'new-song-ay') {
-				playbackStore.isPlaying = false;
-				container.audioService.stop();
-
-				const newSong = await projectService.createNewSong(AY_CHIP);
-				if (songs.length > 0 && patternOrder.length > 0) {
-					const refSong = songs[0];
-					const schema =
-						container.audioService.chipProcessors[0].chip.schema ?? newSong.getSchema();
-					const uniquePatternIds = [...new Set(patternOrder)];
-					newSong.patterns = uniquePatternIds.map((id) => {
-						const refPattern = refSong.patterns.find((p) => p.id === id);
-						const length = refPattern?.length ?? 64;
-						return new Pattern(id, length, schema);
-					});
-				}
-				songs = [...songs, newSong];
-
-				patternEditor?.resetToBeginning();
-				return;
-			}
-
-			if (data.action === 'settings') {
-				await open(SettingsModal, {});
-				return;
-			}
-
-			if (data.action === 'appearance') {
-				await open(SettingsModal, { initialTabId: 'appearance' });
-				return;
-			}
-
-			if (data.action === 'about') {
-				await open(AboutModal, {});
-				return;
-			}
-
-			if (data.action === 'effects') {
-				await open(EffectsModal, {});
-				return;
-			}
-
-			if (data.action === ACTION_APPLY_SCRIPT) {
-				const hasSelection = patternEditor?.hasSelection?.() ?? false;
-				const result = await open(UserScriptsModal, { hasSelection });
-				if (result && patternEditor?.applyScript) {
-					patternEditor.applyScript(result);
-				}
-				return;
-			}
-
-			if (data.action === 'save' || data.action === 'save-as') {
-				const currentProject = new Project(
-					projectSettings.title,
-					projectSettings.author,
-					songs,
-					0,
-					patternOrder,
-					tables,
-					patternOrderColors
-				);
-				await handleFileExport(data.action, currentProject);
-				return;
-			}
-
-			if (data.action === 'export-wav') {
-				const currentProject = new Project(
-					projectSettings.title,
-					projectSettings.author,
-					songs,
-					0,
-					patternOrder,
-					tables,
-					patternOrderColors
-				);
-
-				const wavSettings = await open(WavExportSettingsModal, { project: currentProject });
-				if (wavSettings) {
-					await open(ProgressModal, {
-						project: currentProject,
-						exportType: 'wav',
-						wavSettings
-					});
-				}
-				return;
-			}
-
-			if (data.action === 'export-psg') {
-				const currentProject = new Project(
-					projectSettings.title,
-					projectSettings.author,
-					songs,
-					0,
-					patternOrder,
-					tables,
-					patternOrderColors
-				);
-
-				await open(ProgressModal, { project: currentProject, exportType: 'psg' });
-				return;
-			}
-
-			const importedProject = await handleFileImport(data.action);
-			if (importedProject) {
-				playbackStore.isPlaying = false;
-				container.audioService.stop();
-
-				container.audioService.clearChipProcessors();
-
-				for (const _song of importedProject.songs) {
-					await container.audioService.addChipProcessor(AY_CHIP);
-				}
-
-				projectSettings = {
-					title: importedProject.name,
-					author: importedProject.author,
-					initialSpeed: importedProject.songs[0]?.initialSpeed ?? 3
-				};
-				songs = importedProject.songs;
-				patternOrder = importedProject.patternOrder;
-				patternOrderColors = importedProject.patternOrderColors ?? {};
-				tables = importedProject.tables;
-
-				patternEditor?.resetToBeginning();
-			}
-		} catch (error) {
-			console.error('Failed to handle menu action:', error);
-		}
-	}
+	const handleMenuAction = createMenuActionHandler(menuActionContext);
 
 	setContext('container', container);
 
