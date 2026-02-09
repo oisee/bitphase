@@ -22,6 +22,7 @@
 	import IconCarbonChevronUp from '~icons/carbon/chevron-up';
 	import IconCarbonChevronDown from '~icons/carbon/chevron-down';
 	import IconCarbonClose from '~icons/carbon/close';
+	import IconCarbonPlay from '~icons/carbon/play';
 	import { PATTERN_EDITOR_CONSTANTS } from './types';
 	import { getContext, setContext, tick } from 'svelte';
 	import Input from '../Input/Input.svelte';
@@ -540,7 +541,8 @@
 					{#if settingsStore.get().showInstrumentPreview && chipProcessors[activeEditorIndex].chip.previewRow}
 						{@const PreviewRow = chipProcessors[activeEditorIndex].chip.previewRow}
 						<div class="flex flex-col gap-2 bg-[var(--color-app-surface)] px-2 py-3">
-							<span class="text-xs text-[var(--color-app-text-muted)]">Preview playground</span>
+							<span class="flex items-center gap-1.5 text-xs text-[var(--color-app-text-muted)]">
+								<IconCarbonPlay class="h-3.5 w-3.5 shrink-0" />Preview playground</span>
 							<PreviewRow
 								chip={chipProcessors[activeEditorIndex].chip}
 								instrumentId={editorStateStore.get().currentInstrument} />

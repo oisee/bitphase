@@ -27,16 +27,15 @@
 	let envelopeShape = $state('');
 	let table = $state('');
 	let volume = $state('F');
-	let noteString = $state('C-4');
-	let pressedPreviewKey: string | null = $state(null);
+	let activeNotes = $state<Array<{ key: string; note: string }>>([]);
 	let noteInputEl: HTMLDivElement | null = $state(null);
 
-	const chipProcessor = $derived(
-		containerContext.audioService.chipProcessors.find((p) => p.chip === chip)
+	const previewProcessors = $derived(
+		containerContext.audioService.chipProcessors.filter(
+			(p) => p.chip === chip && 'playPreviewRow' in p && p.isAudioNodeAvailable()
+		)
 	);
-	const canPreview = $derived(
-		!!chipProcessor && 'playPreviewRow' in chipProcessor && chipProcessor.isAudioNodeAvailable()
-	);
+	const maxPoly = $derived(previewProcessors.length * 3);
 
 	function parseHex4(s: string): number {
 		const n = parseInt(s.replace(/[^0-9a-fA-F]/g, '').slice(0, 4) || '0', 16);
@@ -61,82 +60,92 @@
 		return 0;
 	}
 
-	function buildPreviewPattern(): Pattern {
+	function buildPreviewPattern(noteStrings: string[]): Pattern {
 		const pattern = new PatternModel(0, 1, schema) as Pattern;
 		const pr = pattern.patternRows[0];
 		pr.envelopeValue = parseHex4(envelopeValue);
 		pr.noiseValue = parseHex2(noiseValue);
 		pr.envelopeEffect = null;
 
-		const row = pattern.channels[0].rows[0];
-		row.instrument = instrumentIdToNumber(instrumentId || '01') || 1;
-		row.envelopeShape = envelopeShape ? parseHex1(envelopeShape) : 0;
-		row.table = parseTableChar(table);
-		row.volume = volume ? Math.max(1, Math.min(15, parseHex1(volume))) : 15;
-		row.effects = [null];
+		const instNum = instrumentIdToNumber(instrumentId || '01') || 1;
+		const vol = volume ? Math.max(1, Math.min(15, parseHex1(volume))) : 15;
+		const shape = envelopeShape ? parseHex1(envelopeShape) : 0;
+		const tbl = parseTableChar(table);
 
-		const { noteName, octave } = parseNoteFromString(noteString);
-		row.note = new Note(noteName, octave);
-
+		for (let ch = 0; ch < 3; ch++) {
+			const row = pattern.channels[ch].rows[0];
+			row.instrument = instNum;
+			row.envelopeShape = shape;
+			row.table = tbl;
+			row.volume = vol;
+			row.effects = [null];
+			const noteStr = noteStrings[ch] ?? 'OFF';
+			const { noteName, octave } = parseNoteFromString(noteStr);
+			row.note = new Note(noteName, octave);
+		}
 		return pattern;
 	}
 
-	function startPreview() {
-		if (!canPreview || !chipProcessor) return;
-		(chipProcessor as unknown as PreviewNoteSupport).playPreviewRow(
-			buildPreviewPattern(),
-			ROW_INDEX
-		);
-	}
-
-	function stopPreview() {
-		if (chipProcessor && 'stopPreviewNote' in chipProcessor) {
-			(chipProcessor as unknown as PreviewNoteSupport).stopPreviewNote();
-		}
-	}
-
-	function handleNoteKeyDown(event: KeyboardEvent) {
-		if (event.repeat) return;
-		const key = event.key.toLowerCase();
-		const pianoNote = PatternNoteInput.mapKeyboardKeyToNote(event.key);
-		if (pianoNote) {
-			event.preventDefault();
-			noteString = formatNoteFromEnum(pianoNote.noteName, pianoNote.octave);
-			pressedPreviewKey = event.key;
-			if (canPreview) startPreview();
+	function updatePreview() {
+		const processors = previewProcessors as unknown as PreviewNoteSupport[];
+		if (processors.length === 0) return;
+		if (activeNotes.length === 0) {
+			processors.forEach((proc) => proc.stopPreviewNote());
 			return;
 		}
-		if (key === 'a') {
-			event.preventDefault();
-			noteString = 'OFF';
-			pressedPreviewKey = event.key;
-			if (canPreview) startPreview();
-			return;
-		}
-		const letterNote = PatternNoteInput.getLetterNote(event.key);
-		if (letterNote) {
-			event.preventDefault();
-			const octave = editorStateStore.get().octave;
-			noteString = formatNoteFromEnum(letterNote, octave);
-			pressedPreviewKey = event.key;
-			if (canPreview) startPreview();
-		}
-	}
-
-	function handleNoteKeyUp(event: KeyboardEvent) {
-		if (pressedPreviewKey !== null && event.key === pressedPreviewKey) {
-			pressedPreviewKey = null;
-			stopPreview();
-		}
+		const noteStrings = activeNotes.map((n) => n.note);
+		processors.forEach((proc, processorIndex) => {
+			const start = processorIndex * 3;
+			const channelNotes = [
+				noteStrings[start] ?? 'OFF',
+				noteStrings[start + 1] ?? 'OFF',
+				noteStrings[start + 2] ?? 'OFF'
+			];
+			proc.playPreviewRow(buildPreviewPattern(channelNotes), ROW_INDEX);
+		});
 	}
 
 	$effect(() => {
-		if (pressedPreviewKey === null) return;
-		const key = pressedPreviewKey;
+		updatePreview();
+	});
+
+	function handleNoteKeyDown(event: KeyboardEvent) {
+		if (event.repeat) return;
+		const key = event.key;
+		if (activeNotes.some((n) => n.key === key)) return;
+		if (activeNotes.length >= maxPoly) return;
+		const keyLower = key.toLowerCase();
+		let noteStr: string;
+		const pianoNote = PatternNoteInput.mapKeyboardKeyToNote(event.key);
+		if (pianoNote) {
+			event.preventDefault();
+			noteStr = formatNoteFromEnum(pianoNote.noteName, pianoNote.octave);
+		} else if (keyLower === 'a') {
+			event.preventDefault();
+			noteStr = 'OFF';
+		} else {
+			const letterNote = PatternNoteInput.getLetterNote(event.key);
+			if (letterNote) {
+				event.preventDefault();
+				const octave = editorStateStore.get().octave;
+				noteStr = formatNoteFromEnum(letterNote, octave);
+			} else return;
+		}
+		activeNotes = [...activeNotes, { key, note: noteStr }];
+	}
+
+	function handleNoteKeyUp(event: KeyboardEvent) {
+		const key = event.key;
+		if (!activeNotes.some((n) => n.key === key)) return;
+		activeNotes = activeNotes.filter((n) => n.key !== key);
+	}
+
+	$effect(() => {
+		const keys = activeNotes.map((n) => n.key);
+		if (keys.length === 0) return;
 		function onWindowKeyUp(e: KeyboardEvent) {
-			if (e.key === key) {
-				pressedPreviewKey = null;
-				stopPreview();
+			if (keys.includes(e.key)) {
+				activeNotes = activeNotes.filter((n) => n.key !== e.key);
 			}
 		}
 		window.addEventListener('keyup', onWindowKeyUp);
@@ -212,22 +221,6 @@
 			}} />
 	</label>
 	<label class="flex flex-col gap-0.5">
-		<span class="text-[var(--color-app-text-muted)]">Noise</span>
-		<input
-			type="text"
-			class="w-10 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 uppercase"
-			maxlength={2}
-			placeholder="00"
-			bind:value={noiseValue}
-			onblur={clampNoiseValue}
-			oninput={(e) => {
-				noiseValue = (e.currentTarget.value || '')
-					.replace(/[^0-9a-fA-F]/gi, '')
-					.slice(0, 2)
-					.toUpperCase();
-			}} />
-	</label>
-	<label class="flex flex-col gap-0.5">
 		<span class="text-[var(--color-app-text-muted)]">Shape</span>
 		<input
 			type="text"
@@ -240,6 +233,22 @@
 				envelopeShape = (e.currentTarget.value || '')
 					.replace(/[^0-9a-fA-F]/gi, '')
 					.slice(0, 1)
+					.toUpperCase();
+			}} />
+	</label>
+	<label class="flex flex-col gap-0.5">
+		<span class="text-[var(--color-app-text-muted)]">Noise</span>
+		<input
+			type="text"
+			class="w-10 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 uppercase"
+			maxlength={2}
+			placeholder="00"
+			bind:value={noiseValue}
+			onblur={clampNoiseValue}
+			oninput={(e) => {
+				noiseValue = (e.currentTarget.value || '')
+					.replace(/[^0-9a-fA-F]/gi, '')
+					.slice(0, 2)
 					.toUpperCase();
 			}} />
 	</label>
@@ -283,19 +292,18 @@
 		<span class="text-[var(--color-app-text-muted)]">Note</span>
 		<div
 			bind:this={noteInputEl}
-			class="flex min-h-[1.75rem] w-14 items-center rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 focus:border-[var(--color-app-primary)] focus:outline-none"
+			class="flex min-h-[1.75rem] min-w-14 max-w-[10rem] items-center rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 focus:border-[var(--color-app-primary)] focus:outline-none"
 			role="textbox"
 			tabindex={0}
 			aria-label="Note (keyboard: piano keys)"
-			title="Click to focus, then use keyboard like pattern editor (piano keys: Z–P, Q–I, etc.; A = OFF; C/D/E/F/G/B = note with current octave). Hold key to preview."
+			title="Click to focus, then use keyboard. Polyphony: {maxPoly} notes (3 per chip). Piano: Z–P, Q–I; A = OFF; letters = note with current octave."
 			onclick={() => noteInputEl?.focus()}
 			onkeydown={handleNoteKeyDown}
 			onkeyup={handleNoteKeyUp}
 			onblur={() => {
-				pressedPreviewKey = null;
-				stopPreview();
+				activeNotes = [];
 			}}>
-			{noteString}
+			{activeNotes.length > 0 ? activeNotes.map((n) => n.note).join(' ') : '—'}
 		</div>
 	</div>
 </div>
