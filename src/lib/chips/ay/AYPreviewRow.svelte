@@ -23,6 +23,7 @@
 	const schema = chip.schema;
 
 	let envelopeValue = $state('0000');
+	let noiseValue = $state('00');
 	let envelopeShape = $state('');
 	let table = $state('');
 	let volume = $state('F');
@@ -34,9 +35,7 @@
 		containerContext.audioService.chipProcessors.find((p) => p.chip === chip)
 	);
 	const canPreview = $derived(
-		!!chipProcessor &&
-			'playPreviewRow' in chipProcessor &&
-			chipProcessor.isAudioNodeAvailable()
+		!!chipProcessor && 'playPreviewRow' in chipProcessor && chipProcessor.isAudioNodeAvailable()
 	);
 
 	function parseHex4(s: string): number {
@@ -47,6 +46,11 @@
 	function parseHex1(s: string): number {
 		const n = parseInt(s.replace(/[^0-9a-fA-F]/g, '').slice(0, 1) || '0', 16);
 		return isNaN(n) ? 0 : Math.max(0, Math.min(15, n));
+	}
+
+	function parseHex2(s: string): number {
+		const n = parseInt(s.replace(/[^0-9a-fA-F]/g, '').slice(0, 2) || '0', 16);
+		return isNaN(n) ? 0 : Math.max(0, Math.min(0x1f, n));
 	}
 
 	function parseTableChar(s: string): number {
@@ -61,7 +65,7 @@
 		const pattern = new PatternModel(0, 1, schema) as Pattern;
 		const pr = pattern.patternRows[0];
 		pr.envelopeValue = parseHex4(envelopeValue);
-		pr.noiseValue = 0;
+		pr.noiseValue = parseHex2(noiseValue);
 		pr.envelopeEffect = null;
 
 		const row = pattern.channels[0].rows[0];
@@ -140,12 +144,26 @@
 	});
 
 	function clampEnvelopeValue() {
-		const s = envelopeValue.replace(/[^0-9a-fA-F]/g, '').slice(0, 4).toUpperCase();
+		const s = envelopeValue
+			.replace(/[^0-9a-fA-F]/g, '')
+			.slice(0, 4)
+			.toUpperCase();
 		envelopeValue = s.padStart(4, '0') || '0000';
 	}
 
+	function clampNoiseValue() {
+		const s = noiseValue
+			.replace(/[^0-9a-fA-F]/g, '')
+			.slice(0, 2)
+			.toUpperCase();
+		noiseValue = s.padStart(2, '0') || '00';
+	}
+
 	function clampEnvelopeShape() {
-		envelopeShape = envelopeShape.replace(/[^0-9a-fA-F]/g, '').slice(0, 1).toUpperCase();
+		envelopeShape = envelopeShape
+			.replace(/[^0-9a-fA-F]/g, '')
+			.slice(0, 1)
+			.toUpperCase();
 	}
 
 	function clampTable() {
@@ -155,7 +173,10 @@
 	}
 
 	function clampVolume() {
-		const v = volume.replace(/[^0-9a-fA-F]/g, '').slice(0, 1).toUpperCase();
+		const v = volume
+			.replace(/[^0-9a-fA-F]/g, '')
+			.slice(0, 1)
+			.toUpperCase();
 		if (v) {
 			const n = parseInt(v, 16);
 			volume = n >= 1 && n <= 15 ? v : 'F';
@@ -163,7 +184,6 @@
 			volume = 'F';
 		}
 	}
-
 </script>
 
 <div class="flex flex-wrap items-end gap-3 font-mono text-xs">
@@ -185,7 +205,26 @@
 			bind:value={envelopeValue}
 			onblur={clampEnvelopeValue}
 			oninput={(e) => {
-				envelopeValue = (e.currentTarget.value || '').replace(/[^0-9a-fA-F]/gi, '').slice(0, 4).toUpperCase();
+				envelopeValue = (e.currentTarget.value || '')
+					.replace(/[^0-9a-fA-F]/gi, '')
+					.slice(0, 4)
+					.toUpperCase();
+			}} />
+	</label>
+	<label class="flex flex-col gap-0.5">
+		<span class="text-[var(--color-app-text-muted)]">Noise</span>
+		<input
+			type="text"
+			class="w-10 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 uppercase"
+			maxlength={2}
+			placeholder="00"
+			bind:value={noiseValue}
+			onblur={clampNoiseValue}
+			oninput={(e) => {
+				noiseValue = (e.currentTarget.value || '')
+					.replace(/[^0-9a-fA-F]/gi, '')
+					.slice(0, 2)
+					.toUpperCase();
 			}} />
 	</label>
 	<label class="flex flex-col gap-0.5">
@@ -198,7 +237,10 @@
 			bind:value={envelopeShape}
 			onblur={clampEnvelopeShape}
 			oninput={(e) => {
-				envelopeShape = (e.currentTarget.value || '').replace(/[^0-9a-fA-F]/gi, '').slice(0, 1).toUpperCase();
+				envelopeShape = (e.currentTarget.value || '')
+					.replace(/[^0-9a-fA-F]/gi, '')
+					.slice(0, 1)
+					.toUpperCase();
 			}} />
 	</label>
 	<label class="flex flex-col gap-0.5">
@@ -225,7 +267,10 @@
 			bind:value={volume}
 			onblur={clampVolume}
 			oninput={(e) => {
-				const v = (e.currentTarget.value || '').replace(/[^0-9a-fA-F]/gi, '').slice(0, 1).toUpperCase();
+				const v = (e.currentTarget.value || '')
+					.replace(/[^0-9a-fA-F]/gi, '')
+					.slice(0, 1)
+					.toUpperCase();
 				if (v) {
 					const n = parseInt(v, 16);
 					volume = n >= 1 && n <= 15 ? v : volume;
@@ -249,8 +294,8 @@
 			onblur={() => {
 				pressedPreviewKey = null;
 				stopPreview();
-			}}
-			>{noteString}</div
-		>
+			}}>
+			{noteString}
+		</div>
 	</div>
 </div>
