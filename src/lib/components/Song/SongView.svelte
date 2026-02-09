@@ -30,6 +30,7 @@
 	import ChannelOscilloscopes from './ChannelOscilloscopes.svelte';
 	import { PatternService } from '../../services/pattern/pattern-service';
 	import { settingsStore } from '../../stores/settings.svelte';
+	import { editorStateStore } from '../../stores/editor-state.svelte';
 
 	let {
 		songs = $bindable(),
@@ -534,14 +535,27 @@
 					{/snippet}
 				</TabView>
 			</div>
-			{#if songs.length > 0 && activeEditorIndex < songs.length && settingsStore.get().showOscilloscopes}
-				<div class="shrink-0 border-t border-[var(--color-app-border)]">
-					<ChannelOscilloscopes
-						channelLabels={songs.flatMap((_, i) =>
-							(chipProcessors[i]?.chip.schema.channelLabels ?? ['A', 'B', 'C']).map(
-								(l) => (songs.length > 1 ? `${i + 1}${l}` : l)
-							)
-						)} />
+			{#if songs.length > 0 && activeEditorIndex < songs.length}
+				<div class="flex shrink-0 flex-col border-t border-[var(--color-app-border)]/50">
+					{#if settingsStore.get().showInstrumentPreview && chipProcessors[activeEditorIndex].chip.previewRow}
+						{@const PreviewRow = chipProcessors[activeEditorIndex].chip.previewRow}
+						<div class="flex flex-col gap-2 bg-[var(--color-app-surface)] px-2 py-3">
+							<span class="text-xs text-[var(--color-app-text-muted)]">Preview playground</span>
+							<PreviewRow
+								chip={chipProcessors[activeEditorIndex].chip}
+								instrumentId={editorStateStore.get().currentInstrument} />
+						</div>
+					{/if}
+					{#if settingsStore.get().showOscilloscopes}
+						<div class="border-t border-[var(--color-app-border)]/50">
+							<ChannelOscilloscopes
+							channelLabels={songs.flatMap((_, i) =>
+								(chipProcessors[i]?.chip.schema.channelLabels ?? ['A', 'B', 'C']).map(
+									(l) => (songs.length > 1 ? `${i + 1}${l}` : l)
+								)
+							)} />
+						</div>
+					{/if}
 				</div>
 			{/if}
 		</div>

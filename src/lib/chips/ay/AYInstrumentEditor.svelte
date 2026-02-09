@@ -9,9 +9,7 @@
 	import IconCarbonWaveform from '~icons/carbon/waveform';
 	import IconCarbonActivity from '~icons/carbon/activity';
 	import IconCarbonRepeat from '~icons/carbon/repeat';
-	import IconCarbonArrowUp from '~icons/carbon/arrow-up';
 	import Input from '../../components/Input/Input.svelte';
-	import { settingsStore } from '../../stores/settings.svelte';
 
 	let {
 		instrument,
@@ -400,12 +398,12 @@
 {/snippet}
 
 <div class="w-full overflow-x-auto">
-	<div class="mt-2 mb-2 ml-2 flex items-center gap-2">
-		<span class="text-xs text-[var(--color-app-text-muted)]">Name:</span>
+	<div class="mt-2 ml-2 flex items-center gap-2">
+		<span class="w-10 shrink-0 text-xs text-[var(--color-app-text-muted)]">Name:</span>
 		<Input class="w-48 text-xs" bind:value={name} />
 	</div>
 
-	<div class="flex items-start gap-2 overflow-x-auto">
+	<div class="mt-3 flex items-start gap-2 overflow-x-auto">
 		{#key isExpanded}
 			<div class="relative flex flex-col">
 				{#if loopRow >= 0 && loopRow < rows.length && loopColumnRef && tableRef}
@@ -613,9 +611,7 @@
 											}}
 											title="Remove this row">
 											<IconCarbonTrashCan
-												class={isExpanded
-													? 'h-3.5 w-3.5'
-													: 'h-3 w-3'} />
+												class={isExpanded ? 'h-3.5 w-3.5' : 'h-3 w-3'} />
 										</button>
 										{#if index < rows.length - 1}
 											<button
@@ -785,7 +781,9 @@
 								</td>
 								<!-- Amplitude Slide (merged: off/up/down) -->
 								<td
-									class="w-8 min-w-8 {isExpanded ? 'px-1' : 'px-0.5'} cursor-pointer border border-[var(--color-app-border)] bg-[var(--color-app-surface)] text-center {row.amplitudeSliding &&
+									class="w-8 min-w-8 {isExpanded
+										? 'px-1'
+										: 'px-0.5'} cursor-pointer border border-[var(--color-app-border)] bg-[var(--color-app-surface)] text-center {row.amplitudeSliding &&
 									row.amplitudeSlideUp
 										? 'bg-green-900/30 text-green-400'
 										: row.amplitudeSliding
@@ -797,7 +795,12 @@
 											? 'Slide up'
 											: 'Slide down'
 										: 'No slide'}>
-									<span class="inline-block min-w-[1ch]">{row.amplitudeSliding ? (row.amplitudeSlideUp ? '↑' : '↓') : ''}</span>
+									<span class="inline-block min-w-[1ch]"
+										>{row.amplitudeSliding
+											? row.amplitudeSlideUp
+												? '↑'
+												: '↓'
+											: ''}</span>
 								</td>
 							</tr>
 						{/each}

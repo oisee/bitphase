@@ -26,6 +26,7 @@
 	import { PreviewService } from '../../services/audio/preview-service';
 	import { PatternEditorRenderer } from '../../ui-rendering/pattern-editor-renderer';
 	import { PatternEditorTextParser } from '../../ui-rendering/pattern-editor-text-parser';
+	import { getColumnAtX } from '../../ui-rendering/pattern-editor-hit-test';
 	import { Cache } from '../../utils/memoize';
 	import { channelMuteStore } from '../../stores/channel-mute.svelte';
 	import { PatternFieldDetection } from '../../services/pattern/editing/pattern-field-detection';
@@ -1306,22 +1307,7 @@
 
 		const rowString = getPatternRowData(patternToRender, closestRow.rowIndex);
 		const cellPositions = getCellPositions(rowString, closestRow.rowIndex);
-
-		let closestColumn = 0;
-		let minDistance = Infinity;
-
-		for (let i = 0; i < cellPositions.length; i++) {
-			const cell = cellPositions[i];
-			if (cell.x === undefined) continue;
-
-			const cellCenter = cell.x + (cell.width || 0) / 2;
-			const distance = Math.abs(x - cellCenter);
-			if (distance < minDistance) {
-				minDistance = distance;
-				closestColumn = i;
-			}
-		}
-
+		const closestColumn = getColumnAtX(cellPositions, x);
 		return { row: closestRow.rowIndex, column: closestColumn };
 	}
 

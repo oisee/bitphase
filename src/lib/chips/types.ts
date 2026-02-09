@@ -16,5 +16,6 @@ export interface Chip {
 	createFormatter: () => PatternFormatter;
 	createRenderer: () => ChipRenderer;
 	instrumentEditor: Component<any>;
+	previewRow?: Component<any>;
 }
 

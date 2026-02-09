@@ -8,6 +8,7 @@ export interface Settings {
 	channelSeparatorWidth: number;
 	decimalRowNumbers: boolean;
 	showOscilloscopes: boolean;
+	showInstrumentPreview: boolean;
 }
 
 export interface SettingsItem {

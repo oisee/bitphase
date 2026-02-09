@@ -26,6 +26,14 @@ export const settingsItems: SettingsItem[] = [
 		category: 'general'
 	},
 	{
+		label: 'Show Preview Playground',
+		description: 'Display the preview playground in the right panel',
+		type: 'toggle',
+		defaultValue: true,
+		setting: 'showInstrumentPreview',
+		category: 'general'
+	},
+	{
 		label: 'Pattern Editor Font Size',
 		description: 'Adjust the font size in the pattern editor',
 		type: 'number',
