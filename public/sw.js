@@ -1,4 +1,4 @@
-const CACHE_BUCKET = 'app-cache';
+const CACHE_BUCKET = 'app-cache-__BUILD_VERSION__';
 
 self.addEventListener('install', (event) => {
 	event.waitUntil(
