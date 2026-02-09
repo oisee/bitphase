@@ -80,7 +80,7 @@ export const BUILTIN_THEMES: Theme[] = [
 			orderBorder: '#5A4A42',
 			appBackground: '#321D14',
 			appSurface: '#29150C',
-			appSurfaceSecondary: '#29150C',
+			appSurfaceSecondary: '#1E0D06',
 			appSurfaceHover: '#61613d',
 			appSurfaceActive: '#858656',
 			appTextPrimary: '#ffffff',
