@@ -80,33 +80,16 @@ class TrackerPatternProcessor {
 
 	_processNote(channelIndex, row) {
 		const effects = row.effects || [];
-		const hasSlideCommand = effects.some((e) => e && (e.effect === 1 || e.effect === 2));
-		const hasPortamentoCommand = effects.some((e) => e && e.effect === 'P'.charCodeAt(0));
-		const hasArpeggioCommand = effects.some((e) => e && e.effect === 'A'.charCodeAt(0));
-		const hasVibratoCommand = effects.some((e) => e && e.effect === 'V'.charCodeAt(0));
-		const hasOnOffCommand = effects.some((e) => e && e.effect === 6);
-		const hasEffectWithTable = effects.some(
-			(e) => e && e.tableIndex !== undefined && e.tableIndex >= 0
-		);
 
 		if (!this.state.channelSlideAlreadyApplied) {
 			this.state.channelSlideAlreadyApplied = [];
 		}
 
 		if (row.note.name === 1) {
+			this._resetAllChannelEffects(channelIndex);
 			this.state.channelSoundEnabled[channelIndex] = false;
 			this.state.channelBaseNotes[channelIndex] = 0;
 			this.state.channelCurrentNotes[channelIndex] = 0;
-			this.state.channelToneSliding[channelIndex] = 0;
-			this.state.channelSlideStep[channelIndex] = 0;
-			this.state.channelSlideAlreadyApplied[channelIndex] = false;
-			this.state.channelPortamentoActive[channelIndex] = false;
-			this.state.channelOnOffCounter[channelIndex] = 0;
-			this.state.channelArpeggioCounter[channelIndex] = 0;
-			this.state.channelVibratoCounter[channelIndex] = 0;
-			if (this.state.channelVibratoSliding) {
-				this.state.channelVibratoSliding[channelIndex] = 0;
-			}
 		} else if (row.note.name !== 0) {
 			this.state.channelSoundEnabled[channelIndex] = true;
 			const noteValue = row.note.name - 2 + (row.note.octave - 1) * 12;
@@ -117,34 +100,64 @@ class TrackerPatternProcessor {
 			this.state.channelBaseNotes[channelIndex] = noteValue;
 			this.state.channelCurrentNotes[channelIndex] = noteValue;
 
-			if (!hasOnOffCommand) {
-				this.state.channelOnOffCounter[channelIndex] = 0;
-			}
-
 			if (this.state.channelTables[channelIndex] >= 0) {
 				this.state.tablePositions[channelIndex] = 0;
 				this.state.tableCounters[channelIndex] = 0;
 			}
 
-			if (!hasEffectWithTable) {
-				this.state.channelEffectTables[channelIndex] = -1;
-			}
+			const hasPortamentoCommand = effects.some(
+				(e) => e && e.effect === EffectAlgorithms.PORTAMENTO
+			);
+			const hasSlideCommand = effects.some(
+				(e) => e && EffectAlgorithms.isSlideGroupEffect(e.effect)
+			);
 
-			if (!hasArpeggioCommand) {
-				this.state.channelArpeggioCounter[channelIndex] = 0;
-			}
-
-			if (!hasVibratoCommand) {
-				this.state.channelVibratoCounter[channelIndex] = 0;
-			}
+			this._resetChannelEffectsOnNewNote(channelIndex, effects);
 
 			if (!hasPortamentoCommand) {
 				this.state.channelToneSliding[channelIndex] = 0;
 			}
-			if (!hasSlideCommand && !hasPortamentoCommand) {
+			if (!hasSlideCommand) {
 				this.state.channelSlideStep[channelIndex] = 0;
 				this.state.channelSlideAlreadyApplied[channelIndex] = false;
 			}
+		}
+	}
+
+	_resetAllChannelEffects(channelIndex) {
+		this.state.channelToneSliding[channelIndex] = 0;
+		this.state.channelSlideStep[channelIndex] = 0;
+		this.state.channelSlideAlreadyApplied[channelIndex] = false;
+		this.state.channelPortamentoActive[channelIndex] = false;
+		this.state.channelOnOffCounter[channelIndex] = 0;
+		this.state.channelArpeggioCounter[channelIndex] = 0;
+		this.state.channelVibratoCounter[channelIndex] = 0;
+		if (this.state.channelVibratoSliding) {
+			this.state.channelVibratoSliding[channelIndex] = 0;
+		}
+		this.state.channelEffectTables[channelIndex] = -1;
+	}
+
+	_resetChannelEffectsOnNewNote(channelIndex, effects) {
+		const hasEffectOfType = (type) => effects.some((e) => e && e.effect === type);
+		const hasEffectWithTable = effects.some(
+			(e) => e && e.tableIndex !== undefined && e.tableIndex >= 0
+		);
+		const rowHasExplicitEffect = effects[0] != null && effects[0].effect !== 0;
+
+		if (!rowHasExplicitEffect) return;
+
+		if (!hasEffectOfType(EffectAlgorithms.ARPEGGIO)) {
+			this.state.channelArpeggioCounter[channelIndex] = 0;
+		}
+		if (!hasEffectOfType(EffectAlgorithms.VIBRATO)) {
+			this.state.channelVibratoCounter[channelIndex] = 0;
+		}
+		if (!hasEffectOfType(EffectAlgorithms.ON_OFF)) {
+			this.state.channelOnOffCounter[channelIndex] = 0;
+		}
+		if (!hasEffectWithTable) {
+			this.state.channelEffectTables[channelIndex] = -1;
 		}
 	}
 
@@ -182,143 +195,139 @@ class TrackerPatternProcessor {
 		if (!row.effects[0]) return;
 
 		const effect = row.effects[0];
-		const ARPEGGIO = 'A'.charCodeAt(0);
-		const VIBRATO = 'V'.charCodeAt(0);
-		const SLIDE_UP = 1;
-		const SLIDE_DOWN = 2;
-		const PORTAMENTO = 'P'.charCodeAt(0);
-		const ON_OFF = 6;
-		const SPEED = 'S'.charCodeAt(0);
-
 		const hasTableIndex = effect.tableIndex !== undefined && effect.tableIndex >= 0;
 
 		if (hasTableIndex) {
 			this._initEffectTable(channelIndex, effect);
 		}
 
-		if (effect.effect === ARPEGGIO) {
-			if (hasTableIndex) {
-				const arpeggioState = EffectAlgorithms.initArpeggio(0, effect.delay);
-				this.state.channelArpeggioSemitone1[channelIndex] = 0;
-				this.state.channelArpeggioSemitone2[channelIndex] = 0;
-				this.state.channelArpeggioDelay[channelIndex] = arpeggioState.delay;
-				this.state.channelArpeggioCounter[channelIndex] = arpeggioState.counter;
-				this.state.channelArpeggioPosition[channelIndex] = arpeggioState.position;
-			} else {
-				const arpeggioState = EffectAlgorithms.initArpeggio(effect.parameter, effect.delay);
-				this.state.channelArpeggioSemitone1[channelIndex] = arpeggioState.semitone1;
-				this.state.channelArpeggioSemitone2[channelIndex] = arpeggioState.semitone2;
-				this.state.channelArpeggioDelay[channelIndex] = arpeggioState.delay;
-				this.state.channelArpeggioCounter[channelIndex] = arpeggioState.counter;
-				this.state.channelArpeggioPosition[channelIndex] = arpeggioState.position;
-			}
-		} else if (effect.effect === VIBRATO) {
-			if (hasTableIndex) {
-				const param = this._getEffectTableValue(channelIndex);
-				const vibratoState = EffectAlgorithms.initVibrato(param, effect.delay);
-				this.state.channelVibratoSpeed[channelIndex] = vibratoState.speed;
-				this.state.channelVibratoDepth[channelIndex] = vibratoState.depth;
-				this.state.channelVibratoDelay[channelIndex] = vibratoState.delay;
-				this.state.channelVibratoCounter[channelIndex] = vibratoState.counter;
-				this.state.channelVibratoPosition[channelIndex] = vibratoState.position;
-			} else {
-				const vibratoState = EffectAlgorithms.initVibrato(effect.parameter, effect.delay);
-				this.state.channelVibratoSpeed[channelIndex] = vibratoState.speed;
-				this.state.channelVibratoDepth[channelIndex] = vibratoState.depth;
-				this.state.channelVibratoDelay[channelIndex] = vibratoState.delay;
-				this.state.channelVibratoCounter[channelIndex] = vibratoState.counter;
-				this.state.channelVibratoPosition[channelIndex] = vibratoState.position;
-			}
-		} else if (effect.effect === SPEED) {
-			if (hasTableIndex) {
-				this.state.speedTable = effect.tableIndex;
-				this.state.speedTablePosition = 0;
-			} else {
-				this.state.speedTable = -1;
-				if (effect.parameter > 0) {
-					this.state.setSpeed(effect.parameter);
-					this.port.postMessage({ type: 'speed_update', speed: effect.parameter });
-				}
-			}
-		} else if (effect.effect === SLIDE_UP) {
-			const param = hasTableIndex
-				? this._getEffectTableValue(channelIndex)
-				: effect.parameter;
-			const slideState = EffectAlgorithms.initSlide(param, effect.delay);
-			this.state.channelSlideStep[channelIndex] = slideState.step;
-			this.state.channelSlideDelay[channelIndex] = slideState.delay;
-			this.state.channelSlideCount[channelIndex] = slideState.counter;
-			this.state.channelOnOffCounter[channelIndex] = 0;
-		} else if (effect.effect === SLIDE_DOWN) {
-			const param = hasTableIndex
-				? this._getEffectTableValue(channelIndex)
-				: effect.parameter;
-			const slideState = EffectAlgorithms.initSlide(-param, effect.delay);
-			this.state.channelSlideStep[channelIndex] = slideState.step;
-			this.state.channelSlideDelay[channelIndex] = slideState.delay;
-			this.state.channelSlideCount[channelIndex] = slideState.counter;
-			this.state.channelOnOffCounter[channelIndex] = 0;
-		} else if (effect.effect === PORTAMENTO) {
-			if (row.note.name !== 0 && row.note.name !== 1) {
-				const currentNote = this.state.channelBaseNotes[channelIndex];
-				const previousNote = this.state.channelPreviousNotes[channelIndex];
-
-				const hasValidPrevious =
-					previousNote >= 0 &&
-					previousNote < this.state.currentTuningTable.length &&
-					currentNote >= 0 &&
-					currentNote < this.state.currentTuningTable.length;
-				const isPortamentoFromNothing =
-					previousNote === 0 && currentNote !== 0;
-
-				if (hasValidPrevious && !isPortamentoFromNothing) {
-					const previousTone = this.state.currentTuningTable[previousNote];
-					const currentTone = this.state.currentTuningTable[currentNote];
-					const delta = currentTone - previousTone;
-
-					const currentSliding = this.state.channelToneSliding
-						? this.state.channelToneSliding[channelIndex]
-						: 0;
-
-					this.state.channelPortamentoTarget[channelIndex] = currentNote;
-					this.state.channelPortamentoDelta[channelIndex] = delta;
-					this.state.channelPortamentoActive[channelIndex] = true;
-
-					this.state.channelBaseNotes[channelIndex] = previousNote;
-					this.state.channelCurrentNotes[channelIndex] = previousNote;
-
-					const param = hasTableIndex
-						? this._getEffectTableValue(channelIndex)
-						: effect.parameter;
-					this.state.channelSlideStep[channelIndex] = param;
-					if (delta - currentSliding < 0) {
-						this.state.channelSlideStep[channelIndex] = -param;
-					}
-
-					if (this.state.channelToneSliding) {
-						this.state.channelToneSliding[channelIndex] = currentSliding;
-					}
-
-					let delay = effect.delay || 1;
-					if (delay === 0) {
-						delay = 1;
-					}
-					this.state.channelPortamentoDelay[channelIndex] = delay;
-					this.state.channelPortamentoCount[channelIndex] = delay;
-					this.state.channelOnOffCounter[channelIndex] = 0;
-				}
-			}
-		} else if (effect.effect === ON_OFF) {
-			const param = hasTableIndex
-				? this._getEffectTableValue(channelIndex)
-				: effect.parameter;
-			const onOffState = EffectAlgorithms.initOnOff(param);
-			this.state.channelOffDuration[channelIndex] = onOffState.offDuration;
-			this.state.channelOnDuration[channelIndex] = onOffState.onDuration;
-			this.state.channelOnOffCounter[channelIndex] = onOffState.counter;
-			this.state.channelSlideCount[channelIndex] = 0;
-			this.state.channelToneSliding[channelIndex] = 0;
+		const resets = EffectAlgorithms.getEffectActivationResets(effect.effect);
+		if (resets.portamento) {
+			this.state.channelPortamentoActive[channelIndex] = false;
 		}
+		if (resets.slide) {
+			this.state.channelSlideStep[channelIndex] = 0;
+			this.state.channelSlideCount[channelIndex] = 0;
+		}
+
+		if (effect.effect === EffectAlgorithms.ARPEGGIO) {
+			this._initChannelArpeggio(channelIndex, effect, hasTableIndex);
+		} else if (effect.effect === EffectAlgorithms.VIBRATO) {
+			this._initChannelVibrato(channelIndex, effect, hasTableIndex);
+		} else if (effect.effect === EffectAlgorithms.SPEED) {
+			this._initSpeed(effect, hasTableIndex);
+		} else if (effect.effect === EffectAlgorithms.SLIDE_UP) {
+			this._initChannelSlide(channelIndex, effect, hasTableIndex, 1);
+		} else if (effect.effect === EffectAlgorithms.SLIDE_DOWN) {
+			this._initChannelSlide(channelIndex, effect, hasTableIndex, -1);
+		} else if (effect.effect === EffectAlgorithms.PORTAMENTO) {
+			this._initChannelPortamento(channelIndex, row, effect, hasTableIndex);
+		} else if (effect.effect === EffectAlgorithms.ON_OFF) {
+			this._initChannelOnOff(channelIndex, effect, hasTableIndex);
+		}
+	}
+
+	_initChannelArpeggio(channelIndex, effect, hasTableIndex) {
+		if (hasTableIndex) {
+			const arpeggioState = EffectAlgorithms.initArpeggio(0, effect.delay);
+			this.state.channelArpeggioSemitone1[channelIndex] = 0;
+			this.state.channelArpeggioSemitone2[channelIndex] = 0;
+			this.state.channelArpeggioDelay[channelIndex] = arpeggioState.delay;
+			this.state.channelArpeggioCounter[channelIndex] = arpeggioState.counter;
+			this.state.channelArpeggioPosition[channelIndex] = arpeggioState.position;
+		} else {
+			const arpeggioState = EffectAlgorithms.initArpeggio(effect.parameter, effect.delay);
+			this.state.channelArpeggioSemitone1[channelIndex] = arpeggioState.semitone1;
+			this.state.channelArpeggioSemitone2[channelIndex] = arpeggioState.semitone2;
+			this.state.channelArpeggioDelay[channelIndex] = arpeggioState.delay;
+			this.state.channelArpeggioCounter[channelIndex] = arpeggioState.counter;
+			this.state.channelArpeggioPosition[channelIndex] = arpeggioState.position;
+		}
+	}
+
+	_initChannelVibrato(channelIndex, effect, hasTableIndex) {
+		const param = hasTableIndex ? this._getEffectTableValue(channelIndex) : effect.parameter;
+		const vibratoState = EffectAlgorithms.initVibrato(param, effect.delay);
+		this.state.channelVibratoSpeed[channelIndex] = vibratoState.speed;
+		this.state.channelVibratoDepth[channelIndex] = vibratoState.depth;
+		this.state.channelVibratoDelay[channelIndex] = vibratoState.delay;
+		this.state.channelVibratoCounter[channelIndex] = vibratoState.counter;
+		this.state.channelVibratoPosition[channelIndex] = vibratoState.position;
+	}
+
+	_initSpeed(effect, hasTableIndex) {
+		if (hasTableIndex) {
+			this.state.speedTable = effect.tableIndex;
+			this.state.speedTablePosition = 0;
+		} else {
+			this.state.speedTable = -1;
+			if (effect.parameter > 0) {
+				this.state.setSpeed(effect.parameter);
+				this.port.postMessage({ type: 'speed_update', speed: effect.parameter });
+			}
+		}
+	}
+
+	_initChannelSlide(channelIndex, effect, hasTableIndex, direction) {
+		const param = hasTableIndex ? this._getEffectTableValue(channelIndex) : effect.parameter;
+		const slideState = EffectAlgorithms.initSlide(direction * param, effect.delay);
+		this.state.channelSlideStep[channelIndex] = slideState.step;
+		this.state.channelSlideDelay[channelIndex] = slideState.delay;
+		this.state.channelSlideCount[channelIndex] = slideState.counter;
+	}
+
+	_initChannelPortamento(channelIndex, row, effect, hasTableIndex) {
+		if (row.note.name === 0 || row.note.name === 1) return;
+
+		const currentNote = this.state.channelBaseNotes[channelIndex];
+		const previousNote = this.state.channelPreviousNotes[channelIndex];
+
+		const hasValidPrevious =
+			previousNote >= 0 &&
+			previousNote < this.state.currentTuningTable.length &&
+			currentNote >= 0 &&
+			currentNote < this.state.currentTuningTable.length;
+		const isPortamentoFromNothing = previousNote === 0 && currentNote !== 0;
+
+		if (!hasValidPrevious || isPortamentoFromNothing) return;
+
+		const previousTone = this.state.currentTuningTable[previousNote];
+		const currentTone = this.state.currentTuningTable[currentNote];
+		const delta = currentTone - previousTone;
+
+		const currentSliding = this.state.channelToneSliding
+			? this.state.channelToneSliding[channelIndex]
+			: 0;
+
+		this.state.channelPortamentoTarget[channelIndex] = currentNote;
+		this.state.channelPortamentoDelta[channelIndex] = delta;
+		this.state.channelPortamentoActive[channelIndex] = true;
+
+		this.state.channelBaseNotes[channelIndex] = previousNote;
+		this.state.channelCurrentNotes[channelIndex] = previousNote;
+
+		const param = hasTableIndex ? this._getEffectTableValue(channelIndex) : effect.parameter;
+		this.state.channelSlideStep[channelIndex] = param;
+		if (delta - currentSliding < 0) {
+			this.state.channelSlideStep[channelIndex] = -param;
+		}
+
+		if (this.state.channelToneSliding) {
+			this.state.channelToneSliding[channelIndex] = currentSliding;
+		}
+
+		let delay = effect.delay || 1;
+		if (delay === 0) delay = 1;
+		this.state.channelPortamentoDelay[channelIndex] = delay;
+		this.state.channelPortamentoCount[channelIndex] = delay;
+	}
+
+	_initChannelOnOff(channelIndex, effect, hasTableIndex) {
+		const param = hasTableIndex ? this._getEffectTableValue(channelIndex) : effect.parameter;
+		const onOffState = EffectAlgorithms.initOnOff(param);
+		this.state.channelOffDuration[channelIndex] = onOffState.offDuration;
+		this.state.channelOnDuration[channelIndex] = onOffState.onDuration;
+		this.state.channelOnOffCounter[channelIndex] = onOffState.counter;
 	}
 
 	_initEffectTable(channelIndex, effect) {
@@ -387,7 +396,7 @@ class TrackerPatternProcessor {
 		) {
 			const tableIndex = this.state.channelEffectTables[channelIndex];
 			if (tableIndex < 0) continue;
-			if (this.state.channelEffectTypes[channelIndex] === 'A'.charCodeAt(0)) continue;
+			if (this.state.channelEffectTypes[channelIndex] === EffectAlgorithms.ARPEGGIO) continue;
 
 			const table = this.state.getTable(tableIndex);
 			if (!table || !table.rows || table.rows.length === 0) continue;
@@ -414,35 +423,29 @@ class TrackerPatternProcessor {
 	_applyEffectTableParameter(channelIndex) {
 		const effectType = this.state.channelEffectTypes[channelIndex];
 		const param = this._getEffectTableValue(channelIndex);
-		const VIBRATO = 'V'.charCodeAt(0);
-		const SLIDE_UP = 1;
-		const SLIDE_DOWN = 2;
-		const PORTAMENTO = 'P'.charCodeAt(0);
-		const ON_OFF = 6;
-		const SPEED = 'S'.charCodeAt(0);
 
-		if (effectType === VIBRATO) {
+		if (effectType === EffectAlgorithms.VIBRATO) {
 			const speed = (param >> 4) & 15;
 			const depth = param & 15;
 			this.state.channelVibratoSpeed[channelIndex] = speed === 0 ? 1 : speed;
 			this.state.channelVibratoDepth[channelIndex] = depth;
-		} else if (effectType === SLIDE_UP) {
+		} else if (effectType === EffectAlgorithms.SLIDE_UP) {
 			this.state.channelSlideStep[channelIndex] = param;
-		} else if (effectType === SLIDE_DOWN) {
+		} else if (effectType === EffectAlgorithms.SLIDE_DOWN) {
 			this.state.channelSlideStep[channelIndex] = -param;
-		} else if (effectType === PORTAMENTO) {
+		} else if (effectType === EffectAlgorithms.PORTAMENTO) {
 			const delta = this.state.channelPortamentoDelta[channelIndex];
 			const currentSliding = this.state.channelToneSliding[channelIndex];
 			this.state.channelSlideStep[channelIndex] = param;
 			if (delta - currentSliding < 0) {
 				this.state.channelSlideStep[channelIndex] = -param;
 			}
-		} else if (effectType === ON_OFF) {
+		} else if (effectType === EffectAlgorithms.ON_OFF) {
 			const offDuration = param & 15;
 			const onDuration = param >> 4;
 			this.state.channelOffDuration[channelIndex] = offDuration;
 			this.state.channelOnDuration[channelIndex] = onDuration;
-		} else if (effectType === SPEED) {
+		} else if (effectType === EffectAlgorithms.SPEED) {
 			if (param > 0) {
 				this.state.setSpeed(param);
 				this.port.postMessage({ type: 'speed_update', speed: param });
@@ -499,7 +502,6 @@ class TrackerPatternProcessor {
 	}
 
 	processArpeggio() {
-		const ARPEGGIO = 'A'.charCodeAt(0);
 		for (
 			let channelIndex = 0;
 			channelIndex < this.state.channelArpeggioCounter.length;
@@ -508,10 +510,11 @@ class TrackerPatternProcessor {
 			if (this.state.channelArpeggioCounter[channelIndex] > 0) {
 				const tableIndex = this.state.channelEffectTables[channelIndex];
 				const isArpeggioTable =
-					tableIndex >= 0 && this.state.channelEffectTypes[channelIndex] === ARPEGGIO;
+					tableIndex >= 0 &&
+					this.state.channelEffectTypes[channelIndex] === EffectAlgorithms.ARPEGGIO;
 
-				let result;
-				let semitoneOffset;
+			let result;
+			let semitoneOffset;
 
 				if (isArpeggioTable) {
 					const table = this.state.getTable(tableIndex);
@@ -532,13 +535,14 @@ class TrackerPatternProcessor {
 					);
 					semitoneOffset = tableLength > 0 ? (rows[pos] ?? 0) : 0;
 				} else {
+					const currentPosition = this.state.channelArpeggioPosition[channelIndex];
 					result = EffectAlgorithms.processArpeggioCounter(
 						this.state.channelArpeggioCounter[channelIndex],
 						this.state.channelArpeggioDelay[channelIndex],
-						this.state.channelArpeggioPosition[channelIndex]
+						currentPosition
 					);
 					semitoneOffset = EffectAlgorithms.getArpeggioOffset(
-						result.position,
+						currentPosition,
 						this.state.channelArpeggioSemitone1[channelIndex],
 						this.state.channelArpeggioSemitone2[channelIndex]
 					);

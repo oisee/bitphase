@@ -213,21 +213,13 @@ class AYAudioDriver {
 				: null;
 
 		const hasPortamento =
-			patternRow.envelopeEffect?.effect === 'P'.charCodeAt(0) &&
+			patternRow.envelopeEffect?.effect === EffectAlgorithms.PORTAMENTO &&
 			envelopeValueNum !== null &&
 			envelopeValueNum > 0;
 
 		if (envelopeValueNum !== null && envelopeValueNum > 0 && !hasPortamento) {
 			state.envelopeBaseValue = envelopeValueNum;
-			state.envelopeSlideCurrent = 0;
-			state.envelopeSlideDelta = 0;
-			state.envelopeSlideDelay = 0;
-			state.envelopeSlideDelayCounter = 0;
-			state.envelopeVibratoCounter = 0;
-			state.envelopeVibratoSliding = 0;
-			state.envelopeArpeggioCounter = 0;
-			state.envelopeEffectTable = -1;
-			state.autoEnvelopeActive = false;
+			this._resetAllEnvelopeEffects(state);
 			registerState.envelopePeriod = envelopeValueNum;
 		} else if (shapeSet && (envelopeValueNum === 0 || envelopeValueNum === null)) {
 			state.envelopeBaseValue = 0;
@@ -236,10 +228,7 @@ class AYAudioDriver {
 			state.envelopeSlideDelay = 0;
 			state.envelopeSlideDelayCounter = 0;
 			if (envelopeValueNum === 0) {
-				state.envelopeVibratoCounter = 0;
-				state.envelopeVibratoSliding = 0;
-				state.envelopeArpeggioCounter = 0;
-				state.envelopeEffectTable = -1;
+				this._resetAllEnvelopeEffects(state);
 			}
 			registerState.envelopePeriod = 0;
 		}
@@ -270,28 +259,24 @@ class AYAudioDriver {
 		this._processEnvelopeEffects(state, channelIndex, row, patternRow);
 	}
 
+	_resetAllEnvelopeEffects(state) {
+		state.envelopeSlideCurrent = 0;
+		state.envelopeSlideDelta = 0;
+		state.envelopeSlideDelay = 0;
+		state.envelopeSlideDelayCounter = 0;
+		state.envelopePortamentoActive = false;
+		state.envelopeVibratoCounter = 0;
+		state.envelopeVibratoSliding = 0;
+		state.envelopeArpeggioCounter = 0;
+		state.envelopeOnOffCounter = 0;
+		state.envelopeEffectTable = -1;
+		state.autoEnvelopeActive = false;
+	}
+
 	_processEnvelopeEffects(state, channelIndex, row, patternRow) {
 		if (!patternRow || !patternRow.envelopeEffect) return;
 
 		const effect = patternRow.envelopeEffect;
-		const ARPEGGIO = 'A'.charCodeAt(0);
-		const SLIDE_UP = 1;
-		const SLIDE_DOWN = 2;
-		const PORTAMENTO = 'P'.charCodeAt(0);
-		const VIBRATO = 'V'.charCodeAt(0);
-		const ON_OFF = 6;
-		const AUTO_ENVELOPE = 'E'.charCodeAt(0);
-
-		const isOtherEnvelopeEffect =
-			effect.effect === SLIDE_UP ||
-			effect.effect === SLIDE_DOWN ||
-			effect.effect === PORTAMENTO ||
-			effect.effect === ON_OFF ||
-			effect.effect === ARPEGGIO;
-		if (isOtherEnvelopeEffect) {
-			state.envelopeVibratoCounter = 0;
-		}
-
 		const hasTableIndex =
 			'tableIndex' in effect &&
 			effect.tableIndex !== undefined &&
@@ -304,106 +289,106 @@ class AYAudioDriver {
 			state.envelopeEffectTable = -1;
 		}
 
-		if (effect.effect === ARPEGGIO) {
-			if (hasTableIndex) {
-				const arpeggioState = EffectAlgorithms.initArpeggio(0, effect.delay);
-				state.envelopeArpeggioSemitone1 = 0;
-				state.envelopeArpeggioSemitone2 = 0;
-				state.envelopeArpeggioDelay = arpeggioState.delay;
-				state.envelopeArpeggioCounter = arpeggioState.counter;
-				state.envelopeArpeggioPosition = arpeggioState.position;
-			} else {
-				const arpeggioState = EffectAlgorithms.initArpeggio(effect.parameter, effect.delay);
-				state.envelopeArpeggioSemitone1 = arpeggioState.semitone1;
-				state.envelopeArpeggioSemitone2 = arpeggioState.semitone2;
-				state.envelopeArpeggioDelay = arpeggioState.delay;
-				state.envelopeArpeggioCounter = arpeggioState.counter;
-				state.envelopeArpeggioPosition = arpeggioState.position;
-			}
-		} else if (effect.effect === SLIDE_UP) {
-			const param = hasTableIndex
-				? this._getEnvelopeEffectTableValue(state)
-				: effect.parameter;
-			const slideState = EffectAlgorithms.initSlide(param, effect.delay);
-			state.envelopeSlideDelay = slideState.delay;
-			state.envelopeSlideDelayCounter = slideState.counter;
-			state.envelopeSlideDelta = slideState.step;
+		const resets = EffectAlgorithms.getEffectActivationResets(effect.effect);
+		if (resets.portamento) {
 			state.envelopePortamentoActive = false;
-			state.envelopeOnOffCounter = 0;
-		} else if (effect.effect === SLIDE_DOWN) {
-			const param = hasTableIndex
-				? this._getEnvelopeEffectTableValue(state)
-				: effect.parameter;
-			const slideState = EffectAlgorithms.initSlide(-param, effect.delay);
-			state.envelopeSlideDelay = slideState.delay;
-			state.envelopeSlideDelayCounter = slideState.counter;
-			state.envelopeSlideDelta = slideState.step;
-			state.envelopePortamentoActive = false;
-			state.envelopeOnOffCounter = 0;
-		} else if (effect.effect === VIBRATO) {
-			if (hasTableIndex) {
-				const param = this._getEnvelopeEffectTableValue(state);
-				const vibratoState = EffectAlgorithms.initVibrato(param, effect.delay);
-				state.envelopeVibratoSpeed = vibratoState.speed;
-				state.envelopeVibratoDepth = vibratoState.depth;
-				state.envelopeVibratoDelay = vibratoState.delay;
-				state.envelopeVibratoCounter = vibratoState.counter;
-				state.envelopeVibratoPosition = vibratoState.position;
-			} else {
-				const vibratoState = EffectAlgorithms.initVibrato(effect.parameter, effect.delay);
-				state.envelopeVibratoSpeed = vibratoState.speed;
-				state.envelopeVibratoDepth = vibratoState.depth;
-				state.envelopeVibratoDelay = vibratoState.delay;
-				state.envelopeVibratoCounter = vibratoState.counter;
-				state.envelopeVibratoPosition = vibratoState.position;
-			}
-		} else if (effect.effect === PORTAMENTO) {
-			if (patternRow.envelopeValue >= 0) {
-				const targetValue = patternRow.envelopeValue;
-				const currentValue = state.envelopeBaseValue;
-
-				if (currentValue >= 0) {
-					const param = hasTableIndex
-						? this._getEnvelopeEffectTableValue(state)
-						: effect.parameter;
-					const portamentoState = EffectAlgorithms.initPortamento(
-						currentValue,
-						targetValue,
-						param,
-						effect.delay
-					);
-					state.envelopePortamentoTarget = portamentoState.target;
-					state.envelopePortamentoDelta = portamentoState.delta;
-					state.envelopePortamentoActive = portamentoState.active;
-					state.envelopePortamentoStep = portamentoState.step;
-					state.envelopePortamentoDelay = portamentoState.delay;
-					state.envelopePortamentoCount = portamentoState.counter;
-
-					state.envelopeSlideDelta = 0;
-					state.envelopeSlideDelayCounter = 0;
-					state.envelopeOnOffCounter = 0;
-				}
-			}
-		} else if (effect.effect === ON_OFF) {
-			const param = hasTableIndex
-				? this._getEnvelopeEffectTableValue(state)
-				: effect.parameter;
-			const onOffState = EffectAlgorithms.initOnOff(param);
-			state.envelopeOffDuration = onOffState.offDuration;
-			state.envelopeOnDuration = onOffState.onDuration;
-			state.envelopeOnOffCounter = onOffState.counter;
-			state.envelopeOnOffEnabled = onOffState.enabled;
+		}
+		if (resets.slide) {
 			state.envelopeSlideDelta = 0;
 			state.envelopeSlideDelayCounter = 0;
-			state.envelopePortamentoActive = false;
-		} else if (effect.effect === AUTO_ENVELOPE) {
-			const numerator = (effect.parameter >> 4) & 0xf;
-			const denominator = effect.parameter & 0xf;
-			if (numerator > 0 && denominator > 0) {
-				state.autoEnvelopeActive = true;
-				state.autoEnvelopeNumerator = numerator;
-				state.autoEnvelopeDenominator = denominator;
-			}
+		}
+
+		if (effect.effect === EffectAlgorithms.ARPEGGIO) {
+			this._initEnvelopeArpeggio(state, effect, hasTableIndex);
+		} else if (effect.effect === EffectAlgorithms.VIBRATO) {
+			this._initEnvelopeVibrato(state, effect, hasTableIndex);
+		} else if (effect.effect === EffectAlgorithms.SLIDE_UP) {
+			this._initEnvelopeSlide(state, effect, hasTableIndex, 1);
+		} else if (effect.effect === EffectAlgorithms.SLIDE_DOWN) {
+			this._initEnvelopeSlide(state, effect, hasTableIndex, -1);
+		} else if (effect.effect === EffectAlgorithms.PORTAMENTO) {
+			this._initEnvelopePortamento(state, effect, patternRow, hasTableIndex);
+		} else if (effect.effect === EffectAlgorithms.ON_OFF) {
+			this._initEnvelopeOnOff(state, effect, hasTableIndex);
+		} else if (effect.effect === EffectAlgorithms.AUTO_ENVELOPE) {
+			this._initAutoEnvelope(state, effect);
+		}
+	}
+
+	_initEnvelopeArpeggio(state, effect, hasTableIndex) {
+		if (hasTableIndex) {
+			const arpeggioState = EffectAlgorithms.initArpeggio(0, effect.delay);
+			state.envelopeArpeggioSemitone1 = 0;
+			state.envelopeArpeggioSemitone2 = 0;
+			state.envelopeArpeggioDelay = arpeggioState.delay;
+			state.envelopeArpeggioCounter = arpeggioState.counter;
+			state.envelopeArpeggioPosition = arpeggioState.position;
+		} else {
+			const arpeggioState = EffectAlgorithms.initArpeggio(effect.parameter, effect.delay);
+			state.envelopeArpeggioSemitone1 = arpeggioState.semitone1;
+			state.envelopeArpeggioSemitone2 = arpeggioState.semitone2;
+			state.envelopeArpeggioDelay = arpeggioState.delay;
+			state.envelopeArpeggioCounter = arpeggioState.counter;
+			state.envelopeArpeggioPosition = arpeggioState.position;
+		}
+	}
+
+	_initEnvelopeVibrato(state, effect, hasTableIndex) {
+		const param = hasTableIndex ? this._getEnvelopeEffectTableValue(state) : effect.parameter;
+		const vibratoState = EffectAlgorithms.initVibrato(param, effect.delay);
+		state.envelopeVibratoSpeed = vibratoState.speed;
+		state.envelopeVibratoDepth = vibratoState.depth;
+		state.envelopeVibratoDelay = vibratoState.delay;
+		state.envelopeVibratoCounter = vibratoState.counter;
+		state.envelopeVibratoPosition = vibratoState.position;
+	}
+
+	_initEnvelopeSlide(state, effect, hasTableIndex, direction) {
+		const param = hasTableIndex ? this._getEnvelopeEffectTableValue(state) : effect.parameter;
+		const slideState = EffectAlgorithms.initSlide(direction * param, effect.delay);
+		state.envelopeSlideDelay = slideState.delay;
+		state.envelopeSlideDelayCounter = slideState.counter;
+		state.envelopeSlideDelta = slideState.step;
+	}
+
+	_initEnvelopePortamento(state, effect, patternRow, hasTableIndex) {
+		if (patternRow.envelopeValue < 0) return;
+
+		const targetValue = patternRow.envelopeValue;
+		const currentValue = state.envelopeBaseValue;
+		if (currentValue < 0) return;
+
+		const param = hasTableIndex ? this._getEnvelopeEffectTableValue(state) : effect.parameter;
+		const portamentoState = EffectAlgorithms.initPortamento(
+			currentValue,
+			targetValue,
+			param,
+			effect.delay
+		);
+		state.envelopePortamentoTarget = portamentoState.target;
+		state.envelopePortamentoDelta = portamentoState.delta;
+		state.envelopePortamentoActive = portamentoState.active;
+		state.envelopePortamentoStep = portamentoState.step;
+		state.envelopePortamentoDelay = portamentoState.delay;
+		state.envelopePortamentoCount = portamentoState.counter;
+	}
+
+	_initEnvelopeOnOff(state, effect, hasTableIndex) {
+		const param = hasTableIndex ? this._getEnvelopeEffectTableValue(state) : effect.parameter;
+		const onOffState = EffectAlgorithms.initOnOff(param);
+		state.envelopeOffDuration = onOffState.offDuration;
+		state.envelopeOnDuration = onOffState.onDuration;
+		state.envelopeOnOffCounter = onOffState.counter;
+		state.envelopeOnOffEnabled = onOffState.enabled;
+	}
+
+	_initAutoEnvelope(state, effect) {
+		const numerator = (effect.parameter >> 4) & 0xf;
+		const denominator = effect.parameter & 0xf;
+		if (numerator > 0 && denominator > 0) {
+			state.autoEnvelopeActive = true;
+			state.autoEnvelopeNumerator = numerator;
+			state.autoEnvelopeDenominator = denominator;
 		}
 	}
 
@@ -429,7 +414,7 @@ class AYAudioDriver {
 	processEnvelopeEffectTable(state) {
 		const tableIndex = state.envelopeEffectTable;
 		if (tableIndex < 0) return;
-		if (state.envelopeEffectType === 'A'.charCodeAt(0)) return;
+		if (state.envelopeEffectType === EffectAlgorithms.ARPEGGIO) return;
 
 		const table = state.getTable(tableIndex);
 		if (!table || !table.rows || table.rows.length === 0) return;
@@ -454,29 +439,24 @@ class AYAudioDriver {
 	_applyEnvelopeEffectTableParameter(state) {
 		const effectType = state.envelopeEffectType;
 		const param = this._getEnvelopeEffectTableValue(state);
-		const SLIDE_UP = 1;
-		const SLIDE_DOWN = 2;
-		const PORTAMENTO = 'P'.charCodeAt(0);
-		const VIBRATO = 'V'.charCodeAt(0);
-		const ON_OFF = 6;
 
-		if (effectType === VIBRATO) {
+		if (effectType === EffectAlgorithms.VIBRATO) {
 			const speed = (param >> 4) & 15;
 			const depth = param & 15;
 			state.envelopeVibratoSpeed = speed === 0 ? 1 : speed;
 			state.envelopeVibratoDepth = depth;
-		} else if (effectType === SLIDE_UP) {
+		} else if (effectType === EffectAlgorithms.SLIDE_UP) {
 			state.envelopeSlideDelta = param;
-		} else if (effectType === SLIDE_DOWN) {
+		} else if (effectType === EffectAlgorithms.SLIDE_DOWN) {
 			state.envelopeSlideDelta = -param;
-		} else if (effectType === PORTAMENTO) {
+		} else if (effectType === EffectAlgorithms.PORTAMENTO) {
 			const delta = state.envelopePortamentoDelta;
 			const currentSliding = state.envelopeSlideCurrent;
 			state.envelopePortamentoStep = param;
 			if (delta - currentSliding < 0) {
 				state.envelopePortamentoStep = -param;
 			}
-		} else if (effectType === ON_OFF) {
+		} else if (effectType === EffectAlgorithms.ON_OFF) {
 			const offDuration = param & 15;
 			const onDuration = param >> 4;
 			state.envelopeOffDuration = offDuration;
@@ -486,11 +466,14 @@ class AYAudioDriver {
 
 	processInstruments(state, registerState) {
 		state.envelopeAddValue = 0;
-		this.processEnvelopeEffectTable(state);
+		if (state.autoEnvelopeActive) {
+			this.processAutoEnvelope(state, registerState);
+		}
 		this.processEnvelopeArpeggio(state);
-		this.processEnvelopeVibrato(state);
+		this.processEnvelopeEffectTable(state);
 		this.processEnvelopeSlide(state);
 		this.processEnvelopePortamento(state);
+		this.processEnvelopeVibrato(state);
 		this.processEnvelopeOnOff(state);
 
 		for (let channelIndex = 0; channelIndex < state.channelInstruments.length; channelIndex++) {
@@ -574,13 +557,8 @@ class AYAudioDriver {
 				continue;
 			}
 
-			const currentNote = state.channelCurrentNotes[channelIndex];
-			let noteTone = 0;
-			if (currentNote >= 0 && currentNote < state.currentTuningTable.length) {
-				noteTone = state.currentTuningTable[currentNote];
-			}
-
-			if (noteTone === 0) {
+			const effectiveTone = this.getEffectiveTone(state, channelIndex);
+			if (effectiveTone === 0) {
 				state.instrumentPositions[channelIndex]++;
 				if (state.instrumentPositions[channelIndex] >= effectiveRowsLength) {
 					if (effectiveLoop > 0 && effectiveLoop < effectiveRowsLength) {
@@ -601,13 +579,7 @@ class AYAudioDriver {
 				state.channelToneAccumulator[channelIndex] = sampleTone;
 			}
 
-			const toneSliding = state.channelToneSliding
-				? state.channelToneSliding[channelIndex] || 0
-				: 0;
-			const vibratoSliding = state.channelVibratoSliding
-				? state.channelVibratoSliding[channelIndex] || 0
-				: 0;
-			const finalTone = (noteTone + sampleTone + toneSliding + vibratoSliding) & 0xfff;
+			const finalTone = (effectiveTone + sampleTone) & 0xfff;
 			registerState.channels[channelIndex].tone = finalTone;
 
 			if (instrumentRow.noise) {
@@ -719,11 +691,37 @@ class AYAudioDriver {
 
 		registerState.noise = (state.noiseBaseValue + state.noiseAddValue) & 0x1f;
 
-		if (state.autoEnvelopeActive) {
-			this.processAutoEnvelope(state, registerState);
-		}
-
 		this.updateEnvelopeWithSlide(state, registerState);
+	}
+
+	getEffectiveTone(state, channelIndex) {
+		const noteIndex = state.channelCurrentNotes[channelIndex];
+		if (noteIndex < 0 || noteIndex >= state.currentTuningTable.length) return 0;
+		const baseTone = state.currentTuningTable[noteIndex];
+		if (baseTone <= 0) return 0;
+		const toneSliding = state.channelToneSliding
+			? state.channelToneSliding[channelIndex] || 0
+			: 0;
+		const vibratoSliding =
+			state.channelVibratoSliding && state.channelVibratoSliding[channelIndex]
+				? state.channelVibratoSliding[channelIndex]
+				: 0;
+		return (baseTone + toneSliding + vibratoSliding) & 0xfff;
+	}
+
+	getEffectiveBaseTone(state, channelIndex) {
+		const noteIndex = state.channelBaseNotes[channelIndex];
+		if (noteIndex < 0 || noteIndex >= state.currentTuningTable.length) return 0;
+		const baseTone = state.currentTuningTable[noteIndex];
+		if (baseTone <= 0) return 0;
+		const toneSliding = state.channelToneSliding
+			? state.channelToneSliding[channelIndex] || 0
+			: 0;
+		const vibratoSliding =
+			state.channelVibratoSliding && state.channelVibratoSliding[channelIndex]
+				? state.channelVibratoSliding[channelIndex]
+				: 0;
+		return (baseTone + toneSliding + vibratoSliding) & 0xfff;
 	}
 
 	processAutoEnvelope(state, registerState) {
@@ -736,14 +734,11 @@ class AYAudioDriver {
 			if (state.channelMuted[ch]) continue;
 			if (!state.channelSoundEnabled[ch]) continue;
 
-			const noteIndex = state.channelCurrentNotes[ch];
-			if (noteIndex < 0 || noteIndex >= state.currentTuningTable.length) continue;
-
-			const noteFreq = state.currentTuningTable[noteIndex];
-			if (noteFreq <= 0) continue;
+			const effectiveBaseTone = this.getEffectiveBaseTone(state, ch);
+			if (effectiveBaseTone <= 0) continue;
 
 			const envelopeValue = Math.round(
-				(noteFreq * state.autoEnvelopeNumerator) /
+				(effectiveBaseTone * state.autoEnvelopeNumerator) /
 					(state.autoEnvelopeDenominator * divisor)
 			);
 			state.envelopeBaseValue = envelopeValue;
@@ -828,8 +823,8 @@ class AYAudioDriver {
 	processEnvelopeArpeggio(state) {
 		if (state.envelopeArpeggioCounter > 0) {
 			const tableIndex = state.envelopeEffectTable;
-			const ARPEGGIO = 'A'.charCodeAt(0);
-			const isArpeggioTable = tableIndex >= 0 && state.envelopeEffectType === ARPEGGIO;
+			const isArpeggioTable =
+				tableIndex >= 0 && state.envelopeEffectType === EffectAlgorithms.ARPEGGIO;
 
 			let result;
 			let semitoneOffset;
@@ -854,13 +849,14 @@ class AYAudioDriver {
 				state.envelopeEffectTablePosition = result.position;
 				semitoneOffset = tableLength > 0 ? (rows[pos] ?? 0) : 0;
 			} else {
+				const currentPosition = state.envelopeArpeggioPosition;
 				result = EffectAlgorithms.processArpeggioCounter(
 					state.envelopeArpeggioCounter,
 					state.envelopeArpeggioDelay,
-					state.envelopeArpeggioPosition
+					currentPosition
 				);
 				semitoneOffset = EffectAlgorithms.getArpeggioOffset(
-					result.position,
+					currentPosition,
 					state.envelopeArpeggioSemitone1,
 					state.envelopeArpeggioSemitone2
 				);

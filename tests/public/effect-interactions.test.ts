@@ -1,0 +1,688 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import TrackerPatternProcessor from '../../public/tracker-pattern-processor.js';
+import AYAudioDriver from '../../public/ay-audio-driver.js';
+import AyumiState from '../../public/ayumi-state.js';
+import AYChipRegisterState from '../../public/ay-chip-register-state.js';
+import EffectAlgorithms from '../../public/effect-algorithms.js';
+
+function createState() {
+	const state = new AyumiState();
+	state.setTuningTable([
+		3328, 3136, 2960, 2794, 2637, 2489, 2349, 2217, 2093, 1975, 1864, 1760,
+		1664, 1568, 1480, 1397, 1319, 1245, 1175, 1109, 1047, 988, 932, 880,
+		832, 784, 740, 699, 659, 622, 587, 554, 523, 494, 466, 440
+	]);
+	return state;
+}
+
+function createProcessor(state: InstanceType<typeof AyumiState>) {
+	const driver = new AYAudioDriver();
+	const port = { postMessage: vi.fn() };
+	return new TrackerPatternProcessor(state, driver, port);
+}
+
+function createRegisterState() {
+	return new AYChipRegisterState();
+}
+
+function makeRow(
+	noteName: number,
+	noteOctave: number,
+	effects: (null | { effect: number; delay: number; parameter: number; tableIndex?: number })[]
+) {
+	return { note: { name: noteName, octave: noteOctave }, effects };
+}
+
+function makePattern(rows: ReturnType<typeof makeRow>[][]) {
+	const rowCount = rows[0].length;
+	return {
+		channels: rows.map((channelRows) => ({ rows: channelRows })),
+		patternRows: Array(rowCount).fill({ noiseValue: null, envelopeValue: null }),
+		length: rowCount
+	};
+}
+
+describe('Channel effect interactions', () => {
+	let state: InstanceType<typeof AyumiState>;
+	let proc: InstanceType<typeof TrackerPatternProcessor>;
+
+	beforeEach(() => {
+		state = createState();
+		proc = createProcessor(state);
+	});
+
+	describe('slide group mutual exclusivity', () => {
+		it('slide up disables active portamento', () => {
+			state.channelPortamentoActive[0] = true;
+			state.channelPortamentoDelta[0] = 100;
+
+			const row = makeRow(0, 0, [{ effect: EffectAlgorithms.SLIDE_UP, delay: 1, parameter: 5 }]);
+			proc._processEffects(0, row);
+
+			expect(state.channelPortamentoActive[0]).toBe(false);
+			expect(state.channelSlideStep[0]).toBe(5);
+		});
+
+		it('slide down disables active portamento', () => {
+			state.channelPortamentoActive[0] = true;
+
+			const row = makeRow(0, 0, [{ effect: EffectAlgorithms.SLIDE_DOWN, delay: 1, parameter: 3 }]);
+			proc._processEffects(0, row);
+
+			expect(state.channelPortamentoActive[0]).toBe(false);
+			expect(state.channelSlideStep[0]).toBe(-3);
+		});
+
+		it('portamento disables active slide', () => {
+			state.channelSlideStep[0] = 10;
+			state.channelSlideCount[0] = 5;
+			state.channelBaseNotes[0] = 12;
+			state.channelPreviousNotes[0] = 0;
+			state.channelCurrentNotes[0] = 12;
+
+			const row = makeRow(14, 2, [{ effect: EffectAlgorithms.PORTAMENTO, delay: 1, parameter: 5 }]);
+			proc._processNote(0, row);
+			proc._processEffects(0, row);
+
+			expect(state.channelSlideStep[0]).not.toBe(10);
+			expect(state.channelSlideCount[0]).toBe(0);
+		});
+	});
+
+	describe('independent effects do not disable each other', () => {
+		it('arpeggio does not disable portamento', () => {
+			state.channelPortamentoActive[0] = true;
+			state.channelPortamentoDelta[0] = 50;
+
+			const row = makeRow(0, 0, [{ effect: EffectAlgorithms.ARPEGGIO, delay: 1, parameter: 0x37 }]);
+			proc._processEffects(0, row);
+
+			expect(state.channelPortamentoActive[0]).toBe(true);
+		});
+
+		it('arpeggio does not disable vibrato', () => {
+			state.channelVibratoCounter[0] = 5;
+			state.channelVibratoSpeed[0] = 2;
+
+			const row = makeRow(0, 0, [{ effect: EffectAlgorithms.ARPEGGIO, delay: 1, parameter: 0x37 }]);
+			proc._processEffects(0, row);
+
+			expect(state.channelVibratoCounter[0]).toBe(5);
+		});
+
+		it('arpeggio does not disable on/off', () => {
+			state.channelOnOffCounter[0] = 3;
+
+			const row = makeRow(0, 0, [{ effect: EffectAlgorithms.ARPEGGIO, delay: 1, parameter: 0x37 }]);
+			proc._processEffects(0, row);
+
+			expect(state.channelOnOffCounter[0]).toBe(3);
+		});
+
+		it('vibrato does not disable arpeggio', () => {
+			state.channelArpeggioCounter[0] = 4;
+
+			const row = makeRow(0, 0, [{ effect: EffectAlgorithms.VIBRATO, delay: 1, parameter: 0x44 }]);
+			proc._processEffects(0, row);
+
+			expect(state.channelArpeggioCounter[0]).toBe(4);
+		});
+
+		it('vibrato does not disable portamento', () => {
+			state.channelPortamentoActive[0] = true;
+
+			const row = makeRow(0, 0, [{ effect: EffectAlgorithms.VIBRATO, delay: 1, parameter: 0x44 }]);
+			proc._processEffects(0, row);
+
+			expect(state.channelPortamentoActive[0]).toBe(true);
+		});
+
+		it('vibrato does not disable on/off', () => {
+			state.channelOnOffCounter[0] = 3;
+
+			const row = makeRow(0, 0, [{ effect: EffectAlgorithms.VIBRATO, delay: 1, parameter: 0x44 }]);
+			proc._processEffects(0, row);
+
+			expect(state.channelOnOffCounter[0]).toBe(3);
+		});
+
+		it('on/off does not disable arpeggio', () => {
+			state.channelArpeggioCounter[0] = 4;
+
+			const row = makeRow(0, 0, [{ effect: EffectAlgorithms.ON_OFF, delay: 0, parameter: 0x32 }]);
+			proc._processEffects(0, row);
+
+			expect(state.channelArpeggioCounter[0]).toBe(4);
+		});
+
+		it('on/off does not disable slide', () => {
+			state.channelSlideStep[0] = 5;
+			state.channelSlideCount[0] = 3;
+
+			const row = makeRow(0, 0, [{ effect: EffectAlgorithms.ON_OFF, delay: 0, parameter: 0x32 }]);
+			proc._processEffects(0, row);
+
+			expect(state.channelSlideStep[0]).toBe(5);
+			expect(state.channelSlideCount[0]).toBe(3);
+		});
+
+		it('on/off does not disable portamento', () => {
+			state.channelPortamentoActive[0] = true;
+
+			const row = makeRow(0, 0, [{ effect: EffectAlgorithms.ON_OFF, delay: 0, parameter: 0x32 }]);
+			proc._processEffects(0, row);
+
+			expect(state.channelPortamentoActive[0]).toBe(true);
+		});
+
+		it('slide up does not disable arpeggio', () => {
+			state.channelArpeggioCounter[0] = 4;
+
+			const row = makeRow(0, 0, [{ effect: EffectAlgorithms.SLIDE_UP, delay: 1, parameter: 5 }]);
+			proc._processEffects(0, row);
+
+			expect(state.channelArpeggioCounter[0]).toBe(4);
+		});
+
+		it('slide up does not disable vibrato', () => {
+			state.channelVibratoCounter[0] = 5;
+
+			const row = makeRow(0, 0, [{ effect: EffectAlgorithms.SLIDE_UP, delay: 1, parameter: 5 }]);
+			proc._processEffects(0, row);
+
+			expect(state.channelVibratoCounter[0]).toBe(5);
+		});
+
+		it('slide up does not disable on/off', () => {
+			state.channelOnOffCounter[0] = 3;
+
+			const row = makeRow(0, 0, [{ effect: EffectAlgorithms.SLIDE_UP, delay: 1, parameter: 5 }]);
+			proc._processEffects(0, row);
+
+			expect(state.channelOnOffCounter[0]).toBe(3);
+		});
+	});
+
+	describe('new note resets', () => {
+		it('note-off resets all channel effects', () => {
+			state.channelArpeggioCounter[0] = 5;
+			state.channelVibratoCounter[0] = 3;
+			state.channelOnOffCounter[0] = 2;
+			state.channelSlideStep[0] = 10;
+			state.channelPortamentoActive[0] = true;
+			state.channelToneSliding[0] = 50;
+			state.channelEffectTables[0] = 1;
+
+			const row = makeRow(1, 0, [null]);
+			proc._processNote(0, row);
+
+			expect(state.channelArpeggioCounter[0]).toBe(0);
+			expect(state.channelVibratoCounter[0]).toBe(0);
+			expect(state.channelOnOffCounter[0]).toBe(0);
+			expect(state.channelSlideStep[0]).toBe(0);
+			expect(state.channelPortamentoActive[0]).toBe(false);
+			expect(state.channelToneSliding[0]).toBe(0);
+			expect(state.channelEffectTables[0]).toBe(-1);
+		});
+
+		it('new note with explicit arpeggio resets vibrato and on/off but keeps arpeggio', () => {
+			state.channelArpeggioCounter[0] = 5;
+			state.channelVibratoCounter[0] = 3;
+			state.channelOnOffCounter[0] = 2;
+
+			const row = makeRow(4, 2, [{ effect: EffectAlgorithms.ARPEGGIO, delay: 1, parameter: 0x37 }]);
+			proc._processNote(0, row);
+
+			expect(state.channelArpeggioCounter[0]).toBe(5);
+			expect(state.channelVibratoCounter[0]).toBe(0);
+			expect(state.channelOnOffCounter[0]).toBe(0);
+		});
+
+		it('new note with explicit vibrato resets arpeggio and on/off but keeps vibrato', () => {
+			state.channelArpeggioCounter[0] = 5;
+			state.channelVibratoCounter[0] = 3;
+			state.channelOnOffCounter[0] = 2;
+
+			const row = makeRow(4, 2, [{ effect: EffectAlgorithms.VIBRATO, delay: 1, parameter: 0x44 }]);
+			proc._processNote(0, row);
+
+			expect(state.channelArpeggioCounter[0]).toBe(0);
+			expect(state.channelVibratoCounter[0]).toBe(3);
+			expect(state.channelOnOffCounter[0]).toBe(0);
+		});
+
+		it('new note with explicit on/off resets arpeggio and vibrato but keeps on/off', () => {
+			state.channelArpeggioCounter[0] = 5;
+			state.channelVibratoCounter[0] = 3;
+			state.channelOnOffCounter[0] = 2;
+
+			const row = makeRow(4, 2, [{ effect: EffectAlgorithms.ON_OFF, delay: 0, parameter: 0x32 }]);
+			proc._processNote(0, row);
+
+			expect(state.channelArpeggioCounter[0]).toBe(0);
+			expect(state.channelVibratoCounter[0]).toBe(0);
+			expect(state.channelOnOffCounter[0]).toBe(2);
+		});
+
+		it('new note without any effect does not reset running effects', () => {
+			state.channelArpeggioCounter[0] = 5;
+			state.channelVibratoCounter[0] = 3;
+			state.channelOnOffCounter[0] = 2;
+
+			const row = makeRow(4, 2, [null]);
+			proc._processNote(0, row);
+
+			expect(state.channelArpeggioCounter[0]).toBe(5);
+			expect(state.channelVibratoCounter[0]).toBe(3);
+			expect(state.channelOnOffCounter[0]).toBe(2);
+		});
+
+		it('new note with portamento preserves tone sliding', () => {
+			state.channelToneSliding[0] = 50;
+			state.channelBaseNotes[0] = 12;
+
+			const row = makeRow(4, 2, [{ effect: EffectAlgorithms.PORTAMENTO, delay: 1, parameter: 5 }]);
+			proc._processNote(0, row);
+
+			expect(state.channelToneSliding[0]).toBe(50);
+		});
+
+		it('new note without slide group clears slide step', () => {
+			state.channelSlideStep[0] = 10;
+
+			const row = makeRow(4, 2, [{ effect: EffectAlgorithms.ARPEGGIO, delay: 1, parameter: 0x37 }]);
+			proc._processNote(0, row);
+
+			expect(state.channelSlideStep[0]).toBe(0);
+		});
+
+		it('new note with effect table keeps effect table', () => {
+			state.channelEffectTables[0] = 1;
+
+			const row = makeRow(4, 2, [
+				{ effect: EffectAlgorithms.VIBRATO, delay: 1, parameter: 0x44, tableIndex: 0 }
+			]);
+			proc._processNote(0, row);
+
+			expect(state.channelEffectTables[0]).toBe(1);
+		});
+	});
+});
+
+describe('Envelope effect interactions', () => {
+	let state: InstanceType<typeof AyumiState>;
+	let driver: InstanceType<typeof AYAudioDriver>;
+
+	function createEnvRegisterState() {
+		return {
+			channels: [
+				{ tone: 0, volume: 0, mixer: { tone: false, noise: false, envelope: false } },
+				{ tone: 0, volume: 0, mixer: { tone: false, noise: false, envelope: false } },
+				{ tone: 0, volume: 0, mixer: { tone: false, noise: false, envelope: false } }
+			],
+			noise: 0,
+			envelopePeriod: 0,
+			envelopeShape: 0,
+			forceEnvelopeShapeWrite: false
+		};
+	}
+
+	beforeEach(() => {
+		state = createState();
+		driver = new AYAudioDriver();
+	});
+
+	describe('slide group mutual exclusivity', () => {
+		it('envelope slide up disables envelope portamento', () => {
+			state.envelopePortamentoActive = true;
+
+			const patternRow = {
+				envelopeEffect: { effect: EffectAlgorithms.SLIDE_UP, delay: 1, parameter: 5 }
+			};
+			driver._processEnvelopeEffects(state, 0, {}, patternRow);
+
+			expect(state.envelopePortamentoActive).toBe(false);
+			expect(state.envelopeSlideDelta).toBe(5);
+		});
+
+		it('envelope slide down disables envelope portamento', () => {
+			state.envelopePortamentoActive = true;
+
+			const patternRow = {
+				envelopeEffect: { effect: EffectAlgorithms.SLIDE_DOWN, delay: 1, parameter: 3 }
+			};
+			driver._processEnvelopeEffects(state, 0, {}, patternRow);
+
+			expect(state.envelopePortamentoActive).toBe(false);
+			expect(state.envelopeSlideDelta).toBe(-3);
+		});
+
+		it('envelope portamento disables envelope slide', () => {
+			state.envelopeSlideDelta = 10;
+			state.envelopeSlideDelayCounter = 5;
+			state.envelopeBaseValue = 100;
+
+			const patternRow = {
+				envelopeEffect: { effect: EffectAlgorithms.PORTAMENTO, delay: 1, parameter: 5 },
+				envelopeValue: 200
+			};
+			driver._processEnvelopeEffects(state, 0, {}, patternRow);
+
+			expect(state.envelopeSlideDelta).toBe(0);
+			expect(state.envelopeSlideDelayCounter).toBe(0);
+		});
+	});
+
+	describe('independent effects do not disable each other', () => {
+		it('envelope arpeggio does not disable envelope portamento', () => {
+			state.envelopePortamentoActive = true;
+
+			const patternRow = {
+				envelopeEffect: { effect: EffectAlgorithms.ARPEGGIO, delay: 1, parameter: 0x37 }
+			};
+			driver._processEnvelopeEffects(state, 0, {}, patternRow);
+
+			expect(state.envelopePortamentoActive).toBe(true);
+		});
+
+		it('envelope arpeggio does not disable envelope vibrato', () => {
+			state.envelopeVibratoCounter = 5;
+
+			const patternRow = {
+				envelopeEffect: { effect: EffectAlgorithms.ARPEGGIO, delay: 1, parameter: 0x37 }
+			};
+			driver._processEnvelopeEffects(state, 0, {}, patternRow);
+
+			expect(state.envelopeVibratoCounter).toBe(5);
+		});
+
+		it('envelope arpeggio does not disable envelope on/off', () => {
+			state.envelopeOnOffCounter = 3;
+
+			const patternRow = {
+				envelopeEffect: { effect: EffectAlgorithms.ARPEGGIO, delay: 1, parameter: 0x37 }
+			};
+			driver._processEnvelopeEffects(state, 0, {}, patternRow);
+
+			expect(state.envelopeOnOffCounter).toBe(3);
+		});
+
+		it('envelope vibrato does not disable envelope arpeggio', () => {
+			state.envelopeArpeggioCounter = 4;
+
+			const patternRow = {
+				envelopeEffect: { effect: EffectAlgorithms.VIBRATO, delay: 1, parameter: 0x44 }
+			};
+			driver._processEnvelopeEffects(state, 0, {}, patternRow);
+
+			expect(state.envelopeArpeggioCounter).toBe(4);
+		});
+
+		it('envelope vibrato does not disable envelope slide', () => {
+			state.envelopeSlideDelta = 5;
+			state.envelopeSlideDelayCounter = 3;
+
+			const patternRow = {
+				envelopeEffect: { effect: EffectAlgorithms.VIBRATO, delay: 1, parameter: 0x44 }
+			};
+			driver._processEnvelopeEffects(state, 0, {}, patternRow);
+
+			expect(state.envelopeSlideDelta).toBe(5);
+			expect(state.envelopeSlideDelayCounter).toBe(3);
+		});
+
+		it('envelope vibrato does not disable envelope portamento', () => {
+			state.envelopePortamentoActive = true;
+
+			const patternRow = {
+				envelopeEffect: { effect: EffectAlgorithms.VIBRATO, delay: 1, parameter: 0x44 }
+			};
+			driver._processEnvelopeEffects(state, 0, {}, patternRow);
+
+			expect(state.envelopePortamentoActive).toBe(true);
+		});
+
+		it('envelope on/off does not disable envelope arpeggio', () => {
+			state.envelopeArpeggioCounter = 4;
+
+			const patternRow = {
+				envelopeEffect: { effect: EffectAlgorithms.ON_OFF, delay: 0, parameter: 0x32 }
+			};
+			driver._processEnvelopeEffects(state, 0, {}, patternRow);
+
+			expect(state.envelopeArpeggioCounter).toBe(4);
+		});
+
+		it('envelope on/off does not disable envelope slide', () => {
+			state.envelopeSlideDelta = 5;
+			state.envelopeSlideDelayCounter = 3;
+
+			const patternRow = {
+				envelopeEffect: { effect: EffectAlgorithms.ON_OFF, delay: 0, parameter: 0x32 }
+			};
+			driver._processEnvelopeEffects(state, 0, {}, patternRow);
+
+			expect(state.envelopeSlideDelta).toBe(5);
+			expect(state.envelopeSlideDelayCounter).toBe(3);
+		});
+
+		it('envelope on/off does not disable envelope portamento', () => {
+			state.envelopePortamentoActive = true;
+
+			const patternRow = {
+				envelopeEffect: { effect: EffectAlgorithms.ON_OFF, delay: 0, parameter: 0x32 }
+			};
+			driver._processEnvelopeEffects(state, 0, {}, patternRow);
+
+			expect(state.envelopePortamentoActive).toBe(true);
+		});
+
+		it('envelope slide does not disable envelope arpeggio', () => {
+			state.envelopeArpeggioCounter = 4;
+
+			const patternRow = {
+				envelopeEffect: { effect: EffectAlgorithms.SLIDE_UP, delay: 1, parameter: 5 }
+			};
+			driver._processEnvelopeEffects(state, 0, {}, patternRow);
+
+			expect(state.envelopeArpeggioCounter).toBe(4);
+		});
+
+		it('envelope slide does not disable envelope vibrato', () => {
+			state.envelopeVibratoCounter = 5;
+
+			const patternRow = {
+				envelopeEffect: { effect: EffectAlgorithms.SLIDE_UP, delay: 1, parameter: 5 }
+			};
+			driver._processEnvelopeEffects(state, 0, {}, patternRow);
+
+			expect(state.envelopeVibratoCounter).toBe(5);
+		});
+
+		it('envelope slide does not disable envelope on/off', () => {
+			state.envelopeOnOffCounter = 3;
+
+			const patternRow = {
+				envelopeEffect: { effect: EffectAlgorithms.SLIDE_UP, delay: 1, parameter: 5 }
+			};
+			driver._processEnvelopeEffects(state, 0, {}, patternRow);
+
+			expect(state.envelopeOnOffCounter).toBe(3);
+		});
+
+		it('EA does not disable envelope arpeggio', () => {
+			state.envelopeArpeggioCounter = 4;
+
+			const patternRow = {
+				envelopeEffect: { effect: EffectAlgorithms.AUTO_ENVELOPE, delay: 0, parameter: 0x32 }
+			};
+			driver._processEnvelopeEffects(state, 0, {}, patternRow);
+
+			expect(state.envelopeArpeggioCounter).toBe(4);
+		});
+
+		it('EA does not disable envelope vibrato', () => {
+			state.envelopeVibratoCounter = 5;
+
+			const patternRow = {
+				envelopeEffect: { effect: EffectAlgorithms.AUTO_ENVELOPE, delay: 0, parameter: 0x32 }
+			};
+			driver._processEnvelopeEffects(state, 0, {}, patternRow);
+
+			expect(state.envelopeVibratoCounter).toBe(5);
+		});
+
+		it('EA does not disable envelope slide', () => {
+			state.envelopeSlideDelta = 5;
+
+			const patternRow = {
+				envelopeEffect: { effect: EffectAlgorithms.AUTO_ENVELOPE, delay: 0, parameter: 0x32 }
+			};
+			driver._processEnvelopeEffects(state, 0, {}, patternRow);
+
+			expect(state.envelopeSlideDelta).toBe(5);
+		});
+	});
+
+	describe('explicit envelope value resets all effects', () => {
+		it('explicit envelope value resets all envelope effects and EA', () => {
+			state.envelopeArpeggioCounter = 4;
+			state.envelopeVibratoCounter = 5;
+			state.envelopeOnOffCounter = 3;
+			state.envelopeSlideDelta = 10;
+			state.envelopeSlideDelayCounter = 2;
+			state.envelopePortamentoActive = true;
+			state.autoEnvelopeActive = true;
+			state.envelopeEffectTable = 1;
+			state.channelInstruments = [0, -1, -1];
+			state.channelMuted = [false, false, false];
+			state.channelEnvelopeEnabled = [false, false, false];
+			state.setInstruments([{ id: '01', rows: [], loop: 0 }]);
+
+			const registerState = createEnvRegisterState();
+			const row = { envelopeShape: 12 };
+			const patternRow = { envelopeValue: 500 };
+
+			driver._processEnvelope(state, 0, row, patternRow, registerState);
+
+			expect(state.envelopeArpeggioCounter).toBe(0);
+			expect(state.envelopeVibratoCounter).toBe(0);
+			expect(state.envelopeOnOffCounter).toBe(0);
+			expect(state.envelopeSlideDelta).toBe(0);
+			expect(state.envelopeSlideDelayCounter).toBe(0);
+			expect(state.envelopePortamentoActive).toBe(false);
+			expect(state.autoEnvelopeActive).toBe(false);
+			expect(state.envelopeEffectTable).toBe(-1);
+			expect(state.envelopeBaseValue).toBe(500);
+		});
+
+		it('null envelope value does not reset effects', () => {
+			state.envelopeArpeggioCounter = 4;
+			state.envelopeVibratoCounter = 5;
+			state.autoEnvelopeActive = true;
+			state.channelInstruments = [0, -1, -1];
+			state.channelMuted = [false, false, false];
+			state.channelEnvelopeEnabled = [false, false, false];
+			state.setInstruments([{ id: '01', rows: [], loop: 0 }]);
+
+			const registerState = createEnvRegisterState();
+			const row = { envelopeShape: 0 };
+			const patternRow = { envelopeValue: null };
+
+			driver._processEnvelope(state, 0, row, patternRow, registerState);
+
+			expect(state.envelopeArpeggioCounter).toBe(4);
+			expect(state.envelopeVibratoCounter).toBe(5);
+			expect(state.autoEnvelopeActive).toBe(true);
+		});
+
+		it('envelope value with portamento does not reset effects', () => {
+			state.envelopeArpeggioCounter = 4;
+			state.envelopeVibratoCounter = 5;
+			state.envelopeBaseValue = 100;
+			state.channelInstruments = [0, -1, -1];
+			state.channelMuted = [false, false, false];
+			state.channelEnvelopeEnabled = [false, false, false];
+			state.setInstruments([{ id: '01', rows: [], loop: 0 }]);
+
+			const registerState = createEnvRegisterState();
+			const row = { envelopeShape: 12 };
+			const patternRow = {
+				envelopeValue: 200,
+				envelopeEffect: { effect: EffectAlgorithms.PORTAMENTO, delay: 1, parameter: 5 }
+			};
+
+			driver._processEnvelope(state, 0, row, patternRow, registerState);
+
+			expect(state.envelopeArpeggioCounter).toBe(4);
+			expect(state.envelopeVibratoCounter).toBe(5);
+		});
+	});
+});
+
+describe('Processing order', () => {
+	it('channel: arpeggio runs before effect tables', () => {
+		const state = createState();
+		const driver = new AYAudioDriver();
+		const port = { postMessage: vi.fn() };
+		const proc = new TrackerPatternProcessor(state, driver, port);
+
+		const callOrder: string[] = [];
+		const origArp = proc.processArpeggio.bind(proc);
+		const origET = proc.processEffectTables.bind(proc);
+		proc.processArpeggio = () => { callOrder.push('arpeggio'); origArp(); };
+		proc.processEffectTables = () => { callOrder.push('effectTables'); origET(); };
+
+		proc.processTables();
+		proc.processArpeggio();
+		proc.processEffectTables();
+
+		expect(callOrder.indexOf('arpeggio')).toBeLessThan(callOrder.indexOf('effectTables'));
+	});
+
+	it('envelope: arpeggio runs before effect table, slide runs before vibrato', () => {
+		const state = createState();
+		const driver = new AYAudioDriver();
+		state.setInstruments([]);
+		state.channelInstruments = [-1, -1, -1];
+
+		const callOrder: string[] = [];
+		const origArp = driver.processEnvelopeArpeggio.bind(driver);
+		const origET = driver.processEnvelopeEffectTable.bind(driver);
+		const origSlide = driver.processEnvelopeSlide.bind(driver);
+		const origVib = driver.processEnvelopeVibrato.bind(driver);
+		const origPort = driver.processEnvelopePortamento.bind(driver);
+		const origOnOff = driver.processEnvelopeOnOff.bind(driver);
+
+		driver.processEnvelopeArpeggio = (s: typeof state) => { callOrder.push('arpeggio'); origArp(s); };
+		driver.processEnvelopeEffectTable = (s: typeof state) => { callOrder.push('effectTable'); origET(s); };
+		driver.processEnvelopeSlide = (s: typeof state) => { callOrder.push('slide'); origSlide(s); };
+		driver.processEnvelopePortamento = (s: typeof state) => { callOrder.push('portamento'); origPort(s); };
+		driver.processEnvelopeVibrato = (s: typeof state) => { callOrder.push('vibrato'); origVib(s); };
+		driver.processEnvelopeOnOff = (s: typeof state) => { callOrder.push('onOff'); origOnOff(s); };
+
+		const registerState = createRegisterState();
+		driver.processInstruments(state, registerState);
+
+		expect(callOrder.indexOf('arpeggio')).toBeLessThan(callOrder.indexOf('effectTable'));
+		expect(callOrder.indexOf('slide')).toBeLessThan(callOrder.indexOf('vibrato'));
+		expect(callOrder.indexOf('portamento')).toBeLessThan(callOrder.indexOf('vibrato'));
+		expect(callOrder.indexOf('vibrato')).toBeLessThan(callOrder.indexOf('onOff'));
+	});
+
+	it('channel and envelope have matching relative order', () => {
+		const channelOrder = ['tables', 'arpeggio', 'effectTables', 'slides', 'vibrato'];
+		const envelopeOrder = ['autoEnvelope', 'arpeggio', 'effectTable', 'slide', 'portamento', 'vibrato', 'onOff'];
+
+		const sharedSteps = ['arpeggio', 'vibrato'];
+		for (const step of sharedSteps) {
+			const chIdx = channelOrder.indexOf(step);
+			const envIdx = envelopeOrder.indexOf(step);
+			expect(chIdx).toBeGreaterThan(-1);
+			expect(envIdx).toBeGreaterThan(-1);
+		}
+
+		expect(channelOrder.indexOf('arpeggio')).toBeLessThan(channelOrder.indexOf('vibrato'));
+		expect(envelopeOrder.indexOf('arpeggio')).toBeLessThan(envelopeOrder.indexOf('vibrato'));
+	});
+});

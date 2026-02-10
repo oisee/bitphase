@@ -214,4 +214,118 @@ describe('EffectAlgorithms', () => {
 			expect(r).toBe(-4 + 4);
 		});
 	});
+
+	describe('constants', () => {
+		it('ARPEGGIO is char code of A', () => {
+			expect(EffectAlgorithms.ARPEGGIO).toBe('A'.charCodeAt(0));
+		});
+
+		it('SLIDE_UP is 1', () => {
+			expect(EffectAlgorithms.SLIDE_UP).toBe(1);
+		});
+
+		it('SLIDE_DOWN is 2', () => {
+			expect(EffectAlgorithms.SLIDE_DOWN).toBe(2);
+		});
+
+		it('PORTAMENTO is char code of P', () => {
+			expect(EffectAlgorithms.PORTAMENTO).toBe('P'.charCodeAt(0));
+		});
+
+		it('VIBRATO is char code of V', () => {
+			expect(EffectAlgorithms.VIBRATO).toBe('V'.charCodeAt(0));
+		});
+
+		it('ON_OFF is 6', () => {
+			expect(EffectAlgorithms.ON_OFF).toBe(6);
+		});
+
+		it('SPEED is char code of S', () => {
+			expect(EffectAlgorithms.SPEED).toBe('S'.charCodeAt(0));
+		});
+
+		it('AUTO_ENVELOPE is char code of E', () => {
+			expect(EffectAlgorithms.AUTO_ENVELOPE).toBe('E'.charCodeAt(0));
+		});
+	});
+
+	describe('isSlideGroupEffect', () => {
+		it('returns true for SLIDE_UP', () => {
+			expect(EffectAlgorithms.isSlideGroupEffect(EffectAlgorithms.SLIDE_UP)).toBe(true);
+		});
+
+		it('returns true for SLIDE_DOWN', () => {
+			expect(EffectAlgorithms.isSlideGroupEffect(EffectAlgorithms.SLIDE_DOWN)).toBe(true);
+		});
+
+		it('returns true for PORTAMENTO', () => {
+			expect(EffectAlgorithms.isSlideGroupEffect(EffectAlgorithms.PORTAMENTO)).toBe(true);
+		});
+
+		it('returns false for ARPEGGIO', () => {
+			expect(EffectAlgorithms.isSlideGroupEffect(EffectAlgorithms.ARPEGGIO)).toBe(false);
+		});
+
+		it('returns false for VIBRATO', () => {
+			expect(EffectAlgorithms.isSlideGroupEffect(EffectAlgorithms.VIBRATO)).toBe(false);
+		});
+
+		it('returns false for ON_OFF', () => {
+			expect(EffectAlgorithms.isSlideGroupEffect(EffectAlgorithms.ON_OFF)).toBe(false);
+		});
+
+		it('returns false for AUTO_ENVELOPE', () => {
+			expect(EffectAlgorithms.isSlideGroupEffect(EffectAlgorithms.AUTO_ENVELOPE)).toBe(false);
+		});
+	});
+
+	describe('getEffectActivationResets', () => {
+		it('SLIDE_UP resets portamento', () => {
+			const resets = EffectAlgorithms.getEffectActivationResets(EffectAlgorithms.SLIDE_UP);
+			expect(resets.portamento).toBe(true);
+			expect(resets.slide).toBeUndefined();
+		});
+
+		it('SLIDE_DOWN resets portamento', () => {
+			const resets = EffectAlgorithms.getEffectActivationResets(EffectAlgorithms.SLIDE_DOWN);
+			expect(resets.portamento).toBe(true);
+			expect(resets.slide).toBeUndefined();
+		});
+
+		it('PORTAMENTO resets slide', () => {
+			const resets = EffectAlgorithms.getEffectActivationResets(EffectAlgorithms.PORTAMENTO);
+			expect(resets.slide).toBe(true);
+			expect(resets.portamento).toBeUndefined();
+		});
+
+		it('ARPEGGIO resets nothing', () => {
+			const resets = EffectAlgorithms.getEffectActivationResets(EffectAlgorithms.ARPEGGIO);
+			expect(resets.portamento).toBeUndefined();
+			expect(resets.slide).toBeUndefined();
+		});
+
+		it('VIBRATO resets nothing', () => {
+			const resets = EffectAlgorithms.getEffectActivationResets(EffectAlgorithms.VIBRATO);
+			expect(resets.portamento).toBeUndefined();
+			expect(resets.slide).toBeUndefined();
+		});
+
+		it('ON_OFF resets nothing', () => {
+			const resets = EffectAlgorithms.getEffectActivationResets(EffectAlgorithms.ON_OFF);
+			expect(resets.portamento).toBeUndefined();
+			expect(resets.slide).toBeUndefined();
+		});
+
+		it('AUTO_ENVELOPE resets nothing', () => {
+			const resets = EffectAlgorithms.getEffectActivationResets(EffectAlgorithms.AUTO_ENVELOPE);
+			expect(resets.portamento).toBeUndefined();
+			expect(resets.slide).toBeUndefined();
+		});
+
+		it('SPEED resets nothing', () => {
+			const resets = EffectAlgorithms.getEffectActivationResets(EffectAlgorithms.SPEED);
+			expect(resets.portamento).toBeUndefined();
+			expect(resets.slide).toBeUndefined();
+		});
+	});
 });

@@ -220,7 +220,7 @@ describe('AYAudioDriver - Auto Envelope (EA)', () => {
 	});
 
 	describe('processAutoEnvelope', () => {
-		it('calculates envelope period from channel note with shape 12 and ratio 3:2', () => {
+		it('calculates envelope period from base note with shape 12 and ratio 3:2', () => {
 			const registerState = createRegisterState();
 			registerState.envelopeShape = 12;
 
@@ -230,6 +230,7 @@ describe('AYAudioDriver - Auto Envelope (EA)', () => {
 			state.channelEnvelopeEnabled = [true, false, false];
 			state.channelMuted = [false, false, false];
 			state.channelSoundEnabled = [true, false, false];
+			state.channelBaseNotes = [28, 0, 0];
 			state.channelCurrentNotes = [28, 0, 0];
 
 			driver.processAutoEnvelope(state, registerState);
@@ -239,7 +240,7 @@ describe('AYAudioDriver - Auto Envelope (EA)', () => {
 			expect(state.envelopeBaseValue).toBe(expected);
 		});
 
-		it('calculates envelope period from channel note with shape 10 and ratio 1:1', () => {
+		it('calculates envelope period from base note with shape 10 and ratio 1:1', () => {
 			const registerState = createRegisterState();
 			registerState.envelopeShape = 10;
 
@@ -249,12 +250,33 @@ describe('AYAudioDriver - Auto Envelope (EA)', () => {
 			state.channelEnvelopeEnabled = [true, false, false];
 			state.channelMuted = [false, false, false];
 			state.channelSoundEnabled = [true, false, false];
+			state.channelBaseNotes = [24, 0, 0];
 			state.channelCurrentNotes = [24, 0, 0];
 
 			driver.processAutoEnvelope(state, registerState);
 
 			const noteFreq = state.currentTuningTable[24];
 			const expected = Math.round(noteFreq / 32);
+			expect(state.envelopeBaseValue).toBe(expected);
+		});
+
+		it('uses base note, ignoring channel arpeggio offset on currentNotes', () => {
+			const registerState = createRegisterState();
+			registerState.envelopeShape = 12;
+
+			state.autoEnvelopeActive = true;
+			state.autoEnvelopeNumerator = 1;
+			state.autoEnvelopeDenominator = 1;
+			state.channelEnvelopeEnabled = [true, false, false];
+			state.channelMuted = [false, false, false];
+			state.channelSoundEnabled = [true, false, false];
+			state.channelBaseNotes = [24, 0, 0];
+			state.channelCurrentNotes = [27, 0, 0];
+
+			driver.processAutoEnvelope(state, registerState);
+
+			const baseNoteFreq = state.currentTuningTable[24];
+			const expected = Math.round(baseNoteFreq / 16);
 			expect(state.envelopeBaseValue).toBe(expected);
 		});
 
@@ -268,6 +290,7 @@ describe('AYAudioDriver - Auto Envelope (EA)', () => {
 			state.channelEnvelopeEnabled = [true, false, true];
 			state.channelMuted = [false, false, false];
 			state.channelSoundEnabled = [true, false, true];
+			state.channelBaseNotes = [24, 0, 36];
 			state.channelCurrentNotes = [24, 0, 36];
 
 			driver.processAutoEnvelope(state, registerState);
@@ -287,6 +310,7 @@ describe('AYAudioDriver - Auto Envelope (EA)', () => {
 			state.channelEnvelopeEnabled = [true, false, false];
 			state.channelMuted = [false, false, false];
 			state.channelSoundEnabled = [true, false, false];
+			state.channelBaseNotes = [24, 0, 0];
 			state.channelCurrentNotes = [24, 0, 0];
 			state.envelopeBaseValue = 999;
 
@@ -305,6 +329,7 @@ describe('AYAudioDriver - Auto Envelope (EA)', () => {
 			state.channelEnvelopeEnabled = [true, true, false];
 			state.channelMuted = [false, true, false];
 			state.channelSoundEnabled = [true, true, false];
+			state.channelBaseNotes = [24, 36, 0];
 			state.channelCurrentNotes = [24, 36, 0];
 			state.envelopeBaseValue = 0;
 
@@ -325,6 +350,7 @@ describe('AYAudioDriver - Auto Envelope (EA)', () => {
 			state.channelEnvelopeEnabled = [true, true, false];
 			state.channelMuted = [false, false, false];
 			state.channelSoundEnabled = [false, true, false];
+			state.channelBaseNotes = [24, 36, 0];
 			state.channelCurrentNotes = [24, 36, 0];
 			state.envelopeBaseValue = 0;
 
@@ -332,6 +358,28 @@ describe('AYAudioDriver - Auto Envelope (EA)', () => {
 
 			const noteFreq = state.currentTuningTable[36];
 			const expected = Math.round(noteFreq / 16);
+			expect(state.envelopeBaseValue).toBe(expected);
+		});
+
+		it('includes portamento sliding in envelope calculation', () => {
+			const registerState = createRegisterState();
+			registerState.envelopeShape = 12;
+
+			state.autoEnvelopeActive = true;
+			state.autoEnvelopeNumerator = 1;
+			state.autoEnvelopeDenominator = 1;
+			state.channelEnvelopeEnabled = [true, false, false];
+			state.channelMuted = [false, false, false];
+			state.channelSoundEnabled = [true, false, false];
+			state.channelBaseNotes = [24, 0, 0];
+			state.channelCurrentNotes = [24, 0, 0];
+			state.channelToneSliding = [50, 0, 0];
+
+			driver.processAutoEnvelope(state, registerState);
+
+			const baseTone = state.currentTuningTable[24];
+			const effectiveTone = (baseTone + 50) & 0xfff;
+			const expected = Math.round(effectiveTone / 16);
 			expect(state.envelopeBaseValue).toBe(expected);
 		});
 	});
@@ -347,6 +395,7 @@ describe('AYAudioDriver - Auto Envelope (EA)', () => {
 			]);
 			state.channelInstruments = [0, -1, -1];
 			state.channelSoundEnabled = [true, false, false];
+			state.channelBaseNotes = [24, 0, 0];
 			state.channelCurrentNotes = [24, 0, 0];
 			state.channelEnvelopeEnabled = [true, false, false];
 			state.instrumentPositions = [0, 0, 0];

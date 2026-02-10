@@ -1,4 +1,34 @@
 class EffectAlgorithms {
+	static ARPEGGIO = 'A'.charCodeAt(0);
+	static SLIDE_UP = 1;
+	static SLIDE_DOWN = 2;
+	static PORTAMENTO = 'P'.charCodeAt(0);
+	static VIBRATO = 'V'.charCodeAt(0);
+	static ON_OFF = 6;
+	static SPEED = 'S'.charCodeAt(0);
+	static AUTO_ENVELOPE = 'E'.charCodeAt(0);
+
+	static isSlideGroupEffect(effectType) {
+		return (
+			effectType === EffectAlgorithms.SLIDE_UP ||
+			effectType === EffectAlgorithms.SLIDE_DOWN ||
+			effectType === EffectAlgorithms.PORTAMENTO
+		);
+	}
+
+	static getEffectActivationResets(newEffectType) {
+		if (
+			newEffectType === EffectAlgorithms.SLIDE_UP ||
+			newEffectType === EffectAlgorithms.SLIDE_DOWN
+		) {
+			return { portamento: true };
+		}
+		if (newEffectType === EffectAlgorithms.PORTAMENTO) {
+			return { slide: true };
+		}
+		return {};
+	}
+
 	static initSlide(parameter, delay) {
 		// VT2: if delay is 0 initial counter is 1, but delay stays 0 (effect applied only for first tick)
 		const storedDelay = delay || 0;
