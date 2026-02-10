@@ -24,6 +24,7 @@ export class PatternFieldInput {
 				if (noteInputResult) {
 					return noteInputResult;
 				}
+				return null;
 			}
 		}
 
