@@ -5,7 +5,7 @@
 	import { handleFileImport } from './lib/services/file/file-import';
 	import { handleFileExport } from './lib/services/file/file-export';
 	import { Project, Table } from './lib/models/project';
-	import type { Song } from './lib/models/song';
+	import type { Song, Instrument } from './lib/models/song';
 	import PatternEditor from './lib/components/Song/PatternEditor.svelte';
 	import ModalContainer from './lib/components/Modal/ModalContainer.svelte';
 	import { open } from './lib/services/modal/modal-service';
@@ -90,6 +90,7 @@
 	let patternOrder = $state<number[]>([]);
 	let patternOrderColors = $state<Record<number, string>>({});
 	let tables = $state<Table[]>([]);
+	let instruments = $state<Instrument[]>([]);
 	let activeSongIndex = $state(0);
 
 	let projectSettings = $state({
@@ -115,6 +116,7 @@
 			patternOrder = newProject.patternOrder;
 			patternOrderColors = newProject.patternOrderColors ?? {};
 			tables = newProject.tables;
+			instruments = newProject.instruments;
 
 			projectInitialized = true;
 
@@ -124,6 +126,7 @@
 				for (const _ of backup.songs) {
 					await container.audioService.addChipProcessor(AY_CHIP);
 				}
+				ProjectService.ensureChipSettingsConsistency(backup.songs);
 				projectSettings = {
 					title: backup.name,
 					author: backup.author,
@@ -133,6 +136,7 @@
 				patternOrder = backup.patternOrder;
 				patternOrderColors = backup.patternOrderColors ?? {};
 				tables = backup.tables;
+				instruments = backup.instruments;
 			}
 		})();
 	});
@@ -145,7 +149,8 @@
 			0,
 			patternOrder,
 			tables,
-			patternOrderColors
+			patternOrderColors,
+			instruments
 		);
 	}
 
@@ -156,6 +161,7 @@
 		patternOrder;
 		patternOrderColors;
 		tables;
+		instruments;
 		autobackupService.saveAutobackup(getCurrentProject());
 	});
 
@@ -177,7 +183,13 @@
 	});
 
 	$effect(() => {
+		container.audioService.updateInstruments(instruments);
+	});
+
+	$effect(() => {
 		if (songs.length === 0) return;
+
+		ProjectService.ensureChipSettingsConsistency(songs);
 
 		const grouped = new Map<string, Song[]>();
 		for (const song of songs) {
@@ -219,9 +231,11 @@
 				0,
 				patternOrder,
 				tables,
-				patternOrderColors
+				patternOrderColors,
+				instruments
 			),
 		applyProject: (project) => {
+			ProjectService.ensureChipSettingsConsistency(project.songs);
 			projectSettings = {
 				title: project.name,
 				author: project.author,
@@ -231,6 +245,7 @@
 			patternOrder = project.patternOrder;
 			patternOrderColors = project.patternOrderColors ?? {};
 			tables = project.tables;
+			instruments = project.instruments;
 		},
 		removeSong: (index) => {
 			songs = songs.filter((_, i) => i !== index);
@@ -289,6 +304,7 @@
 			bind:patternEditor
 			bind:activeEditorIndex={activeSongIndex}
 			bind:tables
+			bind:instruments
 			bind:projectSettings
 			onaction={handleMenuAction}
 			chipProcessors={container.audioService.chipProcessors} />

@@ -98,7 +98,7 @@ export class AYChipRenderer implements ChipRenderer {
 		state.setAymFrequency(chipFrequency);
 		state.setIntFrequency(interruptFrequency, SAMPLE_RATE);
 		state.setTuningTable(song.tuningTable);
-		state.setInstruments(song.instruments);
+		state.setInstruments(project.instruments);
 		state.setTables(project.tables);
 		state.setPatternOrder(project.patternOrder || [0]);
 		state.setSpeed(song.initialSpeed || DEFAULT_SPEED);

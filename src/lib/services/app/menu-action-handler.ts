@@ -12,7 +12,11 @@ import { ACTION_APPLY_SCRIPT } from '../../config/keybindings';
 import { AY_CHIP } from '../../chips/ay';
 import type { MenuActionContext } from './menu-action-context';
 
-function dispatchEditorKey(patternEditor: MenuActionContext['getPatternEditor'], key: string, modifiers?: { ctrlKey?: boolean; shiftKey?: boolean }) {
+function dispatchEditorKey(
+	patternEditor: MenuActionContext['getPatternEditor'],
+	key: string,
+	modifiers?: { ctrlKey?: boolean; shiftKey?: boolean }
+) {
 	const editor = patternEditor();
 	const event = new KeyboardEvent('keydown', {
 		key,
@@ -149,18 +153,23 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
 				return;
 			}
 
-			if (data.action === 'new-song-ay') {
-				ctx.playbackStore.isPlaying = false;
-				ctx.container.audioService.stop();
-				const newSong = await ctx.projectService.createNewSong(AY_CHIP);
-				const project = ctx.getCurrentProject();
+		if (data.action === 'new-song-ay') {
+			ctx.playbackStore.isPlaying = false;
+			ctx.container.audioService.stop();
+			const project = ctx.getCurrentProject();
+			const newSong = await ctx.projectService.createNewSong(AY_CHIP, project.songs);
 				if (project.songs.length > 0 && project.patternOrder.length > 0) {
-					const refSong = project.songs[0] as unknown as { patterns: { id: number; length: number }[] };
+					const refSong = project.songs[0] as unknown as {
+						patterns: { id: number; length: number }[];
+					};
 					const schema =
-						ctx.container.audioService.chipProcessors[0].chip.schema ?? newSong.getSchema();
+						ctx.container.audioService.chipProcessors[0].chip.schema ??
+						newSong.getSchema();
 					const uniquePatternIds = [...new Set(project.patternOrder)];
 					newSong.patterns = uniquePatternIds.map((id) => {
-						const refPattern = refSong.patterns.find((p: { id: number }) => p.id === id);
+						const refPattern = refSong.patterns.find(
+							(p: { id: number }) => p.id === id
+						);
 						const length = refPattern?.length ?? 64;
 						return new Pattern(id, length, schema);
 					});
@@ -206,7 +215,9 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
 
 			if (data.action === 'export-wav') {
 				const currentProject = ctx.getCurrentProject();
-				const wavSettings = await ctx.open(WavExportSettingsModal, { project: currentProject });
+				const wavSettings = await ctx.open(WavExportSettingsModal, {
+					project: currentProject
+				});
 				if (wavSettings) {
 					await ctx.open(ProgressModal, {
 						project: currentProject,

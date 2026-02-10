@@ -154,7 +154,6 @@ class Song {
 	public patterns: Pattern[];
 	public tuningTable: number[];
 	public initialSpeed: number;
-	public instruments: Instrument[];
 	public chipType?: string;
 	public chipVariant?: string;
 	public chipFrequency?: number;
@@ -168,7 +167,6 @@ class Song {
 		this.initialSpeed = 3;
 		this.patterns = [new Pattern(0, 64, schema)];
 		this.tuningTable = [];
-		this.instruments = [new Instrument('01', [], 0, 'Instrument 01')];
 		this.interruptFrequency = 50;
 	}
 

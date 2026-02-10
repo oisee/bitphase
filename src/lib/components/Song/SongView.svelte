@@ -40,6 +40,7 @@
 		chipProcessors,
 		patternEditor = $bindable(),
 		tables = $bindable(),
+		instruments = $bindable(),
 		projectSettings = $bindable(),
 		activeEditorIndex = $bindable(0),
 		onaction
@@ -50,6 +51,7 @@
 		chipProcessors: ChipProcessor[];
 		patternEditor?: PatternEditor | null;
 		tables: Table[];
+		instruments: Instrument[];
 		projectSettings: Record<string, unknown>;
 		activeEditorIndex?: number;
 		onaction?: (data: { action: string; songIndex?: number }) => void;
@@ -200,7 +202,7 @@
 				withTuningTables.sendInitTuningTable(song.tuningTable);
 			}
 			if ('sendInitInstruments' in chipProcessor && withInstruments.sendInitInstruments) {
-				withInstruments.sendInitInstruments(song.instruments);
+				withInstruments.sendInitInstruments(instruments);
 			}
 		});
 
@@ -490,7 +492,7 @@
 									speed={song.initialSpeed}
 									tuningTable={song.tuningTable}
 									{tuningTableVersion}
-									instruments={song.instruments}
+									{instruments}
 									{tables}
 									chip={chipProcessors[i].chip}
 									chipProcessor={chipProcessors[i]} />
@@ -519,11 +521,12 @@
 								bind:tables
 								bind:isExpanded={isRightPanelExpanded}
 								{songs} />
-						{:else if tabId === 'instruments'}
-							<InstrumentsView
-								{songs}
-								bind:isExpanded={isRightPanelExpanded}
-								chip={chipProcessors[0].chip} />
+					{:else if tabId === 'instruments'}
+						<InstrumentsView
+							bind:instruments
+							{songs}
+							bind:isExpanded={isRightPanelExpanded}
+							chip={chipProcessors[0].chip} />
 						{:else if tabId === 'details'}
 							<DetailsView
 								{chipProcessors}
@@ -541,7 +544,8 @@
 					{#if settingsStore.get().showInstrumentPreview && chipProcessors[activeEditorIndex].chip.previewRow}
 						{@const PreviewRow = chipProcessors[activeEditorIndex].chip.previewRow}
 						<div class="flex flex-col gap-2 bg-[var(--color-app-surface)] px-2 py-3">
-							<span class="flex items-center gap-1.5 text-xs text-[var(--color-app-text-muted)]">
+							<span
+								class="flex items-center gap-1.5 text-xs text-[var(--color-app-text-muted)]">
 								<IconCarbonPlay class="h-3.5 w-3.5 shrink-0" />Preview playground</span>
 							<PreviewRow
 								chip={chipProcessors[activeEditorIndex].chip}
@@ -551,11 +555,15 @@
 					{#if settingsStore.get().showOscilloscopes}
 						<div class="border-t border-[var(--color-app-border)]/50">
 							<ChannelOscilloscopes
-							channelLabels={songs.flatMap((_, i) =>
-								(chipProcessors[i]?.chip.schema.channelLabels ?? ['A', 'B', 'C']).map(
-									(l) => (songs.length > 1 ? `${i + 1}${l}` : l)
-								)
-							)} />
+								channelLabels={songs.flatMap((_, i) =>
+									(
+										chipProcessors[i]?.chip.schema.channelLabels ?? [
+											'A',
+											'B',
+											'C'
+										]
+									).map((l) => (songs.length > 1 ? `${i + 1}${l}` : l))
+								)} />
 						</div>
 					{/if}
 				</div>

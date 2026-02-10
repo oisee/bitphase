@@ -205,7 +205,7 @@ class VT2Converter {
 
 		const { tuningTable, tuningTableIndex, a4TuningHz } = this.resolveTuningTable(module1);
 
-		const song1 = this.createSongFromModule(
+		const result1 = this.createSongFromModule(
 			module1,
 			patterns1,
 			samples1,
@@ -214,7 +214,7 @@ class VT2Converter {
 			tuningTableIndex,
 			a4TuningHz
 		);
-		const song2 = this.createSongFromModule(
+		const result2 = this.createSongFromModule(
 			module2,
 			patterns2,
 			samples2,
@@ -224,13 +224,32 @@ class VT2Converter {
 			a4TuningHz
 		);
 
+		const mergedInstruments = this.mergeInstruments(
+			result1.instruments,
+			result2.instruments
+		);
+
 		return new Project(
 			module1.title,
 			module1.author,
-			[song1, song2],
+			[result1.song, result2.song],
 			module1.loopPoint || 0,
 			module1.playOrder,
-			this.convertTables(tables1)
+			this.convertTables(tables1),
+			{},
+			mergedInstruments
+		);
+	}
+
+	private mergeInstruments(a: Instrument[], b: Instrument[]): Instrument[] {
+		const byId = new Map(a.map((inst) => [inst.id, inst]));
+		for (const inst of b) {
+			if (!byId.has(inst.id)) {
+				byId.set(inst.id, inst);
+			}
+		}
+		return [...byId.values()].sort(
+			(x, y) => parseInt(x.id, 36) - parseInt(y.id, 36)
 		);
 	}
 
@@ -276,7 +295,7 @@ class VT2Converter {
 		tuningTable: number[],
 		tuningTableIndex: number,
 		a4TuningHz: number
-	): Song {
+	): { song: Song; instruments: Instrument[] } {
 		const song = new Song();
 		song.tuningTable = tuningTable;
 		song.tuningTableIndex = tuningTableIndex;
@@ -327,7 +346,7 @@ class VT2Converter {
 			);
 		});
 
-		song.instruments = this.initializeInstrumentsArray(convertedInstruments);
+		const instrumentsArray = this.initializeInstrumentsArray(convertedInstruments);
 
 		song.patterns = patterns.map((vt2Pattern) => {
 			const pattern = new Pattern(vt2Pattern.id, vt2Pattern.rows.length);
@@ -335,7 +354,7 @@ class VT2Converter {
 			return pattern;
 		});
 
-		return song;
+		return { song, instruments: instrumentsArray };
 	}
 
 	private convertTables(tables: VT2Table[]): Table[] {
@@ -368,7 +387,6 @@ class VT2Converter {
 		song.tuningTable = tuningTable;
 		song.tuningTableIndex = tuningTableIndex;
 		song.a4TuningHz = a4TuningHz;
-		song.instruments = this.initializeInstrumentsArray(instruments);
 		song.initialSpeed = module.speed >= 1 && module.speed <= 255 ? module.speed : 3;
 
 		song.patterns = patterns.map((vt2Pattern) => {
@@ -383,13 +401,17 @@ class VT2Converter {
 		song.chipFrequency = module.chipFrequency;
 		song.interruptFrequency = module.interruptFrequency;
 
+		const instrumentsArray = this.initializeInstrumentsArray(instruments);
+
 		return new Project(
 			module.title,
 			module.author,
 			[song],
 			module.loopPoint || 0,
 			module.playOrder,
-			tables
+			tables,
+			{},
+			instrumentsArray
 		);
 	}
 

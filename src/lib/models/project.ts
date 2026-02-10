@@ -1,4 +1,4 @@
-import { Song } from './song';
+import { Song, Instrument } from './song';
 
 class Project {
 	constructor(
@@ -8,7 +8,8 @@ class Project {
 		public loopPointId: number = 0,
 		public patternOrder: number[] = [0],
 		public tables: Table[] = [new Table(0, [], 0, 'Table 1')],
-		public patternOrderColors: Record<number, string> = {}
+		public patternOrderColors: Record<number, string> = {},
+		public instruments: Instrument[] = [new Instrument('01', [], 0, 'Instrument 01')]
 	) {}
 }
 

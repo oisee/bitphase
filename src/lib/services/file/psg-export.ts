@@ -231,7 +231,7 @@ class PsgExportService {
 
 		const state = new AyumiState();
 		state.setTuningTable(song.tuningTable);
-		state.setInstruments(song.instruments);
+		state.setInstruments(project.instruments);
 		state.setTables(project.tables);
 		state.setPatternOrder(project.patternOrder || [0]);
 		state.setSpeed(song.initialSpeed || DEFAULT_SPEED);

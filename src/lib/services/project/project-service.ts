@@ -3,6 +3,7 @@ import { Song } from '../../models/song';
 import type { Chip } from '../../chips/types';
 import type { AudioService } from '../audio/audio-service';
 import { applySchemaDefaults, type ChipSchema } from '../../chips/base/schema';
+import { getChipByType } from '../../chips/registry';
 
 export class ProjectService {
 	constructor(private audioService: AudioService) {}
@@ -23,13 +24,88 @@ export class ProjectService {
 		return newProject;
 	}
 
-	async createNewSong(chip: Chip): Promise<Song> {
+	async createNewSong(chip: Chip, existingSongs: Song[] = []): Promise<Song> {
 		const newSong = new Song(chip.schema);
 		newSong.chipType = chip.type;
 		applySchemaDefaults(newSong, chip.schema);
 		this.applyChipDefaults(newSong, chip.schema);
+		this.syncFromPeerSongs(newSong, existingSongs, chip.schema);
 		await this.audioService.addChipProcessor(chip);
 		return newSong;
+	}
+
+	private syncFromPeerSongs(targetSong: Song, existingSongs: Song[], schema: ChipSchema): void {
+		const peer = existingSongs.find((s) => s.chipType === targetSong.chipType);
+		if (!peer) return;
+
+		const peerRecord = peer as unknown as Record<string, unknown>;
+		const targetRecord = targetSong as unknown as Record<string, unknown>;
+
+		if (schema.settings) {
+			for (const setting of schema.settings) {
+				const value = peerRecord[setting.key];
+				if (value !== undefined) {
+					targetRecord[setting.key] = value;
+				}
+			}
+		}
+
+		targetSong.initialSpeed = peer.initialSpeed;
+		targetSong.tuningTable = [...peer.tuningTable];
+	}
+
+	static ensureChipSettingsConsistency(songs: Song[]): void {
+		if (songs.length <= 1) return;
+
+		const grouped = new Map<string, Song[]>();
+		for (const song of songs) {
+			if (!song.chipType) continue;
+			if (!grouped.has(song.chipType)) {
+				grouped.set(song.chipType, []);
+			}
+			grouped.get(song.chipType)!.push(song);
+		}
+
+		for (const [chipType, songsOfType] of grouped) {
+			if (songsOfType.length <= 1) continue;
+
+			const chip = getChipByType(chipType);
+			if (!chip) continue;
+
+			const source = songsOfType[0];
+			const sourceRecord = source as unknown as Record<string, unknown>;
+
+			for (let i = 1; i < songsOfType.length; i++) {
+				const target = songsOfType[i];
+				const targetRecord = target as unknown as Record<string, unknown>;
+
+				if (chip.schema.settings) {
+					for (const setting of chip.schema.settings) {
+						const sourceValue = sourceRecord[setting.key];
+						if (sourceValue !== undefined && targetRecord[setting.key] !== sourceValue) {
+							targetRecord[setting.key] = sourceValue;
+						}
+					}
+				}
+
+				if (target.initialSpeed !== source.initialSpeed) {
+					target.initialSpeed = source.initialSpeed;
+				}
+			}
+
+			if (chip.schema.resolveTuningTable) {
+				const resolvedTable = chip.schema.resolveTuningTable(sourceRecord);
+				for (const song of songsOfType) {
+					const currentTable = song.tuningTable;
+					if (
+						currentTable.length !== resolvedTable.length ||
+						currentTable.some((v, i) => v !== resolvedTable[i])
+					) {
+						song.tuningTable = resolvedTable;
+					}
+				}
+			}
+		}
 	}
 
 	private applyChipDefaults(song: Song, schema: ChipSchema): void {

@@ -29,6 +29,18 @@ function reconstructProject(data: any): Project {
 				) as Record<number, string>)
 			: {};
 
+	let instruments: Instrument[] = [];
+	if (data.instruments && Array.isArray(data.instruments) && data.instruments.length > 0) {
+		instruments = data.instruments.map((instData: any) => reconstructInstrument(instData));
+	} else if (data.songs?.[0]?.instruments && Array.isArray(data.songs[0].instruments)) {
+		instruments = data.songs[0].instruments.map((instData: any) =>
+			reconstructInstrument(instData)
+		);
+	}
+	if (instruments.length === 0) {
+		instruments = [new Instrument('01', [], 0, 'Instrument 01')];
+	}
+
 	return new Project(
 		data.name || '',
 		data.author || '',
@@ -36,7 +48,8 @@ function reconstructProject(data: any): Project {
 		data.loopPointId || 0,
 		data.patternOrder || [0],
 		tables.length > 0 ? tables : [new Table(0, [], 0, 'Table 1')],
-		patternOrderColors
+		patternOrderColors,
+		instruments
 	);
 }
 
@@ -57,10 +70,6 @@ function reconstructSong(data: any): Song {
 		reconstructPattern(patternData, schema)
 	) || [new Pattern(0, 64, schema)];
 	song.tuningTable = data.tuningTable || song.tuningTable;
-	const instruments =
-		data.instruments?.map((instData: any) => reconstructInstrument(instData)) || [];
-	song.instruments =
-		instruments.length > 0 ? instruments : [new Instrument('01', [], 0, 'Instrument 01')];
 	song.chipType = data.chipType;
 	const songRecord = song as unknown as Record<string, unknown>;
 	schema?.settings

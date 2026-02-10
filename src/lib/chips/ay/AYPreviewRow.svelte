@@ -292,7 +292,7 @@
 		<span class="text-[var(--color-app-text-muted)]">Note</span>
 		<div
 			bind:this={noteInputEl}
-			class="flex min-h-[1.75rem] min-w-14 max-w-[10rem] items-center rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 focus:border-[var(--color-app-primary)] focus:outline-none"
+			class="flex min-h-[1.75rem] max-w-[10rem] min-w-14 items-center rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 focus:border-[var(--color-app-primary)] focus:outline-none"
 			role="textbox"
 			tabindex={0}
 			aria-label="Note (keyboard: piano keys)"

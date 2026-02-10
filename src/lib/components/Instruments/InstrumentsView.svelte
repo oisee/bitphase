@@ -32,20 +32,16 @@
 	const requestPatternRedraw = getContext<() => void>('requestPatternRedraw');
 
 	let {
+		instruments = $bindable(),
 		songs = [],
 		isExpanded = $bindable(false),
 		chip
 	}: {
+		instruments: Instrument[];
 		songs: Song[];
 		isExpanded: boolean;
 		chip: Chip;
 	} = $props();
-
-	// Work with the first song's instruments (or create a new array if no songs)
-	let instruments = $derived.by(() => {
-		if (songs.length === 0) return [];
-		return songs[0].instruments;
-	});
 
 	let asHex = $state(false);
 	let selectedInstrumentIndex = $state(0);
@@ -85,39 +81,11 @@
 		return parseInt(a.id, 36) - parseInt(b.id, 36);
 	}
 
-	function getAllInstrumentIds(): string[] {
-		const ids = new Set<string>();
-		for (const song of songs) {
-			for (const inst of song.instruments) ids.add(inst.id);
-		}
-		return [...ids];
-	}
-
-	function syncInstrumentOrderToOtherSongs(): void {
-		if (songs.length <= 1) return;
-		const orderById = songs[0].instruments.map((inst) => inst.id);
-		const orderSet = new Set(orderById);
-		for (let j = 1; j < songs.length; j++) {
-			const byId = new Map(songs[j].instruments.map((inst) => [inst.id, inst]));
-			const ordered = orderById
-				.map((id) => byId.get(id))
-				.filter((inst): inst is Instrument => inst !== undefined);
-			const extra = songs[j].instruments
-				.filter((inst) => !orderSet.has(inst.id))
-				.sort(compareInstrumentIds);
-			songs[j].instruments = [...ordered, ...extra];
-		}
-		songs = [...songs];
-	}
-
 	function sortInstrumentsAndSyncSelection(selectedId?: string): void {
-		if (songs.length === 0) return;
-		const list = songs[0].instruments;
-		const sorted = [...list].sort(compareInstrumentIds);
-		const needsSort = sorted.some((inst, i) => inst !== list[i]);
+		const sorted = [...instruments].sort(compareInstrumentIds);
+		const needsSort = sorted.some((inst, i) => inst !== instruments[i]);
 		if (!needsSort) return;
-		songs[0].instruments = sorted;
-		syncInstrumentOrderToOtherSongs();
+		instruments = sorted;
 		if (selectedId !== undefined) {
 			const newIndex = sorted.findIndex((inst) => inst.id === selectedId);
 			if (newIndex >= 0) selectedInstrumentIndex = newIndex;
@@ -141,53 +109,39 @@
 	}
 
 	function handleInstrumentChange(instrument: Instrument): void {
-		if (songs.length === 0) return;
 		const id = instrument.id;
-		for (const song of songs) {
-			const idx = song.instruments.findIndex((inst) => inst.id === id);
-			if (idx >= 0) {
-				song.instruments[idx] = { ...instrument };
-				song.instruments = [...song.instruments];
-			}
+		const idx = instruments.findIndex((inst) => inst.id === id);
+		if (idx >= 0) {
+			instruments[idx] = { ...instrument };
+			instruments = [...instruments];
 		}
-		songs = [...songs];
-		services.audioService.updateInstruments(songs[0].instruments);
+		services.audioService.updateInstruments(instruments);
 	}
 
 	function addInstrument(): void {
-		if (songs.length === 0) return;
-		const existingIds = getAllInstrumentIds();
+		const existingIds = instruments.map((inst) => inst.id);
 		const newId = getNextAvailableInstrumentId(existingIds);
 		if (!newId) return;
 		const newInstrument = new InstrumentModel(newId, [], 0, `Instrument ${newId}`);
-		for (const song of songs) {
-			song.instruments = [...song.instruments, newInstrument];
-		}
-		songs = [...songs];
+		instruments = [...instruments, newInstrument];
 		sortInstrumentsAndSyncSelection(newId);
-		services.audioService.updateInstruments(songs[0].instruments);
+		services.audioService.updateInstruments(instruments);
 	}
 
 	function removeInstrument(index: number): void {
-		if (songs.length === 0) return;
-		const toRemove = songs[0].instruments[index];
-		if (!toRemove || songs[0].instruments.length <= 1) return;
-		const id = toRemove.id;
-		for (const song of songs) {
-			song.instruments = song.instruments.filter((inst) => inst.id !== id);
+		const toRemove = instruments[index];
+		if (!toRemove || instruments.length <= 1) return;
+		instruments = instruments.filter((inst) => inst.id !== toRemove.id);
+		if (selectedInstrumentIndex >= instruments.length) {
+			selectedInstrumentIndex = Math.max(0, instruments.length - 1);
 		}
-		songs = [...songs];
-		if (selectedInstrumentIndex >= songs[0].instruments.length) {
-			selectedInstrumentIndex = Math.max(0, songs[0].instruments.length - 1);
-		}
-		services.audioService.updateInstruments(songs[0].instruments);
+		services.audioService.updateInstruments(instruments);
 	}
 
 	async function copyInstrument(copiedIndex: number): Promise<void> {
-		if (songs.length === 0) return;
-		const instrument = songs[0].instruments[copiedIndex];
+		const instrument = instruments[copiedIndex];
 		if (!instrument) return;
-		const existingIds = getAllInstrumentIds();
+		const existingIds = instruments.map((inst) => inst.id);
 		const newId = getNextAvailableInstrumentId(existingIds);
 		if (!newId) return;
 		const copiedRows = instrument.rows.map((r) => new InstrumentRow({ ...r }));
@@ -198,12 +152,9 @@
 			instrument.name + ' (Copy)'
 		);
 
-		for (const song of songs) {
-			song.instruments = [...song.instruments, copy];
-		}
-		songs = [...songs];
+		instruments = [...instruments, copy];
 		sortInstrumentsAndSyncSelection(newId);
-		services.audioService.updateInstruments(songs[0].instruments);
+		services.audioService.updateInstruments(instruments);
 		await tick();
 		instrumentListScrollRef
 			?.querySelector(`[data-instrument-index="${selectedInstrumentIndex}"]`)
@@ -211,27 +162,22 @@
 	}
 
 	function updateInstrumentId(index: number, newId: string): void {
-		if (songs.length === 0) return;
 		const normalizedId = normalizeInstrumentId(newId);
 		if (!isValidInstrumentId(normalizedId) || !isInstrumentIdInRange(normalizedId)) {
 			return;
 		}
-		const oldId = songs[0].instruments[index].id;
-		const existingIds = getAllInstrumentIds().filter((id) => id !== oldId);
+		const oldId = instruments[index].id;
+		const existingIds = instruments.map((inst) => inst.id).filter((id) => id !== oldId);
 		if (existingIds.includes(normalizedId)) {
 			return;
 		}
 		for (const song of songs) {
 			migrateInstrumentIdInSong(song, oldId, normalizedId);
-			const idx = song.instruments.findIndex((inst) => inst.id === oldId);
-			if (idx >= 0) {
-				song.instruments[idx] = { ...song.instruments[idx], id: normalizedId };
-				song.instruments = [...song.instruments];
-			}
 		}
-		songs = [...songs];
+		instruments[index] = { ...instruments[index], id: normalizedId };
+		instruments = [...instruments];
 		sortInstrumentsAndSyncSelection(normalizedId);
-		services.audioService.updateInstruments(songs[0].instruments);
+		services.audioService.updateInstruments(instruments);
 		requestPatternRedraw?.();
 	}
 
@@ -257,7 +203,7 @@
 	}
 
 	function saveInstrument(): void {
-		if (songs.length === 0 || instruments.length === 0) return;
+		if (instruments.length === 0) return;
 		const inst = instruments[selectedInstrumentIndex];
 		if (!inst) return;
 		downloadJson(`instrument-${inst.id}.json`, {
@@ -269,7 +215,7 @@
 	}
 
 	async function loadInstrument(): Promise<void> {
-		if (songs.length === 0 || instruments.length === 0) return;
+		if (instruments.length === 0) return;
 		try {
 			const text = await pickFileAsText();
 			const parsed: unknown = JSON.parse(text);
@@ -292,20 +238,17 @@
 				loop,
 				name || `Instrument ${currentId}`
 			);
-			for (const song of songs) {
-				const idx = song.instruments.findIndex((inst) => inst.id === currentId);
-				if (idx >= 0) {
-					song.instruments[idx] = new InstrumentModel(
-						currentId,
-						replacement.rows.map((r) => new InstrumentRow({ ...r })),
-						replacement.loop,
-						replacement.name
-					);
-					song.instruments = [...song.instruments];
-				}
+			const idx = instruments.findIndex((inst) => inst.id === currentId);
+			if (idx >= 0) {
+				instruments[idx] = new InstrumentModel(
+					currentId,
+					replacement.rows.map((r) => new InstrumentRow({ ...r })),
+					replacement.loop,
+					replacement.name
+				);
+				instruments = [...instruments];
 			}
-			songs = [...songs];
-			services.audioService.updateInstruments(songs[0].instruments);
+			services.audioService.updateInstruments(instruments);
 			requestPatternRedraw?.();
 		} catch (err) {
 			if ((err as Error).message !== 'No file selected') {
@@ -337,9 +280,8 @@
 	});
 
 	$effect(() => {
-		const list = songs[0]?.instruments;
-		if (!list || list.length === 0) return;
-		sortInstrumentsAndSyncSelection(list[selectedInstrumentIndex]?.id);
+		if (!instruments || instruments.length === 0) return;
+		sortInstrumentsAndSyncSelection(instruments[selectedInstrumentIndex]?.id);
 	});
 </script>
 
@@ -459,7 +401,7 @@
 					<button
 						class="flex cursor-pointer items-center gap-1.5 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] px-2 py-1.5 text-xs text-[var(--color-app-text-tertiary)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-[var(--color-app-text-primary)]"
 						onclick={loadInstrument}
-						disabled={songs.length === 0 || instruments.length === 0}
+						disabled={instruments.length === 0}
 						title="Load instrument from JSON file into selected slot">
 						<IconCarbonDocumentImport class="h-3.5 w-3.5" />
 						<span>Load</span>
