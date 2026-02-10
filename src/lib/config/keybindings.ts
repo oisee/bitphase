@@ -61,18 +61,37 @@ const DISABLED_GETTERS: Partial<Record<string, () => boolean>> = {
 	[ACTION_PASTE_WITHOUT_ERASING]: () => !clipboardStore.hasData
 };
 
+const EDIT_MENU_ACTION_IDS = [
+	ACTION_UNDO,
+	ACTION_REDO,
+	ACTION_COPY,
+	ACTION_CUT,
+	ACTION_PASTE,
+	ACTION_PASTE_WITHOUT_ERASING,
+	ACTION_SELECT_ALL,
+	ACTION_INCREMENT_VALUE,
+	ACTION_DECREMENT_VALUE,
+	ACTION_TRANSPOSE_OCTAVE_UP,
+	ACTION_TRANSPOSE_OCTAVE_DOWN,
+	ACTION_APPLY_SCRIPT
+] as const;
+
+const actionById = Object.fromEntries(BINDABLE_ACTIONS.map((a) => [a.id, a]));
+
+const dividerAfter = new Set([ACTION_PASTE_WITHOUT_ERASING, ACTION_DECREMENT_VALUE]);
+
 export function buildEditMenuItems(): MenuItem[] {
 	const items: MenuItem[] = [];
-	const dividerAfter = new Set([ACTION_PASTE_WITHOUT_ERASING, ACTION_DECREMENT_VALUE]);
-
-	for (const action of BINDABLE_ACTIONS) {
+	for (const id of EDIT_MENU_ACTION_IDS) {
+		const action = actionById[id];
+		if (!action) continue;
 		items.push({
 			label: action.label,
 			type: 'normal',
 			action: action.id,
 			disabled: DISABLED_GETTERS[action.id]
 		});
-		if (dividerAfter.has(action.id)) {
+		if (dividerAfter.has(id)) {
 			items.push({ label: 'divider', type: 'divider' });
 		}
 	}
