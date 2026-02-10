@@ -37,6 +37,22 @@
 	);
 	const maxPoly = $derived(previewProcessors.length * 3);
 
+	$effect(() => {
+		updatePreview();
+	});
+
+	$effect(() => {
+		const keys = activeNotes.map((n) => n.key);
+		if (keys.length === 0) return;
+		function onWindowKeyUp(e: KeyboardEvent) {
+			if (keys.includes(e.key)) {
+				activeNotes = activeNotes.filter((n) => n.key !== e.key);
+			}
+		}
+		window.addEventListener('keyup', onWindowKeyUp);
+		return () => window.removeEventListener('keyup', onWindowKeyUp);
+	});
+
 	function parseHex4(s: string): number {
 		const n = parseInt(s.replace(/[^0-9a-fA-F]/g, '').slice(0, 4) || '0', 16);
 		return isNaN(n) ? 0 : Math.max(0, Math.min(0xffff, n));
@@ -105,10 +121,6 @@
 		});
 	}
 
-	$effect(() => {
-		updatePreview();
-	});
-
 	function handleNoteKeyDown(event: KeyboardEvent) {
 		if (event.repeat) return;
 		const key = event.key;
@@ -139,18 +151,6 @@
 		if (!activeNotes.some((n) => n.key === key)) return;
 		activeNotes = activeNotes.filter((n) => n.key !== key);
 	}
-
-	$effect(() => {
-		const keys = activeNotes.map((n) => n.key);
-		if (keys.length === 0) return;
-		function onWindowKeyUp(e: KeyboardEvent) {
-			if (keys.includes(e.key)) {
-				activeNotes = activeNotes.filter((n) => n.key !== e.key);
-			}
-		}
-		window.addEventListener('keyup', onWindowKeyUp);
-		return () => window.removeEventListener('keyup', onWindowKeyUp);
-	});
 
 	function clampEnvelopeValue() {
 		const s = envelopeValue

@@ -75,6 +75,10 @@ export class PatternNoteInput {
 			return { updatedPattern, shouldMoveNext: false };
 		}
 
+		if (this.isPianoKey(key)) {
+			return null;
+		}
+
 		const upperKey = key.toUpperCase();
 		if (upperKey === 'A') {
 			const updatedPattern = PatternValueUpdates.updateFieldValue(context, fieldInfo, 'OFF');
@@ -124,6 +128,10 @@ export class PatternNoteInput {
 			instrumentFieldInfo,
 			instrumentValue
 		);
+	}
+
+	static isPianoKey(key: string): boolean {
+		return key.length === 1 && key.toLowerCase() in this.PIANO_KEYBOARD_MAP;
 	}
 
 	static mapKeyboardKeyToNote(key: string): { noteName: NoteName; octave: number } | null {
