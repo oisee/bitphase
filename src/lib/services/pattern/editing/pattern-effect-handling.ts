@@ -19,6 +19,8 @@ export class PatternEffectHandling {
 			type = 'S';
 		} else if (effect.effect === 'P'.charCodeAt(0)) {
 			type = 'P';
+		} else if (effect.effect === 'E'.charCodeAt(0)) {
+			type = 'E';
 		} else if (effect.effect >= 1 && effect.effect <= 15) {
 			type = effect.effect.toString(16).toUpperCase();
 		} else {
@@ -54,6 +56,8 @@ export class PatternEffectHandling {
 			type = 'S'.charCodeAt(0);
 		} else if (typeChar === 'P' || typeChar === 'p') {
 			type = 'P'.charCodeAt(0);
+		} else if (typeChar === 'E' || typeChar === 'e') {
+			type = 'E'.charCodeAt(0);
 		} else {
 			type = parseInt(typeChar, 16) || 0;
 		}

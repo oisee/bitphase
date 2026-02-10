@@ -227,6 +227,7 @@ class AYAudioDriver {
 			state.envelopeVibratoSliding = 0;
 			state.envelopeArpeggioCounter = 0;
 			state.envelopeEffectTable = -1;
+			state.autoEnvelopeActive = false;
 			registerState.envelopePeriod = envelopeValueNum;
 		} else if (shapeSet && (envelopeValueNum === 0 || envelopeValueNum === null)) {
 			state.envelopeBaseValue = 0;
@@ -279,6 +280,7 @@ class AYAudioDriver {
 		const PORTAMENTO = 'P'.charCodeAt(0);
 		const VIBRATO = 'V'.charCodeAt(0);
 		const ON_OFF = 6;
+		const AUTO_ENVELOPE = 'E'.charCodeAt(0);
 
 		const isOtherEnvelopeEffect =
 			effect.effect === SLIDE_UP ||
@@ -394,6 +396,14 @@ class AYAudioDriver {
 			state.envelopeSlideDelta = 0;
 			state.envelopeSlideDelayCounter = 0;
 			state.envelopePortamentoActive = false;
+		} else if (effect.effect === AUTO_ENVELOPE) {
+			const numerator = (effect.parameter >> 4) & 0xf;
+			const denominator = effect.parameter & 0xf;
+			if (numerator > 0 && denominator > 0) {
+				state.autoEnvelopeActive = true;
+				state.autoEnvelopeNumerator = numerator;
+				state.autoEnvelopeDenominator = denominator;
+			}
 		}
 	}
 
@@ -708,7 +718,50 @@ class AYAudioDriver {
 		}
 
 		registerState.noise = (state.noiseBaseValue + state.noiseAddValue) & 0x1f;
+
+		if (state.autoEnvelopeActive) {
+			this.processAutoEnvelope(state, registerState);
+		}
+
 		this.updateEnvelopeWithSlide(state, registerState);
+	}
+
+	processAutoEnvelope(state, registerState) {
+		const envelopeShape = registerState.envelopeShape;
+		const divisor = this.getAutoEnvelopeDivisor(envelopeShape);
+		if (divisor === null) return;
+
+		for (let ch = state.channelInstruments.length - 1; ch >= 0; ch--) {
+			if (!state.channelEnvelopeEnabled[ch]) continue;
+			if (state.channelMuted[ch]) continue;
+			if (!state.channelSoundEnabled[ch]) continue;
+
+			const noteIndex = state.channelCurrentNotes[ch];
+			if (noteIndex < 0 || noteIndex >= state.currentTuningTable.length) continue;
+
+			const noteFreq = state.currentTuningTable[noteIndex];
+			if (noteFreq <= 0) continue;
+
+			const envelopeValue = Math.round(
+				(noteFreq * state.autoEnvelopeNumerator) /
+					(state.autoEnvelopeDenominator * divisor)
+			);
+			state.envelopeBaseValue = envelopeValue;
+			return;
+		}
+	}
+
+	getAutoEnvelopeDivisor(envelopeShape) {
+		switch (envelopeShape) {
+			case 8:
+			case 12:
+				return 16;
+			case 10:
+			case 14:
+				return 32;
+			default:
+				return null;
+		}
 	}
 
 	processEnvelopeVibrato(state) {

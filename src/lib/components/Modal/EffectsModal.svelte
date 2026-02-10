@@ -220,28 +220,74 @@
 			{/each}
 		</div>
 
-		<div
-			class="mt-6 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] p-4">
-			<h3 class="mb-2 font-bold text-[var(--color-app-text-primary)]">Envelope Effects</h3>
-			<p class="mb-2 text-[var(--color-app-text-secondary)]">
-				Envelope effects use the same effect codes as regular effects but are entered in the
-				envelope effect column.
-			</p>
-			<p class="text-[var(--color-app-text-secondary)]">
-				Format:
-				<code class="rounded bg-[var(--color-app-surface)] px-1 py-0.5 font-mono">
-					{#each getFormatSegments('AXYZ') as seg}
-						<span style="color: {seg.color}">{seg.char}</span>
-					{/each}
-				</code>
-				or
-				<code class="rounded bg-[var(--color-app-surface)] px-1 py-0.5 font-mono">
-					{#each getFormatSegments('AXTY') as seg}
-						<span style="color: {seg.color}">{seg.char}</span>
-					{/each}
-				</code>
-			</p>
+	<div
+		class="mt-6 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] p-4">
+		<h3 class="mb-2 font-bold text-[var(--color-app-text-primary)]">Envelope Effects</h3>
+		<p class="mb-2 text-[var(--color-app-text-secondary)]">
+			Envelope effects use the same effect codes as regular effects but are entered in the
+			envelope effect column.
+		</p>
+		<p class="mb-2 text-[var(--color-app-text-secondary)]">
+			Format:
+			<code class="rounded bg-[var(--color-app-surface)] px-1 py-0.5 font-mono">
+				{#each getFormatSegments('AXYZ') as seg}
+					<span style="color: {seg.color}">{seg.char}</span>
+				{/each}
+			</code>
+			or
+			<code class="rounded bg-[var(--color-app-surface)] px-1 py-0.5 font-mono">
+				{#each getFormatSegments('AXTY') as seg}
+					<span style="color: {seg.color}">{seg.char}</span>
+				{/each}
+			</code>
+		</p>
+	</div>
+
+	<div
+		class="mt-4 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] p-4">
+		<div class="mb-2 flex items-center gap-2">
+			<code
+				class="rounded bg-[var(--color-app-surface)] px-2 py-1 font-mono font-bold text-[var(--color-app-text-primary)]">
+				EA
+			</code>
+			<h3 class="font-bold text-[var(--color-app-text-primary)]">
+				Auto-Envelope (envelope effect only)
+			</h3>
 		</div>
+		<p class="mb-3 text-[var(--color-app-text-secondary)]">
+			Automatically calculates the envelope period from channel notes using a ratio.
+			When active, you only need to set the envelope shape in the channel column - the
+			envelope value is computed in real-time from the playing note.
+		</p>
+		<div class="mb-2 space-y-1">
+			<div>
+				<span class="font-medium text-[var(--color-app-text-primary)]">Format:</span>
+				<code class="ml-2 font-mono">
+					<span style="color: {COLOR.code}">E</span><span style="color: {COLOR.delay}">A</span><span style="color: {COLOR.parameter}">X</span><span style="color: {COLOR.parameter}">Y</span>
+				</code>
+			</div>
+			<div>
+				<span class="font-medium text-[var(--color-app-text-primary)]">Parameter:</span>
+				<span class="ml-2 text-[var(--color-app-text-secondary)]"
+					>X is numerator (1-F), Y is denominator (1-F) of the ratio X:Y</span>
+			</div>
+			<div>
+				<span class="font-medium text-[var(--color-app-text-primary)]">Example:</span>
+				<code class="ml-2 font-mono text-[var(--color-app-text-secondary)]"
+					>EA32 - Auto-envelope with ratio 3:2. If note is E-3 with shape C, envelope A-2 is used automatically</code>
+			</div>
+			<div>
+				<span class="font-medium text-[var(--color-app-text-primary)]">Shapes:</span>
+				<span class="ml-2 text-[var(--color-app-text-secondary)]"
+					>Works with envelope shapes 8, A, C, E (repeating shapes). Divisor is 16 for shapes 8/C, 32 for shapes A/E</span>
+			</div>
+			<div>
+				<span class="font-medium text-[var(--color-app-text-primary)]">Note:</span>
+				<span class="ml-2 text-[var(--color-app-text-secondary)]"
+					>Persists across rows until another envelope effect replaces it. Follows note changes from arpeggio and tables in real-time.</span>
+			</div>
+		</div>
+	</div>
 	</div>
 
 	<div
