@@ -1,5 +1,7 @@
 <script lang="ts">
 	import Button from '../Button/Button.svelte';
+	import { setupCanvas } from '../../utils/canvas-utils';
+	import { getFonts } from '../../utils/fonts';
 
 	let { resolve } = $props<{
 		resolve?: (value?: unknown) => void;
@@ -137,15 +139,18 @@
 		let lastLowH = 0;
 
 		function resize() {
-			const dpr = window.devicePixelRatio || 1;
 			const rect = containerRef.getBoundingClientRect();
 			const w = rect.width;
 			const h = rect.height;
-			canvasRef.width = Math.floor(w * dpr);
-			canvasRef.height = Math.floor(h * dpr);
-			canvasRef.style.width = `${w}px`;
-			canvasRef.style.height = `${h}px`;
-			ctxRef.setTransform(dpr, 0, 0, dpr, 0, 0);
+			setupCanvas({
+				canvas: canvasRef,
+				ctx: ctxRef,
+				width: w,
+				height: h,
+				fontSize: 8 * PIXEL_SCALE,
+				fonts: { ...getFonts(), mono: '"Press Start 2P", monospace' },
+				textBaseline: 'middle'
+			});
 		}
 
 		function draw(t: number) {
@@ -252,35 +257,36 @@
 			});
 			ctx.globalAlpha = 1;
 
-			ctx.font = '8px "Press Start 2P", monospace';
-			const chars = Array.from(SCROLLER_TEXT);
-			let textWidth = 0;
-			for (const c of chars) textWidth += ctx.measureText(c).width;
-			const scrollCycle = textWidth + lowW;
-			const scrollOffset = ((t / 1000) * SCROLLER_SPEED) % scrollCycle;
-			const baseY = lowH - 14;
-			const phase = (t / 1000) * SCROLLER_WAVE_SPEED;
+			ctxRef.imageSmoothingEnabled = false;
+			ctxRef.drawImage(offscreen, 0, 0, lowW, lowH, 0, 0, w, h);
 
-			function drawSinusScroller(ctxDraw: CanvasRenderingContext2D, startX: number) {
+			const chars = Array.from(SCROLLER_TEXT);
+			const charWidths = chars.map((c) => ctxRef.measureText(c).width);
+			const textWidthMain = charWidths.reduce((a, b) => a + b, 0);
+			const scrollCycleMain = textWidthMain + w;
+			const scrollOffsetMain =
+				((t / 1000) * SCROLLER_SPEED * PIXEL_SCALE) % scrollCycleMain;
+			const baseYMain = h - 14 * PIXEL_SCALE;
+			const phase = (t / 1000) * SCROLLER_WAVE_SPEED;
+			const amplitudeMain = SCROLLER_AMPLITUDE * PIXEL_SCALE;
+
+			function drawScrollerOnMain(startX: number) {
 				let x = startX;
 				for (let i = 0; i < chars.length; i++) {
-					const yOff = SCROLLER_AMPLITUDE * Math.sin(phase + i * SCROLLER_WAVE_FREQ);
-					const y = Math.floor(baseY + yOff);
+					const yOff = amplitudeMain * Math.sin(phase + i * SCROLLER_WAVE_FREQ);
+					const y = Math.round(baseYMain + yOff);
 					const char = chars[i];
-					const px = Math.floor(x);
-					ctxDraw.fillStyle = '#000';
-					ctxDraw.fillText(char, px + 1, y + 1);
-					ctxDraw.fillStyle = '#fff';
-					ctxDraw.fillText(char, px, y);
-					x += ctxDraw.measureText(char).width;
+					const px = Math.round(x);
+					ctxRef.fillStyle = '#000';
+					ctxRef.fillText(char, px + 1, y + 1);
+					ctxRef.fillStyle = '#fff';
+					ctxRef.fillText(char, px, y);
+					x += charWidths[i];
 				}
 			}
 
-			drawSinusScroller(ctx, lowW - scrollOffset);
-			drawSinusScroller(ctx, lowW - scrollOffset + scrollCycle);
-
-			ctxRef.imageSmoothingEnabled = false;
-			ctxRef.drawImage(offscreen, 0, 0, lowW, lowH, 0, 0, w, h);
+			drawScrollerOnMain(w - scrollOffsetMain);
+			drawScrollerOnMain(w - scrollOffsetMain + scrollCycleMain);
 		}
 
 		function loop(t: number) {
@@ -354,6 +360,7 @@
 		width: 100%;
 		height: 100%;
 		display: block;
+		image-rendering: crisp-edges;
 	}
 
 	.modal-footer {

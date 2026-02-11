@@ -657,6 +657,7 @@
 			canvas.style.fontFeatureSettings = "'liga' 0, 'calt' 0";
 			canvas.style.fontVariantLigatures = 'none';
 
+			ctx.font = fontString;
 			updateSize();
 
 			setupCanvasUtil({
@@ -1937,6 +1938,13 @@
 			lastFontSize = fontSize;
 			lastFontFamily = fontFamily;
 			lastChannelSeparatorWidth = channelSeparatorWidth;
+			requestAnimationFrame(() => {
+				if (ctx && canvas) {
+					updateSize();
+					setupCanvas();
+					draw();
+				}
+			});
 			return;
 		}
 

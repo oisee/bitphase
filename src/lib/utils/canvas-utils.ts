@@ -22,12 +22,13 @@ export function setupCanvas(options: CanvasSetupOptions): void {
 	} = options;
 
 	const dpr = window.devicePixelRatio || 1;
-	canvas.width = width * dpr;
-	canvas.height = height * dpr;
+	const scale = Math.max(1, Math.ceil(dpr));
+	canvas.width = Math.round(width * scale);
+	canvas.height = Math.round(height * scale);
 	canvas.style.width = `${width}px`;
 	canvas.style.height = `${height}px`;
 
-	ctx.scale(dpr, dpr);
+	ctx.scale(scale, scale);
 	ctx.font = `${fontSize}px ${fonts.mono}`;
 	ctx.textAlign = textAlign;
 	ctx.textBaseline = textBaseline;
