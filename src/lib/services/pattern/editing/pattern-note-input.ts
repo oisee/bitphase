@@ -86,7 +86,7 @@ export class PatternNoteInput {
 		}
 
 		if (this.LETTER_NOTE_MAP[upperKey]) {
-			const currentOctave = editorStateStore.get().octave;
+			const currentOctave = editorStateStore.octave;
 			const noteStr = formatNoteFromEnum(this.LETTER_NOTE_MAP[upperKey], currentOctave);
 			let updatedPattern = PatternValueUpdates.updateFieldValue(context, fieldInfo, noteStr);
 			updatedPattern = this.autoEnterInstrument(context, fieldInfo, updatedPattern);
@@ -101,7 +101,7 @@ export class PatternNoteInput {
 		fieldInfo: FieldInfo,
 		pattern: Pattern
 	): Pattern {
-		const autoEnterEnabled = settingsStore.get().autoEnterInstrument;
+		const autoEnterEnabled = settingsStore.autoEnterInstrument;
 		if (!autoEnterEnabled || fieldInfo.isGlobal || fieldInfo.channelIndex < 0) {
 			return pattern;
 		}
@@ -111,7 +111,7 @@ export class PatternNoteInput {
 			return pattern;
 		}
 
-		const currentInstrumentId = editorStateStore.get().currentInstrument;
+		const currentInstrumentId = editorStateStore.currentInstrument;
 		const instrumentValue = parseSymbol(currentInstrumentId, instrumentFieldDef.length);
 
 		const instrumentFieldInfo: FieldInfo = {
@@ -141,7 +141,7 @@ export class PatternNoteInput {
 			return null;
 		}
 
-		const currentOctave = editorStateStore.get().octave;
+		const currentOctave = editorStateStore.octave;
 		const calculatedOctave = currentOctave + keyMapping.octaveOffset;
 
 		if (calculatedOctave < 0 || calculatedOctave > 8) {

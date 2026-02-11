@@ -1,17 +1,13 @@
 import type { Theme } from '../types/theme';
 
-let editingTheme = $state<{ theme: Theme; isNew: boolean } | null>(null);
-let onSaveCallback = $state<(() => void) | null>(null);
+class ThemeEditorStore {
+	editingTheme = $state<{ theme: Theme; isNew: boolean } | null>(null);
+	onSaveCallback = $state<(() => void) | null>(null);
 
-export const themeEditorStore = {
-	get editingTheme() {
-		return editingTheme;
-	},
-	setEditingTheme(theme: Theme | null, isNew: boolean, onSave?: () => void) {
-		editingTheme = theme ? { theme, isNew } : null;
-		onSaveCallback = onSave || null;
-	},
-	get onSaveCallback() {
-		return onSaveCallback;
+	setEditingTheme(theme: Theme | null, isNew: boolean, onSave?: () => void): void {
+		this.editingTheme = theme ? { theme, isNew } : null;
+		this.onSaveCallback = onSave || null;
 	}
-};
+}
+
+export const themeEditorStore = new ThemeEditorStore();

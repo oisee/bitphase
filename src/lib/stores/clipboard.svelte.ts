@@ -17,19 +17,21 @@ export interface ClipboardData {
 }
 
 class ClipboardStore {
-	private data: ClipboardData | null = $state(null);
+	clipboardData: ClipboardData | null = $state(null);
 
 	get hasData(): boolean {
-		return this.data !== null && this.data.cells.length > 0;
+		return this.clipboardData !== null && this.clipboardData.cells.length > 0;
 	}
 
-	get clipboardData(): ClipboardData | null {
-		return this.data;
-	}
-
-	copy(cells: ClipboardCell[], minRow: number, minColumn: number, maxRow: number, maxColumn: number): void {
-		this.data = {
-			cells: cells.map(cell => ({ ...cell })),
+	copy(
+		cells: ClipboardCell[],
+		minRow: number,
+		minColumn: number,
+		maxRow: number,
+		maxColumn: number
+	): void {
+		this.clipboardData = {
+			cells: cells.map((cell) => ({ ...cell })),
 			minRow,
 			minColumn,
 			maxRow,
@@ -40,9 +42,8 @@ class ClipboardStore {
 	}
 
 	clear(): void {
-		this.data = null;
+		this.clipboardData = null;
 	}
 }
 
 export const clipboardStore = new ClipboardStore();
-

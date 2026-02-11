@@ -7,27 +7,6 @@ const defaults: Record<string, string> = Object.fromEntries(
 	BINDABLE_ACTIONS.map((a) => [a.id, a.defaultShortcut])
 );
 
-let overridesState = $state<Record<string, string>>({});
-
-const conflictingActionIds = $derived.by(() => {
-	const byShortcut = new Map<string, string[]>();
-	for (const action of BINDABLE_ACTIONS) {
-		const shortcut = ShortcutString.normalizeForComparison(
-			overridesState[action.id] ?? defaults[action.id] ?? ''
-		);
-		const list = byShortcut.get(shortcut) ?? [];
-		list.push(action.id);
-		byShortcut.set(shortcut, list);
-	}
-	const ids = new Set<string>();
-	for (const list of byShortcut.values()) {
-		if (list.length > 1) {
-			for (const id of list) ids.add(id);
-		}
-	}
-	return ids;
-});
-
 function loadOverrides(): Record<string, string> {
 	try {
 		const raw = localStorage.getItem(STORAGE_KEY);
@@ -43,32 +22,53 @@ function saveOverrides(overrides: Record<string, string>): void {
 	localStorage.setItem(STORAGE_KEY, JSON.stringify(overrides));
 }
 
-export const keybindingsStore = {
-	init() {
-		overridesState = loadOverrides();
-	},
+class KeybindingsStore {
+	overrides = $state<Record<string, string>>({});
+
+	get conflictingActionIds(): Set<string> {
+		const byShortcut = new Map<string, string[]>();
+		for (const action of BINDABLE_ACTIONS) {
+			const shortcut = ShortcutString.normalizeForComparison(
+				this.overrides[action.id] ?? defaults[action.id] ?? ''
+			);
+			const list = byShortcut.get(shortcut) ?? [];
+			list.push(action.id);
+			byShortcut.set(shortcut, list);
+		}
+		const ids = new Set<string>();
+		for (const list of byShortcut.values()) {
+			if (list.length > 1) {
+				for (const id of list) ids.add(id);
+			}
+		}
+		return ids;
+	}
+
+	init(): void {
+		this.overrides = loadOverrides();
+	}
 
 	getShortcut(actionId: string): string {
-		return overridesState[actionId] ?? defaults[actionId] ?? '';
-	},
+		return this.overrides[actionId] ?? defaults[actionId] ?? '';
+	}
 
 	setShortcut(actionId: string, shortcut: string): void {
 		if (!(actionId in defaults)) return;
-		overridesState = { ...overridesState, [actionId]: shortcut };
-		saveOverrides(overridesState);
-	},
+		this.overrides = { ...this.overrides, [actionId]: shortcut };
+		saveOverrides(this.overrides);
+	}
 
 	resetShortcut(actionId: string): void {
-		const next = { ...overridesState };
+		const next = { ...this.overrides };
 		delete next[actionId];
-		overridesState = next;
-		saveOverrides(overridesState);
-	},
+		this.overrides = next;
+		saveOverrides(this.overrides);
+	}
 
 	resetAll(): void {
-		overridesState = {};
-		saveOverrides(overridesState);
-	},
+		this.overrides = {};
+		saveOverrides(this.overrides);
+	}
 
 	getActionForShortcut(shortcut: string): string | null {
 		const normalized = ShortcutString.normalizeForComparison(shortcut);
@@ -79,9 +79,7 @@ export const keybindingsStore = {
 			}
 		}
 		return null;
-	},
-
-	get conflictingActionIds(): Set<string> {
-		return conflictingActionIds;
 	}
-};
+}
+
+export const keybindingsStore = new KeybindingsStore();

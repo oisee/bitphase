@@ -1,13 +1,13 @@
 const WAVEFORM_FRAME_SIZE = 512;
 const WAVEFORM_DISPLAY_LENGTH = 1536;
 
-let channelDataByChip: Float32Array[][] = $state([]);
-let writeIndexByChip: number[] = $state([]);
+class WaveformStore {
+	private channelDataByChip: Float32Array[][] = $state([]);
+	private writeIndexByChip: number[] = $state([]);
 
-export const waveformStore = {
 	get channels(): Float32Array[] {
-		return channelDataByChip.flatMap((chipBuffers, chipIndex) => {
-			const writeIndex = writeIndexByChip[chipIndex] ?? 0;
+		return this.channelDataByChip.flatMap((chipBuffers, chipIndex) => {
+			const writeIndex = this.writeIndexByChip[chipIndex] ?? 0;
 			return chipBuffers.map((buf) => {
 				const out = new Float32Array(buf.length);
 				for (let i = 0; i < buf.length; i++) {
@@ -16,34 +16,35 @@ export const waveformStore = {
 				return out;
 			});
 		});
-	},
+	}
 
 	setChannels(chipIndex: number, channels: Float32Array[]): void {
-		while (channelDataByChip.length <= chipIndex) {
-			channelDataByChip = [...channelDataByChip, []];
-			writeIndexByChip = [...writeIndexByChip, 0];
+		while (this.channelDataByChip.length <= chipIndex) {
+			this.channelDataByChip = [...this.channelDataByChip, []];
+			this.writeIndexByChip = [...this.writeIndexByChip, 0];
 		}
 		const ringSize = WAVEFORM_DISPLAY_LENGTH;
-		let writeIndex = writeIndexByChip[chipIndex] ?? 0;
-		const existing = channelDataByChip[chipIndex];
+		let writeIndex = this.writeIndexByChip[chipIndex] ?? 0;
+		const existing = this.channelDataByChip[chipIndex];
 		const newBuffers = channels.map((buf, ch) => {
-			const ring = existing[ch]?.length === ringSize
-				? existing[ch]
-				: new Float32Array(ringSize);
+			const ring =
+				existing[ch]?.length === ringSize ? existing[ch] : new Float32Array(ringSize);
 			for (let i = 0; i < buf.length; i++) {
 				ring[(writeIndex + i) % ringSize] = buf[i];
 			}
 			return ring;
 		});
 		writeIndex = (writeIndex + WAVEFORM_FRAME_SIZE) % ringSize;
-		channelDataByChip = channelDataByChip.slice();
-		channelDataByChip[chipIndex] = newBuffers;
-		writeIndexByChip = writeIndexByChip.slice();
-		writeIndexByChip[chipIndex] = writeIndex;
-	},
+		this.channelDataByChip = this.channelDataByChip.slice();
+		this.channelDataByChip[chipIndex] = newBuffers;
+		this.writeIndexByChip = this.writeIndexByChip.slice();
+		this.writeIndexByChip[chipIndex] = writeIndex;
+	}
 
 	clear(): void {
-		channelDataByChip = [];
-		writeIndexByChip = [];
+		this.channelDataByChip = [];
+		this.writeIndexByChip = [];
 	}
-};
+}
+
+export const waveformStore = new WaveformStore();

@@ -484,7 +484,7 @@
 			</div>
 		{#if projectStore.songs.length > 0 && activeEditorIndex < projectStore.songs.length}
 			<div class="flex shrink-0 flex-col border-t border-[var(--color-app-border)]/50">
-				{#if settingsStore.get().showInstrumentPreview && chipProcessors[activeEditorIndex].chip.previewRow}
+				{#if settingsStore.showInstrumentPreview && chipProcessors[activeEditorIndex].chip.previewRow}
 					{@const PreviewRow = chipProcessors[activeEditorIndex].chip.previewRow}
 					<div class="flex flex-col gap-2 bg-[var(--color-app-surface)] px-2 py-3">
 						<span
@@ -492,10 +492,10 @@
 							<IconCarbonPlay class="h-3.5 w-3.5 shrink-0" />Preview playground</span>
 						<PreviewRow
 							chip={chipProcessors[activeEditorIndex].chip}
-							instrumentId={editorStateStore.get().currentInstrument} />
+							instrumentId={editorStateStore.currentInstrument} />
 					</div>
 				{/if}
-				{#if settingsStore.get().showOscilloscopes}
+				{#if settingsStore.showOscilloscopes}
 					<div class="border-t border-[var(--color-app-border)]/50">
 						<ChannelOscilloscopes
 							channelLabels={projectStore.songs.flatMap((_, i) =>

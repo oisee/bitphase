@@ -1,35 +1,35 @@
 type ChannelMuteState = Map<number, boolean[]>;
 
-let channelMuteState: ChannelMuteState = $state(new Map());
+class ChannelMuteStore {
+	muteState: ChannelMuteState = $state(new Map());
 
-function ensureChipMutes(chipIndex: number): boolean[] {
-	if (!channelMuteState.has(chipIndex)) {
-		channelMuteState.set(chipIndex, []);
+	private ensureChipMutes(chipIndex: number): boolean[] {
+		if (!this.muteState.has(chipIndex)) {
+			this.muteState.set(chipIndex, []);
+		}
+		return this.muteState.get(chipIndex)!;
 	}
-	return channelMuteState.get(chipIndex)!;
-}
 
-export const channelMuteStore = {
-	get isChannelMuted() {
-		return (chipIndex: number, channelIndex: number): boolean => {
-			const chipMutes = channelMuteState.get(chipIndex);
-			return chipMutes ? (chipMutes[channelIndex] ?? false) : false;
-		};
-	},
+	isChannelMuted(chipIndex: number, channelIndex: number): boolean {
+		const chipMutes = this.muteState.get(chipIndex);
+		return chipMutes ? (chipMutes[channelIndex] ?? false) : false;
+	}
 
 	toggleChannel(chipIndex: number, channelIndex: number): void {
-		const chipMutes = ensureChipMutes(chipIndex);
+		const chipMutes = this.ensureChipMutes(chipIndex);
 		chipMutes[channelIndex] = !(chipMutes[channelIndex] ?? false);
-		channelMuteState = new Map(channelMuteState);
-	},
+		this.muteState = new Map(this.muteState);
+	}
 
 	setChannelMuted(chipIndex: number, channelIndex: number, muted: boolean): void {
-		const chipMutes = ensureChipMutes(chipIndex);
+		const chipMutes = this.ensureChipMutes(chipIndex);
 		chipMutes[channelIndex] = muted;
-		channelMuteState = new Map(channelMuteState);
-	},
+		this.muteState = new Map(this.muteState);
+	}
 
 	getAllMuteStates(): ChannelMuteState {
-		return new Map(channelMuteState);
+		return new Map(this.muteState);
 	}
-};
+}
+
+export const channelMuteStore = new ChannelMuteStore();

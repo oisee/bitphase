@@ -55,7 +55,7 @@
 		resolve?.(undefined);
 	}
 
-	const monoFont = $derived(settingsStore.state.patternEditorFontFamily || 'monospace');
+	const monoFont = $derived(settingsStore.patternEditorFontFamily || 'monospace');
 </script>
 
 <div class="flex max-h-[90vh] w-[700px] flex-col overflow-hidden">

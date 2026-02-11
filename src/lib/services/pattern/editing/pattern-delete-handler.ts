@@ -26,7 +26,7 @@ export class PatternDeleteHandler {
 				return null;
 			}
 			let updatedPattern = PatternValueUpdates.updateFieldValue(context, fieldInfo, '---');
-			if (settingsStore.get().autoEnterInstrument) {
+			if (settingsStore.autoEnterInstrument) {
 				const instrumentFieldDef = context.schema.fields?.instrument;
 				if (instrumentFieldDef) {
 					const instrumentFieldInfo: FieldInfo = {

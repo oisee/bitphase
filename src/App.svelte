@@ -44,7 +44,7 @@
 	});
 
 	$effect(() => {
-		const activeThemeId = themeStore.state.activeThemeId;
+		const activeThemeId = themeStore.activeThemeId;
 		if (activeThemeId === lastAppliedThemeId) return;
 
 		const activeTheme = themeStore.getActiveTheme();
@@ -63,17 +63,17 @@
 	container.audioService.addChipProcessor(AY_CHIP);
 
 	$effect(() => {
-		const volume = settingsStore.state.volume;
+		const volume = settingsStore.volume;
 		container.audioService.setVolume(volume);
 	});
 
 	$effect(() => {
-		const envelopeAsNote = settingsStore.state.envelopeAsNote;
+		const envelopeAsNote = settingsStore.envelopeAsNote;
 		editorStateStore.setEnvelopeAsNote(envelopeAsNote);
 	});
 
 	$effect(() => {
-		const uiFontFamily = settingsStore.state.uiFontFamily;
+		const uiFontFamily = settingsStore.uiFontFamily;
 		if (uiFontFamily) {
 			document.documentElement.style.setProperty(
 				'--font-sans',

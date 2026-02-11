@@ -10,7 +10,10 @@ import { parseNoteFromString, formatNoteFromEnum } from '../../../../../src/lib/
 
 vi.mock('../../../../../src/lib/stores/editor-state.svelte', () => ({
 	editorStateStore: {
-		get: () => ({ octave: 3, step: 1 })
+		octave: 3,
+		step: 1,
+		envelopeAsNote: false,
+		currentInstrument: '01'
 	}
 }));
 

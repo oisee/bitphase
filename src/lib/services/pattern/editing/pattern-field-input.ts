@@ -14,7 +14,7 @@ export class PatternFieldInput {
 		key: string
 	): { updatedPattern: Pattern; shouldMoveNext: boolean } | null {
 		if (fieldInfo.fieldKey === 'envelopeValue' && context.tuningTable) {
-			const envelopeAsNote = editorStateStore.get().envelopeAsNote;
+			const envelopeAsNote = editorStateStore.envelopeAsNote;
 			if (envelopeAsNote) {
 				const noteInputResult = PatternEnvelopeNoteInput.handleEnvelopeNoteInput(
 					context,

@@ -3,8 +3,6 @@ import { defaultUserScripts } from '../config/user-scripts';
 
 const STORAGE_KEY = 'user-scripts';
 
-let customScripts = $state<UserScript[]>([]);
-
 function loadFromStorage(): UserScript[] {
 	try {
 		const stored = localStorage.getItem(STORAGE_KEY);
@@ -25,65 +23,63 @@ function saveToStorage(scripts: UserScript[]): void {
 	}
 }
 
-export const userScriptsStore = {
-	init() {
-		customScripts = loadFromStorage();
-	},
+class UserScriptsStore {
+	customScripts = $state<UserScript[]>([]);
 
 	get scripts(): UserScript[] {
-		return [...defaultUserScripts, ...customScripts];
-	},
-
-	get customScripts(): UserScript[] {
-		return customScripts;
-	},
+		return [...defaultUserScripts, ...this.customScripts];
+	}
 
 	get defaultScripts(): UserScript[] {
 		return defaultUserScripts;
-	},
+	}
+
+	init(): void {
+		this.customScripts = loadFromStorage();
+	}
 
 	isBuiltIn(scriptId: string): boolean {
 		return defaultUserScripts.some((s) => s.id === scriptId);
-	},
+	}
 
 	add(script: UserScript): void {
-		const existingIndex = customScripts.findIndex((s) => s.id === script.id);
+		const existingIndex = this.customScripts.findIndex((s) => s.id === script.id);
 		if (existingIndex >= 0) {
-			customScripts = [
-				...customScripts.slice(0, existingIndex),
+			this.customScripts = [
+				...this.customScripts.slice(0, existingIndex),
 				script,
-				...customScripts.slice(existingIndex + 1)
+				...this.customScripts.slice(existingIndex + 1)
 			];
 		} else {
-			customScripts = [...customScripts, script];
+			this.customScripts = [...this.customScripts, script];
 		}
-		saveToStorage(customScripts);
-	},
+		saveToStorage(this.customScripts);
+	}
 
 	update(script: UserScript): void {
-		const index = customScripts.findIndex((s) => s.id === script.id);
+		const index = this.customScripts.findIndex((s) => s.id === script.id);
 		if (index >= 0) {
-			customScripts = [
-				...customScripts.slice(0, index),
+			this.customScripts = [
+				...this.customScripts.slice(0, index),
 				script,
-				...customScripts.slice(index + 1)
+				...this.customScripts.slice(index + 1)
 			];
-			saveToStorage(customScripts);
+			saveToStorage(this.customScripts);
 		}
-	},
+	}
 
 	remove(scriptId: string): void {
-		customScripts = customScripts.filter((s) => s.id !== scriptId);
-		saveToStorage(customScripts);
-	},
+		this.customScripts = this.customScripts.filter((s) => s.id !== scriptId);
+		saveToStorage(this.customScripts);
+	}
 
 	exportScript(script: UserScript): string {
 		return JSON.stringify(script, null, 2);
-	},
+	}
 
 	exportAll(): string {
-		return JSON.stringify(customScripts, null, 2);
-	},
+		return JSON.stringify(this.customScripts, null, 2);
+	}
 
 	importScript(json: string): UserScript | null {
 		try {
@@ -95,7 +91,7 @@ export const userScriptsStore = {
 			console.error('Failed to parse script JSON:', e);
 		}
 		return null;
-	},
+	}
 
 	importAll(json: string): UserScript[] {
 		try {
@@ -108,4 +104,6 @@ export const userScriptsStore = {
 		}
 		return [];
 	}
-};
+}
+
+export const userScriptsStore = new UserScriptsStore();

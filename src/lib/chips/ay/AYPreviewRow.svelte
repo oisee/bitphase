@@ -139,7 +139,7 @@
 			const letterNote = PatternNoteInput.getLetterNote(event.key);
 			if (letterNote) {
 				event.preventDefault();
-				const octave = editorStateStore.get().octave;
+				const octave = editorStateStore.octave;
 				noteStr = formatNoteFromEnum(letterNote, octave);
 			} else return;
 		}

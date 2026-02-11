@@ -2,34 +2,47 @@ import type { Settings } from '../components/Settings/types';
 import { settingsItems } from '../config/settings';
 
 const STORAGE_KEY = 'settings';
-let settingsState = $state({} as Settings);
 
-export const settingsStore = {
-	init() {
-		const settings = localStorage.getItem(STORAGE_KEY);
+class SettingsStore {
+	volume = $state(60);
+	envelopeAsNote = $state(false);
+	autoEnterInstrument = $state(false);
+	patternEditorFontSize = $state(14);
+	patternEditorFontFamily = $state('monospace');
+	uiFontFamily = $state('Fira Code');
+	channelSeparatorWidth = $state(1);
+	decimalRowNumbers = $state(false);
+	showOscilloscopes = $state(true);
+	showInstrumentPreview = $state(true);
 
-		const defaultSettings: Partial<Settings> = {};
+	init(): void {
+		const stored = localStorage.getItem(STORAGE_KEY);
+		const defaults = Object.fromEntries(
+			settingsItems.map((item) => [item.setting, item.defaultValue])
+		);
+		const merged = stored
+			? { ...defaults, ...(JSON.parse(stored) as Partial<Settings>) }
+			: defaults;
+
 		for (const item of settingsItems) {
-			defaultSettings[item.setting] = item.defaultValue as never;
+			(this as Record<string, unknown>)[item.setting] =
+				merged[item.setting as keyof typeof merged];
 		}
-
-		if (settings) {
-			const parsedSettings = JSON.parse(settings) as Partial<Settings>;
-			settingsState = { ...defaultSettings, ...parsedSettings } as Settings;
-			localStorage.setItem(STORAGE_KEY, JSON.stringify(settingsState));
-		} else {
-			settingsState = defaultSettings as Settings;
-			localStorage.setItem(STORAGE_KEY, JSON.stringify(settingsState));
-		}
-	},
-	get state() {
-		return settingsState;
-	},
-	get: (): Settings => {
-		return settingsState;
-	},
-	set: <K extends keyof Settings>(key: K, value: Settings[K]) => {
-		settingsState = { ...settingsState, [key]: value };
-		localStorage.setItem(STORAGE_KEY, JSON.stringify(settingsState));
+		this.save();
 	}
-};
+
+	set<K extends keyof Settings>(key: K, value: Settings[K]): void {
+		(this as Record<string, unknown>)[key] = value;
+		this.save();
+	}
+
+	private save(): void {
+		const data: Record<string, unknown> = {};
+		for (const item of settingsItems) {
+			data[item.setting] = (this as Record<string, unknown>)[item.setting];
+		}
+		localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+	}
+}
+
+export const settingsStore = new SettingsStore();

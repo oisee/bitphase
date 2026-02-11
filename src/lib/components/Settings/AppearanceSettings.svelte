@@ -19,7 +19,7 @@
 	}>();
 
 	const allThemes = $derived(themeStore.getAllThemes());
-	const activeThemeId = $derived(themeStore.state.activeThemeId);
+	const activeThemeId = $derived(themeStore.activeThemeId);
 	const customThemes = $derived(themeStore.getCustomThemes());
 
 	const groupedSettings = $derived.by(() => {

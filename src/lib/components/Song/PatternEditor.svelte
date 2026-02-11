@@ -155,7 +155,7 @@
 			if (versionChanged) {
 				previousTuningTableVersion = tuningTableVersion;
 			}
-			const newEnvelopeAsNote = editorStateStore.get().envelopeAsNote;
+			const newEnvelopeAsNote = editorStateStore.envelopeAsNote;
 
 			const result = EnvelopeModeService.handleModeChange(
 				{ patterns },
@@ -187,7 +187,7 @@
 
 	$effect(() => {
 		const baseFormatter = formatter as { decimalRowNumbers?: boolean };
-		const newDecimalRowNumbers = settingsStore.state.decimalRowNumbers;
+		const newDecimalRowNumbers = settingsStore.decimalRowNumbers;
 
 		if (previousDecimalRowNumbers !== newDecimalRowNumbers) {
 			baseFormatter.decimalRowNumbers = newDecimalRowNumbers;
@@ -207,13 +207,13 @@
 
 	let COLORS = $state(getColors());
 	let FONTS = $derived.by(() => {
-		settingsStore.state.uiFontFamily;
+		settingsStore.uiFontFamily;
 		return getFonts();
 	});
 
-	let fontSize = $derived(settingsStore.state.patternEditorFontSize);
-	let fontFamily = $derived(settingsStore.state.patternEditorFontFamily);
-	let channelSeparatorWidth = $derived(settingsStore.state.channelSeparatorWidth);
+	let fontSize = $derived(settingsStore.patternEditorFontSize);
+	let fontFamily = $derived(settingsStore.patternEditorFontFamily);
+	let channelSeparatorWidth = $derived(settingsStore.channelSeparatorWidth);
 	let canvasWidth = $state(PATTERN_EDITOR_CONSTANTS.DEFAULT_CANVAS_WIDTH);
 	let canvasHeight = $state(PATTERN_EDITOR_CONSTANTS.DEFAULT_CANVAS_HEIGHT);
 	let lineHeight = $derived(fontSize * PATTERN_EDITOR_CONSTANTS.LINE_HEIGHT_MULTIPLIER);
@@ -1174,7 +1174,7 @@
 				}
 			}
 
-			const step = editorStateStore.get().step;
+			const step = editorStateStore.step;
 			if (step > 0) {
 				moveRow(step);
 			}
@@ -1489,7 +1489,7 @@
 				};
 			},
 			tuningTable,
-			getOctave: () => editorStateStore.get().octave
+			getOctave: () => editorStateStore.octave
 		};
 	}
 
@@ -1630,7 +1630,7 @@
 			);
 		} else if (
 			fieldInfo.fieldKey === 'envelopeValue' &&
-			editorStateStore.get().envelopeAsNote &&
+			editorStateStore.envelopeAsNote &&
 			tuningTable
 		) {
 			const currentPeriod = (currentValue as number) ?? 0;

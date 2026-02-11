@@ -22,7 +22,7 @@ export class PatternEnvelopeNoteInput {
 			const envelopePeriod = noteStringToEnvelopePeriod(
 				noteStr,
 				context.tuningTable,
-				editorStateStore.get().octave
+				editorStateStore.octave
 			);
 			const updatedPattern = PatternValueUpdates.updateFieldValue(
 				context,
@@ -40,7 +40,7 @@ export class PatternEnvelopeNoteInput {
 
 		const letterNote = PatternNoteInput.getLetterNote(key);
 		if (letterNote) {
-			const currentOctave = editorStateStore.get().octave;
+			const currentOctave = editorStateStore.octave;
 			const noteStr = formatNoteFromEnum(letterNote, currentOctave);
 			const envelopePeriod = noteStringToEnvelopePeriod(
 				noteStr,

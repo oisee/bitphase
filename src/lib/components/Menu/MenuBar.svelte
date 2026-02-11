@@ -33,13 +33,9 @@
 	} = $props();
 
 	const hasAYSong = $derived(projectStore.songs.some((song) => song.chipType === 'ay'));
-	const editorState = $derived(editorStateStore.get());
-	const settings = $derived(settingsStore.get());
-
 	function handleVolumeChange(event: Event) {
 		const target = event.target as HTMLInputElement;
-		settings.volume = Number(target.value);
-		settingsStore.set('volume', settings.volume);
+		settingsStore.set('volume', Number(target.value));
 	}
 
 	function handleMenuOpen(data: { label: string }) {
@@ -59,7 +55,7 @@
 	}
 
 	function commitOctave() {
-		const octave = parseInt(editorState.octave.toString(), 10);
+		const octave = parseInt(editorStateStore.octave.toString(), 10);
 		if (!isNaN(octave) && octave >= 0 && octave <= 8) {
 			editorStateStore.setOctave(octave);
 		} else {
@@ -68,7 +64,7 @@
 	}
 
 	function commitStep() {
-		const step = parseInt(editorState.step.toString(), 10);
+		const step = parseInt(editorStateStore.step.toString(), 10);
 		if (!isNaN(step) && step >= 0 && step <= 255) {
 			editorStateStore.setStep(step);
 		} else {
@@ -77,28 +73,24 @@
 	}
 
 	function incrementOctave() {
-		const current = editorState.octave;
-		if (current < 8) {
-			editorStateStore.setOctave(current + 1);
+		if (editorStateStore.octave < 8) {
+			editorStateStore.setOctave(editorStateStore.octave + 1);
 		}
 	}
 
 	function decrementOctave() {
-		const current = editorState.octave;
-		if (current > 0) {
-			editorStateStore.setOctave(current - 1);
+		if (editorStateStore.octave > 0) {
+			editorStateStore.setOctave(editorStateStore.octave - 1);
 		}
 	}
 
 	function incrementStep() {
-		const current = editorState.step;
-		editorStateStore.setStep(current + 1);
+		editorStateStore.setStep(editorStateStore.step + 1);
 	}
 
 	function decrementStep() {
-		const current = editorState.step;
-		if (current > 0) {
-			editorStateStore.setStep(current - 1);
+		if (editorStateStore.step > 0) {
+			editorStateStore.setStep(editorStateStore.step - 1);
 		}
 	}
 
@@ -159,7 +151,7 @@
 			<div
 				class="flex items-center rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)]">
 				<Input
-					bind:value={editorState.octave}
+					bind:value={editorStateStore.octave}
 					id="octave-input"
 					type="number"
 					min={0}
@@ -202,7 +194,7 @@
 			<div
 				class="flex items-center rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)]">
 				<Input
-					bind:value={editorState.step}
+					bind:value={editorStateStore.step}
 					id="step-input"
 					type="number"
 					class="h-6 w-10 border-0 bg-transparent text-center font-mono text-xs focus:ring-0"
@@ -334,9 +326,9 @@
 						class="h-3.5 w-3.5 shrink-0 text-[var(--color-app-text-muted)]" />
 					<Checkbox
 						showStatus={false}
-						bind:checked={editorState.envelopeAsNote}
+						bind:checked={editorStateStore.envelopeAsNote}
 						onchange={() => {
-							editorStateStore.setEnvelopeAsNote(!editorState.envelopeAsNote);
+							editorStateStore.setEnvelopeAsNote(!editorStateStore.envelopeAsNote);
 						}}
 						title="Envelope as Note" />
 					<span
@@ -347,11 +339,11 @@
 		{/if}
 		<div
 			class="flex items-center gap-1 border-l border-[var(--color-app-border)]"
-			title="Volume: {settings.volume}%">
-			{#if settings.volume === 0}
+			title="Volume: {settingsStore.volume}%">
+			{#if settingsStore.volume === 0}
 				<IconCarbonVolumeMute
 					class="h-3.5 w-3.5 shrink-0 text-[var(--color-app-text-muted)]" />
-			{:else if settings.volume < 50}
+			{:else if settingsStore.volume < 50}
 				<IconCarbonVolumeDown
 					class="h-3.5 w-3.5 shrink-0 text-[var(--color-app-text-muted)]" />
 			{:else}
@@ -363,13 +355,13 @@
 				min={0}
 				max={100}
 				step={1}
-				value={settings.volume}
+				value={settingsStore.volume}
 				oninput={handleVolumeChange}
 				class="w-20 cursor-pointer min-[1880px]:w-32"
-				title="Volume: {settings.volume}%" />
+				title="Volume: {settingsStore.volume}%" />
 			<span
 				class="mr-1 hidden w-4 text-right font-mono text-xs text-[var(--color-app-text-tertiary)] min-[1880px]:inline"
-				>{settings.volume}</span>
+				>{settingsStore.volume}</span>
 		</div>
 	</div>
 

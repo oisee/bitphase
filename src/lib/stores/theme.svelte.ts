@@ -6,15 +6,9 @@ const STORAGE_KEY_CUSTOM_THEMES = 'custom-themes';
 const DEFAULT_THEME_ID = 'catppuccin-mocha';
 
 class ThemeStore {
-	private _state = $state({
-		activeThemeId: DEFAULT_THEME_ID,
-		customThemes: [] as Theme[],
-		previewColors: null as Theme['colors'] | null
-	});
-
-	get state() {
-		return this._state;
-	}
+	activeThemeId = $state(DEFAULT_THEME_ID);
+	customThemes = $state<Theme[]>([]);
+	previewColors = $state<Theme['colors'] | null>(null);
 
 	init(themeService?: { applyTheme: (theme: Theme) => void }): void {
 		if (typeof window === 'undefined') return;
@@ -24,16 +18,16 @@ class ThemeStore {
 
 		if (savedCustomThemes) {
 			try {
-				this._state.customThemes = JSON.parse(savedCustomThemes);
+				this.customThemes = JSON.parse(savedCustomThemes);
 			} catch {
-				this._state.customThemes = [];
+				this.customThemes = [];
 			}
 		}
 
 		if (savedThemeId && this.getAllThemes().some((t) => t.id === savedThemeId)) {
-			this._state.activeThemeId = savedThemeId;
+			this.activeThemeId = savedThemeId;
 		} else {
-			this._state.activeThemeId = DEFAULT_THEME_ID;
+			this.activeThemeId = DEFAULT_THEME_ID;
 		}
 
 		const activeTheme = this.getActiveTheme();
@@ -43,63 +37,63 @@ class ThemeStore {
 	}
 
 	getActiveTheme(): Theme | undefined {
-		return this.getAllThemes().find((t) => t.id === this._state.activeThemeId);
+		return this.getAllThemes().find((t) => t.id === this.activeThemeId);
 	}
 
 	setActiveTheme(themeId: string): void {
 		const theme = this.getAllThemes().find((t) => t.id === themeId);
 		if (!theme) return;
 
-		this._state.activeThemeId = themeId;
+		this.activeThemeId = themeId;
 		localStorage.setItem(STORAGE_KEY_ACTIVE_THEME, themeId);
 	}
 
 	getAllThemes(): Theme[] {
-		return [...BUILTIN_THEMES, ...this._state.customThemes];
+		return [...BUILTIN_THEMES, ...this.customThemes];
 	}
 
 	getCustomThemes(): Theme[] {
-		return this._state.customThemes;
+		return this.customThemes;
 	}
 
 	addCustomTheme(theme: Theme): void {
-		const exists = this._state.customThemes.some((t) => t.id === theme.id);
+		const exists = this.customThemes.some((t) => t.id === theme.id);
 		if (exists) {
 			this.updateCustomTheme(theme.id, theme);
 			return;
 		}
 
-		this._state.customThemes = [...this._state.customThemes, { ...theme, isCustom: true }];
+		this.customThemes = [...this.customThemes, { ...theme, isCustom: true }];
 		this.saveCustomThemes();
 	}
 
 	updateCustomTheme(themeId: string, theme: Theme): void {
-		const index = this._state.customThemes.findIndex((t) => t.id === themeId);
+		const index = this.customThemes.findIndex((t) => t.id === themeId);
 		if (index === -1) return;
 
-		this._state.customThemes[index] = { ...theme, isCustom: true };
-		this._state.customThemes = [...this._state.customThemes];
+		this.customThemes[index] = { ...theme, isCustom: true };
+		this.customThemes = [...this.customThemes];
 		this.saveCustomThemes();
 	}
 
 	deleteCustomTheme(themeId: string): void {
-		const theme = this._state.customThemes.find((t) => t.id === themeId);
+		const theme = this.customThemes.find((t) => t.id === themeId);
 		if (!theme || !theme.isCustom) return;
 
-		this._state.customThemes = this._state.customThemes.filter((t) => t.id !== themeId);
+		this.customThemes = this.customThemes.filter((t) => t.id !== themeId);
 		this.saveCustomThemes();
 
-		if (this._state.activeThemeId === themeId) {
+		if (this.activeThemeId === themeId) {
 			this.setActiveTheme(DEFAULT_THEME_ID);
 		}
 	}
 
 	setPreviewColors(colors: Theme['colors'] | null): void {
-		this._state.previewColors = colors;
+		this.previewColors = colors;
 	}
 
 	getPreviewColors(): Theme['colors'] | null {
-		return this._state.previewColors;
+		return this.previewColors;
 	}
 
 	exportTheme(themeId: string): string | null {
@@ -136,7 +130,7 @@ class ThemeStore {
 	}
 
 	private saveCustomThemes(): void {
-		localStorage.setItem(STORAGE_KEY_CUSTOM_THEMES, JSON.stringify(this._state.customThemes));
+		localStorage.setItem(STORAGE_KEY_CUSTOM_THEMES, JSON.stringify(this.customThemes));
 	}
 }
 

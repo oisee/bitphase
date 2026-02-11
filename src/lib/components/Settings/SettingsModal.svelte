@@ -21,7 +21,18 @@
 		initialTabId?: string;
 	}>();
 
-	const currentSettings = settingsStore.get();
+	const currentSettings: Settings = {
+		volume: settingsStore.volume,
+		envelopeAsNote: settingsStore.envelopeAsNote,
+		autoEnterInstrument: settingsStore.autoEnterInstrument,
+		patternEditorFontSize: settingsStore.patternEditorFontSize,
+		patternEditorFontFamily: settingsStore.patternEditorFontFamily,
+		uiFontFamily: settingsStore.uiFontFamily,
+		channelSeparatorWidth: settingsStore.channelSeparatorWidth,
+		decimalRowNumbers: settingsStore.decimalRowNumbers,
+		showOscilloscopes: settingsStore.showOscilloscopes,
+		showInstrumentPreview: settingsStore.showInstrumentPreview
+	};
 	let tempSettings = $state<Settings>({ ...currentSettings });
 	let activeTabId = $state(initialTabId || 'general');
 	let keyboardTabState = $state<SettingsTabState | null>(null);
