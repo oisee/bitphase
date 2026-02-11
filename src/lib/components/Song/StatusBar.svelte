@@ -2,28 +2,29 @@
 	import type { Pattern } from '../../models/song';
 	import type { Chip } from '../../chips/types';
 	import { playbackStore } from '../../stores/playback.svelte';
+	import { projectStore } from '../../stores/project.svelte';
 
 	let {
-		pattern,
+		songIndex,
 		selectedRow,
 		selectedFieldKey,
 		currentPatternOrderIndex,
-		patternOrder,
-		patterns,
-		speed,
-		interruptFrequency,
 		chip
 	}: {
-		pattern: Pattern | null;
+		songIndex: number;
 		selectedRow: number;
 		selectedFieldKey: string | null;
 		currentPatternOrderIndex: number;
-		patternOrder: number[];
-		patterns: Pattern[];
-		speed: number;
-		interruptFrequency: number;
 		chip: Chip;
 	} = $props();
+
+	const patternOrder = $derived(projectStore.patternOrder);
+	const patterns = $derived(projectStore.patterns[songIndex] ?? []);
+	const speed = $derived(projectStore.songs[songIndex]?.initialSpeed ?? 3);
+	const interruptFrequency = $derived(projectStore.songs[songIndex]?.interruptFrequency ?? 50);
+	const pattern = $derived(
+		patterns.find((p) => p.id === patternOrder[currentPatternOrderIndex]) ?? null
+	);
 
 	const schema = chip.schema;
 

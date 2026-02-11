@@ -1,5 +1,4 @@
 import { Pattern, Note, Effect } from '../../models/song';
-import type { Song } from '../../models/song';
 import { isEffectLike, toNumber } from '../../utils/type-guards';
 import type { ChipSchema } from '../../chips/base/schema';
 
@@ -180,13 +179,13 @@ export class PatternService {
 	/**
 	 * Find the next available pattern ID from all songs' patterns and the pattern order
 	 */
-	static findNextAvailablePatternIdFromSongs(
-		songs: Song[],
+	static findNextAvailablePatternIdFromPatterns(
+		allPatterns: Pattern[][],
 		patternOrder: number[]
 	): number {
 		const usedPatternIds = new Set(patternOrder);
-		for (const song of songs) {
-			for (const pattern of song.patterns) {
+		for (const songPatterns of allPatterns) {
+			for (const pattern of songPatterns) {
 				usedPatternIds.add(pattern.id);
 			}
 		}
@@ -197,31 +196,28 @@ export class PatternService {
 		return newPatternId;
 	}
 
-	/**
-	 * Make a pattern unique at the given index by cloning each song's pattern at that slot to a new ID.
-	 * Used for multi-chip setup so each chip keeps its own pattern content.
-	 */
 	static makePatternUniqueMultiChip(
-		songs: Song[],
+		allPatterns: Pattern[][],
 		patternOrder: number[],
 		index: number,
 		getSchema: (songIndex: number) => ChipSchema | undefined
-	): { newPatternOrder: number[] } {
+	): { newPatternOrder: number[]; updatedPatterns: Pattern[][] } {
 		const currentId = patternOrder[index];
-		const newId = this.findNextAvailablePatternIdFromSongs(songs, patternOrder);
+		const newId = this.findNextAvailablePatternIdFromPatterns(allPatterns, patternOrder);
 		const newPatternOrder = [...patternOrder];
 		newPatternOrder[index] = newId;
 
-		songs.forEach((song, songIndex) => {
-			const pattern = song.patterns.find((p) => p.id === currentId);
+		const updatedPatterns = allPatterns.map((songPatterns, songIndex) => {
+			const pattern = songPatterns.find((p) => p.id === currentId);
 			if (pattern) {
 				const schema = getSchema(songIndex);
 				const cloned = this.clonePattern(pattern, newId, schema);
-				song.patterns = [...song.patterns, cloned];
+				return [...songPatterns, cloned];
 			}
+			return songPatterns;
 		});
 
-		return { newPatternOrder };
+		return { newPatternOrder, updatedPatterns };
 	}
 
 	/**

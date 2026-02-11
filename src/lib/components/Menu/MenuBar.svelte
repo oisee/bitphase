@@ -19,22 +19,20 @@
 	import { settingsStore } from '../../stores/settings.svelte';
 	import { editorStateStore } from '../../stores/editor-state.svelte';
 	import Input from '../Input/Input.svelte';
-	import type { Song } from '../../models/song';
 	import Checkbox from '../Checkbox/Checkbox.svelte';
 	import { autoEnvStore, AUTO_ENV_PRESETS } from '../../stores/auto-env.svelte';
+	import { projectStore } from '../../stores/project.svelte';
 
 	let activeMenu = $state('');
 	let {
 		menuItems = [],
-		onAction,
-		songs = []
+		onAction
 	}: {
 		menuItems: MenuItem[];
 		onAction?: (data: { action: string }) => void;
-		songs?: Song[];
 	} = $props();
 
-	const hasAYSong = $derived(songs.some((song) => song.chipType === 'ay'));
+	const hasAYSong = $derived(projectStore.songs.some((song) => song.chipType === 'ay'));
 	const editorState = $derived(editorStateStore.get());
 	const settings = $derived(settingsStore.get());
 

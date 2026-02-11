@@ -1,6 +1,5 @@
 <script lang="ts">
 	import type { Table } from '../../models/project';
-	import type { Song } from '../../models/song';
 	import { Table as TableModel } from '../../models/project';
 	import { migrateTableIdInSongs } from '../../services/project/id-migration';
 	import IconCarbonHexagonSolid from '~icons/carbon/hexagon-solid';
@@ -26,19 +25,19 @@
 		tableDisplayCharToId,
 		isValidTableDisplayChar
 	} from '../../utils/table-id';
+	import { projectStore } from '../../stores/project.svelte';
 
 	const services: { audioService: AudioService } = getContext('container');
 	const requestPatternRedraw = getContext<() => void>('requestPatternRedraw');
 
 	let {
-		tables = $bindable(),
-		isExpanded = $bindable(false),
-		songs = []
+		isExpanded = $bindable(false)
 	}: {
-		tables: Table[];
 		isExpanded: boolean;
-		songs?: Song[];
 	} = $props();
+
+	let tables = $derived(projectStore.tables);
+	const songs = $derived(projectStore.songs);
 
 	let asHex = $state(false);
 	let selectedTableIndex = $state(0);
@@ -53,7 +52,7 @@
 		const sorted = [...tables].sort(compareTableIds);
 		const needsSort = sorted.some((t, i) => t !== tables[i]);
 		if (!needsSort) return;
-		tables = sorted;
+		projectStore.tables = sorted;
 		if (selectedId !== undefined) {
 			const newIndex = sorted.findIndex((t) => t.id === selectedId);
 			if (newIndex >= 0) selectedTableIndex = newIndex;
@@ -67,9 +66,10 @@
 	}
 
 	function handleTableChange(table: Table): void {
-		tables[selectedTableIndex] = { ...table };
-		tables = [...tables];
-		services.audioService.updateTables(tables);
+		const updated = [...tables];
+		updated[selectedTableIndex] = { ...table };
+		projectStore.tables = updated;
+		services.audioService.updateTables(projectStore.tables);
 	}
 
 	function updateTableId(index: number, displayChar: string): void {
@@ -79,10 +79,11 @@
 		if (existingIds.includes(newId)) return;
 		const oldId = tables[index].id;
 		migrateTableIdInSongs(songs, oldId, newId);
-		tables[index] = { ...tables[index], id: newId };
-		tables = [...tables];
+		const updated = [...tables];
+		updated[index] = { ...updated[index], id: newId };
+		projectStore.tables = updated;
 		sortTablesAndSyncSelection(newId);
-		services.audioService.updateTables(tables);
+		services.audioService.updateTables(projectStore.tables);
 		requestPatternRedraw?.();
 	}
 
@@ -96,18 +97,18 @@
 			0,
 			`Table ${(newId + 1).toString(36).toUpperCase()}`
 		);
-		tables = [...tables, newTable];
+		projectStore.tables = [...tables, newTable];
 		sortTablesAndSyncSelection(newId);
-		services.audioService.updateTables(tables);
+		services.audioService.updateTables(projectStore.tables);
 	}
 
 	function removeTable(index: number): void {
 		if (tables.length <= 1) return;
-		tables = tables.filter((_, i) => i !== index);
-		if (selectedTableIndex >= tables.length) {
-			selectedTableIndex = tables.length - 1;
+		projectStore.tables = tables.filter((_, i) => i !== index);
+		if (selectedTableIndex >= projectStore.tables.length) {
+			selectedTableIndex = projectStore.tables.length - 1;
 		}
-		services.audioService.updateTables(tables);
+		services.audioService.updateTables(projectStore.tables);
 	}
 
 	async function copyTable(copiedIndex: number): Promise<void> {
@@ -117,7 +118,7 @@
 		const newId = getNextAvailableTableId(existingIds);
 		if (newId < 0) return;
 		const copy = new TableModel(newId, [...table.rows], table.loop, table.name + ' (Copy)');
-		tables = [...tables, copy];
+		projectStore.tables = [...tables, copy];
 		sortTablesAndSyncSelection(newId);
 		services.audioService.updateTables(tables);
 		await tick();
@@ -205,9 +206,10 @@
 				loop,
 				name || `Table ${tableIdToDisplayChar(currentId)}`
 			);
-			tables[selectedTableIndex] = replacement;
-			tables = [...tables];
-			services.audioService.updateTables(tables);
+			const updated = [...tables];
+			updated[selectedTableIndex] = replacement;
+			projectStore.tables = updated;
+			services.audioService.updateTables(projectStore.tables);
 		} catch (err) {
 			if ((err as Error).message !== 'No file selected') {
 				alert('Failed to load table: ' + (err as Error).message);

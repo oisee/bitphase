@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Instrument, Song } from '../../models/song';
+	import type { Instrument } from '../../models/song';
 	import { Instrument as InstrumentModel } from '../../models/song';
 	import { InstrumentRow } from '../../models/song';
 	import IconCarbonWaveform from '~icons/carbon/waveform';
@@ -27,21 +27,21 @@
 	} from '../../utils/instrument-id';
 	import { migrateInstrumentIdInSong } from '../../services/project/id-migration';
 	import { editorStateStore } from '../../stores/editor-state.svelte';
+	import { projectStore } from '../../stores/project.svelte';
 
 	const services: { audioService: AudioService } = getContext('container');
 	const requestPatternRedraw = getContext<() => void>('requestPatternRedraw');
 
 	let {
-		instruments = $bindable(),
-		songs = [],
 		isExpanded = $bindable(false),
 		chip
 	}: {
-		instruments: Instrument[];
-		songs: Song[];
 		isExpanded: boolean;
 		chip: Chip;
 	} = $props();
+
+	let instruments = $derived(projectStore.instruments);
+	const songs = $derived(projectStore.songs);
 
 	let asHex = $state(false);
 	let selectedInstrumentIndex = $state(0);
@@ -85,7 +85,7 @@
 		const sorted = [...instruments].sort(compareInstrumentIds);
 		const needsSort = sorted.some((inst, i) => inst !== instruments[i]);
 		if (!needsSort) return;
-		instruments = sorted;
+		projectStore.instruments = sorted;
 		if (selectedId !== undefined) {
 			const newIndex = sorted.findIndex((inst) => inst.id === selectedId);
 			if (newIndex >= 0) selectedInstrumentIndex = newIndex;
@@ -112,10 +112,11 @@
 		const id = instrument.id;
 		const idx = instruments.findIndex((inst) => inst.id === id);
 		if (idx >= 0) {
-			instruments[idx] = { ...instrument };
-			instruments = [...instruments];
+			const updated = [...instruments];
+			updated[idx] = { ...instrument };
+			projectStore.instruments = updated;
 		}
-		services.audioService.updateInstruments(instruments);
+		services.audioService.updateInstruments(projectStore.instruments);
 	}
 
 	function addInstrument(): void {
@@ -123,19 +124,19 @@
 		const newId = getNextAvailableInstrumentId(existingIds);
 		if (!newId) return;
 		const newInstrument = new InstrumentModel(newId, [], 0, `Instrument ${newId}`);
-		instruments = [...instruments, newInstrument];
+		projectStore.instruments = [...instruments, newInstrument];
 		sortInstrumentsAndSyncSelection(newId);
-		services.audioService.updateInstruments(instruments);
+		services.audioService.updateInstruments(projectStore.instruments);
 	}
 
 	function removeInstrument(index: number): void {
 		const toRemove = instruments[index];
 		if (!toRemove || instruments.length <= 1) return;
-		instruments = instruments.filter((inst) => inst.id !== toRemove.id);
-		if (selectedInstrumentIndex >= instruments.length) {
-			selectedInstrumentIndex = Math.max(0, instruments.length - 1);
+		projectStore.instruments = instruments.filter((inst) => inst.id !== toRemove.id);
+		if (selectedInstrumentIndex >= projectStore.instruments.length) {
+			selectedInstrumentIndex = Math.max(0, projectStore.instruments.length - 1);
 		}
-		services.audioService.updateInstruments(instruments);
+		services.audioService.updateInstruments(projectStore.instruments);
 	}
 
 	async function copyInstrument(copiedIndex: number): Promise<void> {
@@ -152,7 +153,7 @@
 			instrument.name + ' (Copy)'
 		);
 
-		instruments = [...instruments, copy];
+		projectStore.instruments = [...instruments, copy];
 		sortInstrumentsAndSyncSelection(newId);
 		services.audioService.updateInstruments(instruments);
 		await tick();
@@ -174,8 +175,9 @@
 		for (const song of songs) {
 			migrateInstrumentIdInSong(song, oldId, normalizedId);
 		}
-		instruments[index] = { ...instruments[index], id: normalizedId };
-		instruments = [...instruments];
+		const updated = [...instruments];
+		updated[index] = { ...updated[index], id: normalizedId };
+		projectStore.instruments = updated;
 		sortInstrumentsAndSyncSelection(normalizedId);
 		services.audioService.updateInstruments(instruments);
 		requestPatternRedraw?.();
@@ -240,15 +242,16 @@
 			);
 			const idx = instruments.findIndex((inst) => inst.id === currentId);
 			if (idx >= 0) {
-				instruments[idx] = new InstrumentModel(
+				const updated = [...instruments];
+				updated[idx] = new InstrumentModel(
 					currentId,
 					replacement.rows.map((r) => new InstrumentRow({ ...r })),
 					replacement.loop,
 					replacement.name
 				);
-				instruments = [...instruments];
+				projectStore.instruments = updated;
 			}
-			services.audioService.updateInstruments(instruments);
+			services.audioService.updateInstruments(projectStore.instruments);
 			requestPatternRedraw?.();
 		} catch (err) {
 			if ((err as Error).message !== 'No file selected') {

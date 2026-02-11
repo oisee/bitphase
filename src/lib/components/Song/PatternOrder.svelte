@@ -16,18 +16,13 @@
 	import type { MenuItem } from '../Menu/types';
 	import { open } from '../../services/modal/modal-service';
 	import ColorPickerModal from '../Modal/ColorPickerModal.svelte';
+	import { projectStore } from '../../stores/project.svelte';
 
 	interface Props {
 		currentPatternOrderIndex: number;
-		patterns: Record<number, Pattern>;
 		selectedRow: number;
-		patternOrder: number[];
-		patternOrderColors?: Record<number, string>;
 		canvasHeight?: number;
 		lineHeight?: number;
-		songPatterns?: Pattern[];
-		songs?: any[];
-		onPatternCreated?: (pattern: Pattern) => void;
 		onPatternSelect?: (index: number) => void;
 		onMakeUnique?: (index: number) => void;
 		onPatternOrderEdited?: () => void;
@@ -35,18 +30,25 @@
 
 	let {
 		currentPatternOrderIndex = $bindable(),
-		patterns = $bindable(),
 		selectedRow = $bindable(),
-		patternOrder = $bindable(),
-		patternOrderColors = $bindable({}),
 		canvasHeight = 600,
-		songPatterns = [],
-		songs = [],
-		onPatternCreated,
 		onPatternSelect,
 		onMakeUnique,
 		onPatternOrderEdited
 	}: Props = $props();
+
+	const patternOrder = $derived(projectStore.patternOrder);
+	const patternOrderColors = $derived(projectStore.patternOrderColors);
+
+	const patternsRecord = $derived.by(() => {
+		const record: Record<number, Pattern> = {};
+		for (const songPatterns of projectStore.patterns) {
+			for (const pattern of songPatterns) {
+				record[pattern.id] = pattern;
+			}
+		}
+		return record;
+	});
 
 	const FONT_SIZE = 14;
 	const CELL_WIDTH = 32;
@@ -155,7 +157,7 @@
 			if (key < removedIndex) next[key] = patternOrderColors[key];
 			else if (key > removedIndex) next[key - 1] = patternOrderColors[key];
 		}
-		patternOrderColors = next;
+		projectStore.patternOrderColors = next;
 	}
 
 	function shiftColorsAfterAdd(insertedIndex: number): void {
@@ -164,7 +166,7 @@
 			if (key < insertedIndex) next[key] = patternOrderColors[key];
 			else next[key + 1] = patternOrderColors[key];
 		}
-		patternOrderColors = next;
+		projectStore.patternOrderColors = next;
 	}
 
 	function moveColor(fromIndex: number, toIndex: number): void {
@@ -182,7 +184,7 @@
 			next[target] = patternOrderColors[key];
 		}
 		if (saved !== undefined) next[toIndex] = saved;
-		patternOrderColors = next;
+		projectStore.patternOrderColors = next;
 	}
 
 	function getVisibleRange() {
@@ -209,13 +211,7 @@
 			if (i < 0 || i >= patternOrder.length) continue;
 
 			const patternId = patternOrder[i];
-			let pattern = patterns[patternId];
-			if (!pattern) {
-				const foundPattern = songPatterns.find((p) => p.id === patternId);
-				if (foundPattern) {
-					pattern = foundPattern;
-				}
-			}
+			let pattern = patternsRecord[patternId];
 
 			const y = centerY - (currentPatternOrderIndex - i) * CELL_HEIGHT;
 
@@ -334,7 +330,7 @@
 				draggedIndex,
 				dropTargetIndex
 			);
-			patternOrder = result.newPatternOrder;
+			projectStore.patternOrder = result.newPatternOrder;
 			moveColor(draggedIndex, dropTargetIndex);
 
 			if (currentPatternOrderIndex === draggedIndex) {
@@ -424,10 +420,10 @@
 			const displayedValue = editingPatternValue.padStart(2, '0');
 			const newId = parseInt(displayedValue);
 			const currentPatternId = patternOrder[editingPatternIndex];
-			const currentPattern = patterns[currentPatternId];
+			const currentPattern = patternsRecord[currentPatternId];
 
 			const result = PatternService.setPatternIdInOrder(
-				patterns,
+				patternsRecord,
 				patternOrder,
 				editingPatternIndex,
 				newId,
@@ -435,8 +431,11 @@
 			);
 
 			if (result) {
-				patterns = result.newPatterns;
-				patternOrder = result.newPatternOrder;
+				const newPattern = result.newPatterns[newId];
+				if (newPattern && !patternsRecord[newId]) {
+					projectStore.addPatternToAllSongs(newPattern);
+				}
+				projectStore.patternOrder = result.newPatternOrder;
 				onPatternOrderEdited?.();
 			}
 		}
@@ -582,10 +581,13 @@
 	}
 
 	function addPatternAtIndex(index: number): void {
-		const result = PatternService.addPatternAfter(patterns, patternOrder, index);
+		const result = PatternService.addPatternAfter(patternsRecord, patternOrder, index);
 
-		patterns = result.newPatterns;
-		patternOrder = result.newPatternOrder;
+		const newPattern = result.newPatterns[result.newPatternId];
+		if (newPattern) {
+			projectStore.addPatternToAllSongs(newPattern);
+		}
+		projectStore.patternOrder = result.newPatternOrder;
 		shiftColorsAfterAdd(result.insertIndex);
 		currentPatternOrderIndex = result.insertIndex;
 		selectedRow = 0;
@@ -597,7 +599,7 @@
 	function removePatternAtIndex(index: number): void {
 		const result = PatternService.removePatternAt(patternOrder, index);
 
-		patternOrder = result.newPatternOrder;
+		projectStore.patternOrder = result.newPatternOrder;
 		shiftColorsAfterRemove(index);
 
 		currentPatternOrderIndex = PatternService.calculateAdjustedIndex(
@@ -612,13 +614,7 @@
 	}
 
 	function ensurePatternInRecord(patternId: number): Pattern | null {
-		for (const song of songs) {
-			const found = song.patterns.find((p: Pattern) => p.id === patternId);
-			if (found) {
-				return found;
-			}
-		}
-		return patterns[patternId] || null;
+		return patternsRecord[patternId] || null;
 	}
 
 	function clonePatternAtIndex(index: number): void {
@@ -628,7 +624,7 @@
 		if (!targetPattern) return;
 
 		const result = PatternService.clonePatternAfter(
-			patterns,
+			patternsRecord,
 			patternOrder,
 			index,
 			targetPattern
@@ -636,23 +632,21 @@
 
 		if (!result) return;
 
-		patterns = result.newPatterns;
-		patternOrder = result.newPatternOrder;
+		const clonedPattern = result.newPatterns[result.newPatternId];
+		if (clonedPattern) {
+			projectStore.addPatternToAllSongs(clonedPattern);
+		}
+		projectStore.patternOrder = result.newPatternOrder;
 		shiftColorsAfterAdd(result.insertIndex);
 		currentPatternOrderIndex = result.insertIndex;
 		selectedRow = 0;
 		onPatternSelect?.(result.insertIndex);
 
-		const clonedPattern = result.newPatterns[result.newPatternId];
-		if (clonedPattern) {
-			onPatternCreated?.(clonedPattern);
-		}
-
 		afterPatternOperation();
 	}
 
 	function makePatternUniqueAtIndex(index: number): void {
-		if (songs.length > 1 && onMakeUnique) {
+		if (projectStore.patterns.length > 1 && onMakeUnique) {
 			onMakeUnique(index);
 			return;
 		}
@@ -663,7 +657,7 @@
 		if (!targetPattern) return;
 
 		const result = PatternService.makePatternUnique(
-			patterns,
+			patternsRecord,
 			patternOrder,
 			index,
 			targetPattern
@@ -671,9 +665,8 @@
 
 		if (!result) return;
 
-		patterns = result.newPatterns;
-		patternOrder = result.newPatternOrder;
-		onPatternCreated?.(result.newPatterns[result.newPatternId]);
+		projectStore.addPatternToAllSongs(result.newPatterns[result.newPatternId]);
+		projectStore.patternOrder = result.newPatternOrder;
 
 		if (index === currentPatternOrderIndex) {
 			selectedRow = 0;
@@ -722,7 +715,7 @@
 		if (data.action === 'color-clear') {
 			const next = { ...patternOrderColors };
 			delete next[index];
-			patternOrderColors = next;
+			projectStore.patternOrderColors = next;
 			draw();
 			return;
 		}
@@ -733,7 +726,7 @@
 			})
 				.then((color: string | undefined) => {
 					if (color !== undefined) {
-						patternOrderColors = { ...patternOrderColors, [index]: color };
+						projectStore.patternOrderColors = { ...patternOrderColors, [index]: color };
 						draw();
 					}
 				})

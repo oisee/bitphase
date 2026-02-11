@@ -71,10 +71,10 @@
 	import { ACTION_PLAY_FROM_ROW } from '../../config/keybindings';
 	import { keybindingsStore } from '../../stores/keybindings.svelte';
 	import { ShortcutString } from '../../utils/shortcut-string';
+	import { projectStore } from '../../stores/project.svelte';
 
 	let {
-		patterns = $bindable(),
-		patternOrder = $bindable(),
+		songIndex,
 		currentPatternOrderIndex = $bindable(0),
 		selectedRow = $bindable(0),
 		isActive = false,
@@ -87,14 +87,9 @@
 		getSpeedForPlayPattern,
 		chip,
 		chipProcessor,
-		tuningTable,
-		tuningTableVersion = 0,
-		speed,
-		instruments,
-		tables = []
+		tuningTableVersion = 0
 	}: {
-		patterns: Pattern[];
-		patternOrder: number[];
+		songIndex: number;
 		currentPatternOrderIndex: number;
 		selectedRow: number;
 		isActive?: boolean;
@@ -107,12 +102,19 @@
 		getSpeedForPlayPattern?: (chipIndex: number) => number | null;
 		chip: Chip;
 		chipProcessor: ChipProcessor;
-		tuningTable: number[];
 		tuningTableVersion?: number;
-		speed: number;
-		instruments: Instrument[];
-		tables?: import('../../models/project').Table[];
 	} = $props();
+
+	const patterns = $derived(projectStore.patterns[songIndex] ?? []);
+	const patternOrder = $derived(projectStore.patternOrder);
+	const tuningTable = $derived(projectStore.songs[songIndex]?.tuningTable ?? []);
+	const speed = $derived(projectStore.songs[songIndex]?.initialSpeed ?? 3);
+	const instruments = $derived(projectStore.instruments);
+	const tables = $derived(projectStore.tables);
+
+	function updatePatterns(newPatterns: Pattern[]): void {
+		projectStore.updatePatterns(songIndex, newPatterns);
+	}
 
 	let contextMenuPosition = $state<{ x: number; y: number } | null>(null);
 
@@ -171,7 +173,7 @@
 
 			if (result.shouldRedraw || tuningTableChanged || versionChanged) {
 				if (result.shouldRedraw) {
-					patterns = result.updatedPatterns;
+					updatePatterns(result.updatedPatterns);
 				}
 				clearAllCaches();
 				untrack(() => {
@@ -251,7 +253,7 @@
 	function findOrCreatePattern(patternId: number): Pattern {
 		const { pattern, newPatterns } = PatternService.findOrCreatePattern(patterns, patternId);
 		if (newPatterns !== patterns) {
-			patterns = newPatterns;
+			updatePatterns(newPatterns);
 		}
 		return pattern;
 	}
@@ -300,7 +302,7 @@
 	}
 
 	function updatePatternInArray(updatedPattern: Pattern): void {
-		patterns = PatternService.updatePatternInArray(patterns, updatedPattern);
+		updatePatterns(PatternService.updatePatternInArray(patterns, updatedPattern));
 		patternGenericCache.delete(updatedPattern.id);
 		rowStringCache.invalidate((key) => {
 			if (typeof key === 'string') {
@@ -315,7 +317,7 @@
 		return {
 			patterns,
 			updatePatterns: (newPatterns: Pattern[]) => {
-				patterns = newPatterns;
+				updatePatterns(newPatterns);
 				lastDrawnPatternLength = -1;
 				lastVisibleRowsCache = null;
 				clearAllCaches();
@@ -432,7 +434,7 @@
 
 		const resizedPattern = PatternService.resizePattern(pattern, newLength, schema);
 		const newPatterns = PatternService.updatePatternInArray(patterns, resizedPattern);
-		patterns = newPatterns;
+		updatePatterns(newPatterns);
 
 		if (selectedRow >= resizedPattern.length) {
 			selectedRow = resizedPattern.length - 1;
@@ -629,11 +631,11 @@
 				selectedRow,
 				canvasHeight,
 				lineHeight,
-				createPatternIfMissing: (patternId: number) => {
-					const newPattern = PatternService.createEmptyPattern(patternId);
-					patterns = [...patterns, newPattern];
-					return newPattern;
-				}
+			createPatternIfMissing: (patternId: number) => {
+				const newPattern = PatternService.createEmptyPattern(patternId);
+				updatePatterns([...patterns, newPattern]);
+				return newPattern;
+			}
 			},
 			lastVisibleRowsCache
 		);
@@ -989,9 +991,7 @@
 			},
 			onMoveRow: moveRow,
 			onMoveColumn: moveColumn,
-			onSetSelectedRow: (row: number) => {
-				selectedRow = row;
-			},
+			onSetSelectedRow: setSelectedRow,
 			onSetSelectedColumn: (column: number) => {
 				selectedColumn = column;
 			},

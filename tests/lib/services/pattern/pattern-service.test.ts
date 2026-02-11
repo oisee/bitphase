@@ -5,8 +5,7 @@ import {
 	Note,
 	Effect,
 	NoteName,
-	EffectType,
-	Song
+	EffectType
 } from '../../../../src/lib/models/song';
 
 describe('PatternService', () => {
@@ -195,50 +194,46 @@ describe('PatternService', () => {
 		});
 	});
 
-	describe('findNextAvailablePatternIdFromSongs', () => {
-		it('should return 0 when songs have no patterns and order is empty', () => {
-			const songs = [new Song(), new Song()];
-			songs[0].patterns = [];
-			songs[1].patterns = [];
-			expect(PatternService.findNextAvailablePatternIdFromSongs(songs, [])).toBe(0);
+	describe('findNextAvailablePatternIdFromPatterns', () => {
+		it('should return 0 when all pattern arrays are empty and order is empty', () => {
+			const allPatterns: Pattern[][] = [[], []];
+			expect(PatternService.findNextAvailablePatternIdFromPatterns(allPatterns, [])).toBe(0);
 		});
 
-		it('should return next ID after all used in order and in any song', () => {
-			const song0 = new Song();
-			song0.patterns = [new Pattern(0), new Pattern(1)];
-			const song1 = new Song();
-			song1.patterns = [new Pattern(0), new Pattern(2)];
-			const songs = [song0, song1];
+		it('should return next ID after all used in order and in any song patterns', () => {
+			const allPatterns: Pattern[][] = [
+				[new Pattern(0), new Pattern(1)],
+				[new Pattern(0), new Pattern(2)]
+			];
 			const patternOrder = [0, 1, 2];
-			expect(PatternService.findNextAvailablePatternIdFromSongs(songs, patternOrder)).toBe(3);
+			expect(PatternService.findNextAvailablePatternIdFromPatterns(allPatterns, patternOrder)).toBe(3);
 		});
 	});
 
 	describe('makePatternUniqueMultiChip', () => {
 		it('should clone each song pattern at index to new ID and update order', () => {
-			const song0 = new Song();
 			const p0a = new Pattern(0, 4);
 			p0a.channels[0].rows[0].note = new Note(NoteName.C, 3);
-			song0.patterns = [p0a, new Pattern(1)];
-			const song1 = new Song();
 			const p1a = new Pattern(0, 4);
 			p1a.channels[0].rows[0].note = new Note(NoteName.D, 5);
-			song1.patterns = [p1a, new Pattern(1)];
-			const songs = [song0, song1];
+			const allPatterns: Pattern[][] = [
+				[p0a, new Pattern(1)],
+				[p1a, new Pattern(1)]
+			];
 			const patternOrder = [0, 1];
 
 			const result = PatternService.makePatternUniqueMultiChip(
-				songs,
+				allPatterns,
 				patternOrder,
 				0,
 				() => undefined
 			);
 
 			expect(result.newPatternOrder).toEqual([2, 1]);
-			expect(song0.patterns).toHaveLength(3);
-			expect(song1.patterns).toHaveLength(3);
-			const unique0 = song0.patterns.find((p) => p.id === 2);
-			const unique1 = song1.patterns.find((p) => p.id === 2);
+			expect(result.updatedPatterns[0]).toHaveLength(3);
+			expect(result.updatedPatterns[1]).toHaveLength(3);
+			const unique0 = result.updatedPatterns[0].find((p) => p.id === 2);
+			const unique1 = result.updatedPatterns[1].find((p) => p.id === 2);
 			expect(unique0).toBeDefined();
 			expect(unique1).toBeDefined();
 			expect(unique0!.channels[0].rows[0].note.name).toBe(NoteName.C);
@@ -248,17 +243,16 @@ describe('PatternService', () => {
 		});
 
 		it('should leave song without pattern at that id unchanged', () => {
-			const song0 = new Song();
-			song0.patterns = [new Pattern(0)];
-			const song1 = new Song();
-			song1.patterns = [];
-			const songs = [song0, song1];
+			const allPatterns: Pattern[][] = [
+				[new Pattern(0)],
+				[]
+			];
 			const patternOrder = [0];
 
-			PatternService.makePatternUniqueMultiChip(songs, patternOrder, 0, () => undefined);
+			const result = PatternService.makePatternUniqueMultiChip(allPatterns, patternOrder, 0, () => undefined);
 
-			expect(song0.patterns).toHaveLength(2);
-			expect(song1.patterns).toHaveLength(0);
+			expect(result.updatedPatterns[0]).toHaveLength(2);
+			expect(result.updatedPatterns[1]).toHaveLength(0);
 		});
 	});
 

@@ -11,18 +11,17 @@
 	import IconCarbonFolders from '~icons/carbon/folders';
 	import { getContext } from 'svelte';
 	import type { AudioService } from '../../services/audio/audio-service';
+	import { projectStore } from '../../stores/project.svelte';
 
 	let {
 		chipProcessors,
-		values = $bindable(),
-		songs = [],
 		onChipSettingsApplied
 	}: {
 		chipProcessors: ChipProcessor[];
-		values: Record<string, unknown>;
-		songs?: Song[];
 		onChipSettingsApplied?: () => void;
 	} = $props();
+
+	const songs = $derived(projectStore.songs);
 
 	const services: { audioService: AudioService } = getContext('container');
 
@@ -203,10 +202,10 @@
 						{#key getDependsOnKey(setting, projectContext)}
 							<DynamicField
 								{setting}
-								bind:value={values[setting.key]}
+								bind:value={projectStore.settings[setting.key]}
 								context={projectContext}
 								hintOverride={setting.computedHint
-									? setting.computedHint(values[setting.key], projectContext)
+									? setting.computedHint(projectStore.settings[setting.key], projectContext)
 									: undefined}
 								onChange={handleSettingChange} />
 						{/key}

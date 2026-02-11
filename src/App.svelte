@@ -4,8 +4,7 @@
 	import { menuItems } from './lib/config/app-menu';
 	import { handleFileImport } from './lib/services/file/file-import';
 	import { handleFileExport } from './lib/services/file/file-export';
-	import { Project, Table } from './lib/models/project';
-	import type { Song, Instrument } from './lib/models/song';
+	import type { Song } from './lib/models/song';
 	import PatternEditor from './lib/components/Song/PatternEditor.svelte';
 	import ModalContainer from './lib/components/Modal/ModalContainer.svelte';
 	import { open } from './lib/services/modal/modal-service';
@@ -30,6 +29,7 @@
 	import { runAppBootstrap } from './lib/app-bootstrap';
 	import { createMenuActionHandler } from './lib/services/app/menu-action-handler';
 	import type { MenuActionContext } from './lib/services/app/menu-action-context';
+	import { projectStore } from './lib/stores/project.svelte';
 
 	runAppBootstrap();
 
@@ -86,39 +86,15 @@
 		}
 	});
 
-	let songs = $state<Song[]>([]);
-	let patternOrder = $state<number[]>([]);
-	let patternOrderColors = $state<Record<number, string>>({});
-	let tables = $state<Table[]>([]);
-	let instruments = $state<Instrument[]>([]);
 	let activeSongIndex = $state(0);
 
-	let projectSettings = $state({
-		title: '',
-		author: '',
-		initialSpeed: 3
-	});
-
-	let projectInitialized = $state(false);
-
 	$effect(() => {
-		if (projectInitialized) return;
+		if (projectStore.initialized) return;
 
 		(async () => {
 			const newProject = await projectService.resetProject(AY_CHIP);
-
-			projectSettings = {
-				title: newProject.name,
-				author: newProject.author,
-				initialSpeed: newProject.songs[0]?.initialSpeed ?? 3
-			};
-			songs = newProject.songs;
-			patternOrder = newProject.patternOrder;
-			patternOrderColors = newProject.patternOrderColors ?? {};
-			tables = newProject.tables;
-			instruments = newProject.instruments;
-
-			projectInitialized = true;
+			projectStore.applyProject(newProject);
+			projectStore.initialized = true;
 
 			const backup = await autobackupService.getAutobackup();
 			if (backup) {
@@ -127,48 +103,27 @@
 					await container.audioService.addChipProcessor(AY_CHIP);
 				}
 				ProjectService.ensureChipSettingsConsistency(backup.songs);
-				projectSettings = {
-					title: backup.name,
-					author: backup.author,
-					initialSpeed: backup.songs[0]?.initialSpeed ?? 3
-				};
-				songs = backup.songs;
-				patternOrder = backup.patternOrder;
-				patternOrderColors = backup.patternOrderColors ?? {};
-				tables = backup.tables;
-				instruments = backup.instruments;
+				projectStore.applyProject(backup);
 			}
 		})();
 	});
 
-	function getCurrentProject(): Project {
-		return new Project(
-			projectSettings.title,
-			projectSettings.author,
-			songs,
-			0,
-			patternOrder,
-			tables,
-			patternOrderColors,
-			instruments
-		);
-	}
-
 	$effect(() => {
-		if (!projectInitialized) return;
-		projectSettings;
-		songs;
-		patternOrder;
-		patternOrderColors;
-		tables;
-		instruments;
-		autobackupService.saveAutobackup(getCurrentProject());
+		if (!projectStore.initialized) return;
+		projectStore.settings;
+		projectStore.songs;
+		projectStore.patterns;
+		projectStore.patternOrder;
+		projectStore.patternOrderColors;
+		projectStore.tables;
+		projectStore.instruments;
+		autobackupService.saveAutobackup(projectStore.getCurrentProject());
 	});
 
 	$effect(() => {
-		if (!projectInitialized) return;
+		if (!projectStore.initialized) return;
 		function saveOnUnload() {
-			autobackupService.saveAutobackup(getCurrentProject());
+			autobackupService.saveAutobackup(projectStore.getCurrentProject());
 		}
 		window.addEventListener('beforeunload', saveOnUnload);
 		window.addEventListener('pagehide', saveOnUnload);
@@ -179,20 +134,20 @@
 	});
 
 	$effect(() => {
-		container.audioService.updateTables(tables);
+		container.audioService.updateTables(projectStore.tables);
 	});
 
 	$effect(() => {
-		container.audioService.updateInstruments(instruments);
+		container.audioService.updateInstruments(projectStore.instruments);
 	});
 
 	$effect(() => {
-		if (songs.length === 0) return;
+		if (projectStore.songs.length === 0) return;
 
-		ProjectService.ensureChipSettingsConsistency(songs);
+		ProjectService.ensureChipSettingsConsistency(projectStore.songs);
 
 		const grouped = new Map<string, Song[]>();
-		for (const song of songs) {
+		for (const song of projectStore.songs) {
 			if (!song.chipType) continue;
 			if (!grouped.has(song.chipType)) {
 				grouped.set(song.chipType, []);
@@ -223,41 +178,22 @@
 
 	const menuActionContext: MenuActionContext = {
 		getPatternEditor: () => patternEditor,
-		getCurrentProject: () =>
-			new Project(
-				projectSettings.title,
-				projectSettings.author,
-				songs,
-				0,
-				patternOrder,
-				tables,
-				patternOrderColors,
-				instruments
-			),
+		getCurrentProject: () => projectStore.getCurrentProject(),
 		applyProject: (project) => {
 			ProjectService.ensureChipSettingsConsistency(project.songs);
-			projectSettings = {
-				title: project.name,
-				author: project.author,
-				initialSpeed: project.songs[0]?.initialSpeed ?? 3
-			};
-			songs = project.songs;
-			patternOrder = project.patternOrder;
-			patternOrderColors = project.patternOrderColors ?? {};
-			tables = project.tables;
-			instruments = project.instruments;
+			projectStore.applyProject(project);
 		},
 		removeSong: (index) => {
-			songs = songs.filter((_, i) => i !== index);
+			projectStore.removeSong(index);
 			container.audioService.removeChipProcessor(index);
 		},
 		addSong: (song) => {
-			songs = [...songs, song];
+			projectStore.addSong(song);
 		},
 		setActiveSongIndex: (index) => {
 			activeSongIndex = index;
 		},
-		getSongsLength: () => songs.length,
+		getSongsLength: () => projectStore.songs.length,
 		getActiveSongIndex: () => activeSongIndex,
 		container,
 		projectService,
@@ -295,17 +231,11 @@
 
 <main
 	class="flex h-screen flex-col gap-1 overflow-hidden bg-[var(--color-app-surface-secondary)] font-sans text-xs text-[var(--color-app-text-primary)]">
-	<MenuBar {menuItems} onAction={handleMenuAction} {songs} />
+	<MenuBar {menuItems} onAction={handleMenuAction} />
 	<div class="flex-1 overflow-hidden">
 		<SongView
-			bind:songs
-			bind:patternOrder
-			bind:patternOrderColors
 			bind:patternEditor
 			bind:activeEditorIndex={activeSongIndex}
-			bind:tables
-			bind:instruments
-			bind:projectSettings
 			onaction={handleMenuAction}
 			chipProcessors={container.audioService.chipProcessors} />
 	</div>
