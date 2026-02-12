@@ -9,6 +9,7 @@
 	import { PatternNoteInput } from '../../services/pattern/editing/pattern-note-input';
 	import { editorStateStore } from '../../stores/editor-state.svelte';
 	import { instrumentIdToNumber } from '../../utils/instrument-id';
+	import { playbackStore } from '../../stores/playback.svelte';
 
 	let {
 		chip,
@@ -37,8 +38,39 @@
 	);
 	const maxPoly = $derived(previewProcessors.length * 3);
 
+	const isDisabled = $derived(playbackStore.isPlaying);
+
+	let hadActiveNotes = $state(false);
+	let wasPlaying = $state(false);
+
 	$effect(() => {
-		updatePreview();
+		if (isDisabled && !wasPlaying) {
+			activeNotes = [];
+		}
+		wasPlaying = isDisabled;
+	});
+
+	$effect(() => {
+		const processors = previewProcessors as unknown as PreviewNoteSupport[];
+		if (processors.length === 0) return;
+		if (activeNotes.length === 0) {
+			if (hadActiveNotes) {
+				hadActiveNotes = false;
+				processors.forEach((proc) => proc.stopPreviewNote());
+			}
+			return;
+		}
+		hadActiveNotes = true;
+		const noteStrings = activeNotes.map((n) => n.note);
+		processors.forEach((proc, processorIndex) => {
+			const start = processorIndex * 3;
+			const channelNotes = [
+				noteStrings[start] ?? 'OFF',
+				noteStrings[start + 1] ?? 'OFF',
+				noteStrings[start + 2] ?? 'OFF'
+			];
+			proc.playPreviewRow(buildPreviewPattern(channelNotes), ROW_INDEX);
+		});
 	});
 
 	$effect(() => {
@@ -102,26 +134,8 @@
 		return pattern;
 	}
 
-	function updatePreview() {
-		const processors = previewProcessors as unknown as PreviewNoteSupport[];
-		if (processors.length === 0) return;
-		if (activeNotes.length === 0) {
-			processors.forEach((proc) => proc.stopPreviewNote());
-			return;
-		}
-		const noteStrings = activeNotes.map((n) => n.note);
-		processors.forEach((proc, processorIndex) => {
-			const start = processorIndex * 3;
-			const channelNotes = [
-				noteStrings[start] ?? 'OFF',
-				noteStrings[start + 1] ?? 'OFF',
-				noteStrings[start + 2] ?? 'OFF'
-			];
-			proc.playPreviewRow(buildPreviewPattern(channelNotes), ROW_INDEX);
-		});
-	}
-
 	function handleNoteKeyDown(event: KeyboardEvent) {
+		if (isDisabled) return;
 		if (event.repeat) return;
 		const key = event.key;
 		if (activeNotes.some((n) => n.key === key)) return;
@@ -147,6 +161,7 @@
 	}
 
 	function handleNoteKeyUp(event: KeyboardEvent) {
+		if (isDisabled) return;
 		const key = event.key;
 		if (!activeNotes.some((n) => n.key === key)) return;
 		activeNotes = activeNotes.filter((n) => n.key !== key);
@@ -208,9 +223,10 @@
 		<span class="text-[var(--color-app-text-muted)]">Envelope</span>
 		<input
 			type="text"
-			class="w-14 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 uppercase"
+			class="w-14 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 uppercase disabled:cursor-not-allowed disabled:opacity-50"
 			maxlength={4}
 			placeholder="0000"
+			disabled={isDisabled}
 			bind:value={envelopeValue}
 			onblur={clampEnvelopeValue}
 			oninput={(e) => {
@@ -224,9 +240,10 @@
 		<span class="text-[var(--color-app-text-muted)]">Shape</span>
 		<input
 			type="text"
-			class="w-8 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 uppercase"
+			class="w-8 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 uppercase disabled:cursor-not-allowed disabled:opacity-50"
 			maxlength={1}
 			placeholder="0"
+			disabled={isDisabled}
 			bind:value={envelopeShape}
 			onblur={clampEnvelopeShape}
 			oninput={(e) => {
@@ -240,9 +257,10 @@
 		<span class="text-[var(--color-app-text-muted)]">Noise</span>
 		<input
 			type="text"
-			class="w-10 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 uppercase"
+			class="w-10 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 uppercase disabled:cursor-not-allowed disabled:opacity-50"
 			maxlength={2}
 			placeholder="00"
+			disabled={isDisabled}
 			bind:value={noiseValue}
 			onblur={clampNoiseValue}
 			oninput={(e) => {
@@ -256,9 +274,10 @@
 		<span class="text-[var(--color-app-text-muted)]">Table</span>
 		<input
 			type="text"
-			class="w-8 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 uppercase"
+			class="w-8 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 uppercase disabled:cursor-not-allowed disabled:opacity-50"
 			maxlength={1}
 			placeholder="0"
+			disabled={isDisabled}
 			bind:value={table}
 			onblur={clampTable}
 			oninput={(e) => {
@@ -270,9 +289,10 @@
 		<span class="text-[var(--color-app-text-muted)]">Volume</span>
 		<input
 			type="text"
-			class="w-8 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 uppercase"
+			class="w-8 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 uppercase disabled:cursor-not-allowed disabled:opacity-50"
 			maxlength={1}
 			placeholder="F"
+			disabled={isDisabled}
 			bind:value={volume}
 			onblur={clampVolume}
 			oninput={(e) => {
@@ -292,10 +312,13 @@
 		<span class="text-[var(--color-app-text-muted)]">Note</span>
 		<div
 			bind:this={noteInputEl}
-			class="flex min-h-[1.75rem] max-w-[10rem] min-w-14 items-center rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 focus:border-[var(--color-app-primary)] focus:outline-none"
+			class="flex min-h-[1.75rem] max-w-[10rem] min-w-14 items-center rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 focus:border-[var(--color-app-primary)] focus:outline-none {isDisabled
+				? 'cursor-not-allowed opacity-50 pointer-events-none'
+				: ''}"
 			role="textbox"
-			tabindex={0}
+			tabindex={isDisabled ? -1 : 0}
 			aria-label="Note (keyboard: piano keys)"
+			aria-disabled={isDisabled}
 			title="Click to focus, then use keyboard. Polyphony: {maxPoly} notes (3 per chip). Piano: Z–P, Q–I; A = OFF; letters = note with current octave."
 			onclick={() => noteInputEl?.focus()}
 			onkeydown={handleNoteKeyDown}
