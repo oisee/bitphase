@@ -64,6 +64,13 @@
 	$effect(() => {
 		const activeEditor = patternEditors[activeEditorIndex];
 		if (activeEditor) {
+			patternEditor = activeEditor;
+		}
+	});
+
+	$effect(() => {
+		const activeEditor = patternEditors[activeEditorIndex];
+		if (activeEditor) {
 			selectedColumn = activeEditor.getSelectedColumn();
 			selectedFieldKey = activeEditor.getSelectedFieldKey();
 			const interval = setInterval(() => {
