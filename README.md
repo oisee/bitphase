@@ -59,28 +59,50 @@ A modern web-based chiptune tracker designed for creating music on retro sound c
 - `pnpm build:wasm` - Build only the WebAssembly modules
 - `pnpm preview` - Preview the production build locally
 - `pnpm check` - Run TypeScript and Svelte type checking
+- `pnpm test` - Run tests in watch mode
+- `pnpm test:run` - Run tests once
 
 ## Project Structure
 
 ```
-src/
-├── lib/
-│   ├── chips/           # Chip implementations (AY, future chips)
-│   │   ├── ay/          # AY-3-8910 implementation
-│   │   └── base/        # Base interfaces and utilities
-│   ├── components/      # Svelte UI components
-│   │   ├── Menu/        # Menu bar and navigation
-│   │   ├── Song/        # Pattern editor and song view
-│   │   ├── Instruments/ # Instrument editor
-│   │   └── ...
-│   ├── models/          # Domain models (Project, Song, Pattern, etc.)
-│   ├── services/        # Business logic services
-│   │   ├── audio/       # Audio service and chip processors
-│   │   ├── file/        # Import/export functionality
-│   │   └── pattern/     # Pattern editing logic
-│   ├── stores/          # Reactive state management (Svelte 5 runes)
-│   ├── ui-rendering/    # Canvas-based rendering
-│   └── utils/           # Utility functions
-├── public/              # Static assets and compiled WASM
-└── App.svelte           # Root component
+bitphase/
+├── external/            # Ayumi chip emulator C source by Peter Sovietov
+├── public/              # Static assets and compiled WASM (ayumi.wasm, fonts, etc.)
+├── src/
+│   ├── app.css          # Global styles
+│   ├── main.ts          # App entry point
+│   ├── App.svelte       # Root component
+│   └── lib/
+│       ├── chips/       # Chip implementations (AY, future chips)
+│       │   ├── ay/      # AY-3-8910 implementation
+│       │   └── base/    # Base interfaces and utilities
+│       ├── components/  # Svelte UI components
+│       │   ├── AppLayout/
+│       │   ├── Menu/    # Menu bar and navigation
+│       │   ├── Song/    # Pattern editor and song view
+│       │   ├── Instruments/
+│       │   ├── Modal/
+│       │   ├── Settings/
+│       │   ├── Tables/
+│       │   ├── Theme/
+│       │   └── ...
+│       ├── config/      # App configuration (menu, settings, themes)
+│       ├── models/      # Domain models (Project, Song, etc.)
+│       │   ├── pt3/     # PT3 tuning tables
+│       │   └── song/    # Song model utilities
+│       ├── services/    # Business logic services
+│       │   ├── app/     # Menu actions and app context
+│       │   ├── audio/   # Audio service and chip processors
+│       │   ├── backup/  # Autobackup
+│       │   ├── file/    # Import/export functionality
+│       │   ├── modal/   # Modal service
+│       │   ├── pattern/ # Pattern editing (incl. editing/ subdir)
+│       │   ├── project/ # Project service and migration
+│       │   ├── theme/   # Theme service
+│       │   └── user-scripts/  # User scripts (Lua) execution
+│       ├── stores/      # Reactive state (Svelte 5 runes, .svelte.ts)
+│       ├── types/       # Shared TypeScript types
+│       ├── ui-rendering/# Canvas-based pattern and order list rendering
+│       └── utils/       # Utility functions
+└── tests/               # Tests mirroring src structure
 ```
