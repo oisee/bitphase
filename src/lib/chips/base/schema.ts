@@ -44,6 +44,7 @@ export interface ChipSchema {
 	globalTemplate?: string;
 	globalFields?: Record<string, ChipField>;
 	channelLabels?: string[];
+	globalColumnLabels?: Record<string, string>;
 	settings?: ChipSetting[];
 	defaultTuningTable?: number[];
 	defaultChipVariant?: string;
@@ -63,6 +64,10 @@ export function applySchemaDefaults<T extends object>(target: T, schema: ChipSch
 			}
 		}
 	}
+}
+
+export function getGlobalColumnLabel(schema: ChipSchema, fieldKey: string): string {
+	return schema.globalColumnLabels?.[fieldKey] ?? fieldKey;
 }
 
 export function getDefaultForFieldType(

@@ -24,6 +24,11 @@ export const AY_CHIP_SCHEMA: ChipSchema = {
 		}
 	},
 	channelLabels: ['A', 'B', 'C'],
+	globalColumnLabels: {
+		envelopeValue: 'Env',
+		envelopeEffect: 'Efx',
+		noiseValue: 'NO'
+	},
 	template: '{note} {instrument}{envelopeShape}{table}{volume} {effect}',
 	fields: {
 		note: { key: 'note', type: 'note', length: 3, color: 'patternNote', selectable: 'atomic' },

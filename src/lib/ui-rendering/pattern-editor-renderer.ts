@@ -52,7 +52,6 @@ export class PatternEditorRenderer extends BaseCanvasRenderer {
 	drawChannelLabels(data: ChannelLabelData): void {
 		const channelPositions = this.calculateChannelPositions(data.rowString);
 		const labelY = this.lineHeight / 2;
-		const padding = 6;
 		const borderWidth = 1;
 
 		this.fillRect(0, 0, this.canvasWidth, this.lineHeight, this.patternColors.patternBg);
@@ -64,6 +63,20 @@ export class PatternEditorRenderer extends BaseCanvasRenderer {
 			boldFont = currentFont.replace(/^(\d+px\s+)/, '$1bold ');
 		}
 		this.setFont(boldFont);
+
+		if (this.schema.globalColumnLabels) {
+			const globalPositions = this.calculateGlobalColumnPositions(data.rowString);
+			const textColor =
+				this.patternColors.patternRowNum || this.patternColors.patternText;
+			for (const { fieldKey, x, width } of globalPositions) {
+				const label = this.schema.globalColumnLabels[fieldKey];
+				if (label) {
+					const labelWidth = this.measureText(label);
+					const textX = x + (width - labelWidth) / 2;
+					this.fillText(label, textX, labelY, textColor);
+				}
+			}
+		}
 
 		const separatorMargin = 4;
 
@@ -126,6 +139,40 @@ export class PatternEditorRenderer extends BaseCanvasRenderer {
 		}
 
 		this.restore();
+	}
+
+	calculateGlobalColumnPositions(
+		rowString: string
+	): Array<{ fieldKey: string; x: number; width: number }> {
+		const result: Array<{ fieldKey: string; x: number; width: number }> = [];
+		if (!this.schema.globalTemplate || !this.schema.globalFields) return result;
+
+		let pos = PatternTemplateParser.skipRowNumber(rowString, 0);
+		let x = 10;
+		for (let i = 0; i < pos; i++) {
+			x += this.measureText(rowString[i]);
+		}
+
+		PatternTemplateParser.parseTemplate(
+			this.schema.globalTemplate,
+			this.schema.globalFields,
+			(key, field, isSpace) => {
+				if (isSpace) {
+					if (pos < rowString.length && rowString[pos] === ' ') {
+						x += this.measureText(' ');
+						pos++;
+					}
+				} else {
+					const startX = x;
+					const segment = rowString.substring(pos, pos + field.length);
+					const width = this.measureText(segment);
+					result.push({ fieldKey: key, x: startX, width });
+					x += width;
+					pos += field.length;
+				}
+			}
+		);
+		return result;
 	}
 
 	calculateChannelPositions(rowString: string): number[] {
