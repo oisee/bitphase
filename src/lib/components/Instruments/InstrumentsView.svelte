@@ -266,7 +266,11 @@
 	async function openPresets(): Promise<void> {
 		if (instruments.length === 0) return;
 		const item = await open(PresetsModal, { presetType: 'instrument' });
-		if (item == null || typeof item !== 'object' || !Array.isArray((item as Record<string, unknown>).rows)) {
+		if (
+			item == null ||
+			typeof item !== 'object' ||
+			!Array.isArray((item as Record<string, unknown>).rows)
+		) {
 			return;
 		}
 		const o = item as Record<string, unknown>;

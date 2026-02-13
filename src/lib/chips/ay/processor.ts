@@ -62,7 +62,7 @@ type WorkletCommand =
 			pattern?: Pattern;
 			speed?: number | null;
 	  }
-	| { type: 'preview_row'; pattern: Pattern; rowIndex: number }
+	| { type: 'preview_row'; pattern: Pattern; rowIndex: number; instrument?: Instrument }
 	| { type: 'stop_preview'; channel?: number };
 
 export class AYProcessor
@@ -311,13 +311,22 @@ export class AYProcessor
 		return this.audioNode !== null;
 	}
 
-	playPreviewRow(pattern: Pattern, rowIndex: number): void {
+	playPreviewRow(pattern: Pattern, rowIndex: number, instrument?: Instrument): void {
 		if (rowIndex < 0 || rowIndex >= pattern.length) return;
 		const patternCopy = structuredClone(pattern);
+		const instrumentCopy = instrument
+			? {
+					id: instrument.id,
+					rows: Array.from(instrument.rows).map((row) => ({ ...row })),
+					loop: instrument.loop,
+					name: instrument.name
+				}
+			: undefined;
 		this.sendCommand({
 			type: 'preview_row',
 			pattern: patternCopy,
-			rowIndex
+			rowIndex,
+			instrument: instrumentCopy
 		});
 	}
 

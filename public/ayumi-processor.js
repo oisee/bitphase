@@ -474,7 +474,7 @@ class AyumiProcessor extends AudioWorkletProcessor {
 		this.handleStopPreview();
 	}
 
-	handlePreviewRow({ pattern, rowIndex }) {
+	handlePreviewRow({ pattern, rowIndex, instrument }) {
 		if (!this.paused || !this.initialized || !this.state.wasmModule) {
 			return;
 		}
@@ -486,6 +486,9 @@ class AyumiProcessor extends AudioWorkletProcessor {
 		}
 		if (!this.audioDriver || !this.patternProcessor || !this.ayumiEngine) {
 			return;
+		}
+		if (instrument) {
+			this.state.setInstruments([instrument]);
 		}
 
 		this.state.reset();
@@ -615,12 +618,12 @@ class AyumiProcessor extends AudioWorkletProcessor {
 
 					this.enforceMuteState();
 
-				this.patternProcessor.processTables();
-				this.patternProcessor.processArpeggio();
-				this.patternProcessor.processEffectTables();
-				this.patternProcessor.processSlides();
-				this.patternProcessor.processVibrato();
-				this.audioDriver.processInstruments(this.state, this.registerState);
+					this.patternProcessor.processTables();
+					this.patternProcessor.processArpeggio();
+					this.patternProcessor.processEffectTables();
+					this.patternProcessor.processSlides();
+					this.patternProcessor.processVibrato();
+					this.audioDriver.processInstruments(this.state, this.registerState);
 
 					this.enforceMuteState();
 

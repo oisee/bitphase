@@ -10,6 +10,7 @@
 	import { editorStateStore } from '../../stores/editor-state.svelte';
 	import { instrumentIdToNumber } from '../../utils/instrument-id';
 	import { playbackStore } from '../../stores/playback.svelte';
+	import { projectStore } from '../../stores/project.svelte';
 
 	let {
 		chip,
@@ -61,6 +62,10 @@
 			return;
 		}
 		hadActiveNotes = true;
+		const normalizedId = (instrumentId || '01').toUpperCase().padStart(2, '0');
+		const currentInstrument = projectStore.instruments.find(
+			(i) => i.id.toUpperCase().padStart(2, '0') === normalizedId
+		);
 		const noteStrings = activeNotes.map((n) => n.note);
 		processors.forEach((proc, processorIndex) => {
 			const start = processorIndex * 3;
@@ -69,7 +74,7 @@
 				noteStrings[start + 1] ?? 'OFF',
 				noteStrings[start + 2] ?? 'OFF'
 			];
-			proc.playPreviewRow(buildPreviewPattern(channelNotes), ROW_INDEX);
+			proc.playPreviewRow(buildPreviewPattern(channelNotes), ROW_INDEX, currentInstrument);
 		});
 	});
 
@@ -313,7 +318,7 @@
 		<div
 			bind:this={noteInputEl}
 			class="flex min-h-[1.75rem] max-w-[10rem] min-w-14 items-center rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 focus:border-[var(--color-app-primary)] focus:outline-none {isDisabled
-				? 'cursor-not-allowed opacity-50 pointer-events-none'
+				? 'pointer-events-none cursor-not-allowed opacity-50'
 				: ''}"
 			role="textbox"
 			tabindex={isDisabled ? -1 : 0}
