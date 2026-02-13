@@ -12,7 +12,10 @@
 	import IconCarbonMinimize from '~icons/carbon/minimize';
 	import IconCarbonSave from '~icons/carbon/save';
 	import IconCarbonDocumentImport from '~icons/carbon/document-import';
+	import IconCarbonFolder from '~icons/carbon/folder';
 	import Card from '../Card/Card.svelte';
+	import PresetsModal from '../Modal/PresetsModal.svelte';
+	import { open } from '../../services/modal/modal-service';
 	import { downloadJson, pickFileAsText } from '../../utils/file-download';
 	import EditableIdField from '../EditableIdField/EditableIdField.svelte';
 	import { getContext, tick, untrack } from 'svelte';
@@ -260,6 +263,38 @@
 		}
 	}
 
+	async function openPresets(): Promise<void> {
+		if (instruments.length === 0) return;
+		const item = await open(PresetsModal, { presetType: 'instrument' });
+		if (item == null || typeof item !== 'object' || !Array.isArray((item as Record<string, unknown>).rows)) {
+			return;
+		}
+		const o = item as Record<string, unknown>;
+		const rows = (o.rows as Record<string, unknown>[]).map((r) => new InstrumentRow(r));
+		const loop = typeof o.loop === 'number' ? o.loop : 0;
+		const name = o.name != null ? String(o.name) : '';
+		const currentId = instruments[selectedInstrumentIndex]?.id ?? '01';
+		const replacement = new InstrumentModel(
+			currentId,
+			rows,
+			loop,
+			name || `Instrument ${currentId}`
+		);
+		const idx = instruments.findIndex((inst) => inst.id === currentId);
+		if (idx >= 0) {
+			const updated = [...instruments];
+			updated[idx] = new InstrumentModel(
+				currentId,
+				replacement.rows.map((r) => new InstrumentRow({ ...r })),
+				replacement.loop,
+				replacement.name
+			);
+			projectStore.instruments = updated;
+		}
+		services.audioService.updateInstruments(projectStore.instruments);
+		requestPatternRedraw?.();
+	}
+
 	function getInstrumentIdError(index: number, id: string): string | null {
 		const normalizedId = normalizeInstrumentId(id);
 		if (!isValidInstrumentId(normalizedId)) {
@@ -408,6 +443,14 @@
 						title="Load instrument from JSON file into selected slot">
 						<IconCarbonDocumentImport class="h-3.5 w-3.5" />
 						<span>Load</span>
+					</button>
+					<button
+						class="flex cursor-pointer items-center gap-1.5 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] px-2 py-1.5 text-xs text-[var(--color-app-text-tertiary)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-[var(--color-app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+						onclick={openPresets}
+						disabled={instruments.length === 0}
+						title="Load instrument from built-in presets">
+						<IconCarbonFolder class="h-3.5 w-3.5" />
+						<span>Presets</span>
 					</button>
 				</div>
 			</div>

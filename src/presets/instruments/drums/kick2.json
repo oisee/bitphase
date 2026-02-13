@@ -1,0 +1,70 @@
+{
+	"name": "Kick 2",
+	"loop": 3,
+	"rows": [
+		{
+			"tone": true,
+			"noise": true,
+			"envelope": false,
+			"toneAdd": 160,
+			"noiseAdd": 8,
+			"volume": 15,
+			"loop": false,
+			"amplitudeSliding": false,
+			"amplitudeSlideUp": false,
+			"toneAccumulation": true,
+			"noiseAccumulation": false,
+			"envelopeAdd": 8,
+			"envelopeAccumulation": false,
+			"retriggerEnvelope": false
+		},
+		{
+			"tone": true,
+			"noise": false,
+			"envelope": false,
+			"toneAdd": 192,
+			"noiseAdd": 0,
+			"volume": 15,
+			"loop": false,
+			"amplitudeSliding": false,
+			"amplitudeSlideUp": false,
+			"toneAccumulation": true,
+			"noiseAccumulation": false,
+			"envelopeAdd": 0,
+			"envelopeAccumulation": false,
+			"retriggerEnvelope": false
+		},
+		{
+			"tone": true,
+			"noise": false,
+			"envelope": false,
+			"toneAdd": 512,
+			"noiseAdd": 0,
+			"volume": 15,
+			"loop": false,
+			"amplitudeSliding": false,
+			"amplitudeSlideUp": false,
+			"toneAccumulation": true,
+			"noiseAccumulation": false,
+			"envelopeAdd": 0,
+			"envelopeAccumulation": false,
+			"retriggerEnvelope": false
+		},
+		{
+			"tone": false,
+			"noise": false,
+			"envelope": true,
+			"toneAdd": 0,
+			"noiseAdd": 0,
+			"volume": 0,
+			"loop": true,
+			"amplitudeSliding": false,
+			"amplitudeSlideUp": false,
+			"toneAccumulation": false,
+			"noiseAccumulation": false,
+			"envelopeAdd": 0,
+			"envelopeAccumulation": false,
+			"retriggerEnvelope": false
+		}
+	]
+}
