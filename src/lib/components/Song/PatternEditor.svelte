@@ -583,7 +583,10 @@
 					playbackRafId = null;
 				}
 				selectedRow = 0;
-				services.audioService.play();
+				const initialSpeeds = projectStore.songs.map(
+					(song) => song?.initialSpeed ?? 3
+				);
+				services.audioService.play(initialSpeeds);
 			}
 		} catch (error) {
 			console.error('Error during playback toggle:', error);

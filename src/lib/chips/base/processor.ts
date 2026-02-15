@@ -6,7 +6,7 @@ import type { ChipSettings } from '../../services/audio/chip-settings';
 export interface ChipProcessor {
 	chip: Chip;
 	initialize(wasmBuffer: ArrayBuffer, audioNode: AudioWorkletNode): void;
-	play(): void;
+	play(initialSpeed?: number): void;
 	playFromRow(row: number, patternOrderIndex?: number, speed?: number | null): void;
 	stop(): void;
 	updateOrder(order: number[]): void;

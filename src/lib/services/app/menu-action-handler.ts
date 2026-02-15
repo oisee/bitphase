@@ -10,8 +10,21 @@ import WavExportSettingsModal from '../../components/Modal/WavExportSettingsModa
 import ProgressModal from '../../components/Modal/ProgressModal.svelte';
 import { ACTION_APPLY_SCRIPT } from '../../config/keybindings';
 import { loadDemoProject } from '../../config/demo-songs';
+import { getChipByType } from '../../chips/registry';
 import { AY_CHIP } from '../../chips/ay';
 import type { MenuActionContext } from './menu-action-context';
+
+function addChipProcessorsForProject(
+	container: MenuActionContext['container'],
+	songs: { chipType?: string }[]
+): Promise<void> {
+	return (async () => {
+		for (const song of songs) {
+			const chip = song.chipType ? getChipByType(song.chipType) : null;
+			await container.audioService.addChipProcessor(chip ?? AY_CHIP);
+		}
+	})();
+}
 
 function dispatchEditorKey(
 	patternEditor: MenuActionContext['getPatternEditor'],
@@ -244,9 +257,7 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
 					ctx.playbackStore.isPlaying = false;
 					ctx.container.audioService.stop();
 					ctx.container.audioService.clearChipProcessors();
-					for (const _ of project.songs) {
-						await ctx.container.audioService.addChipProcessor(AY_CHIP);
-					}
+					await addChipProcessorsForProject(ctx.container, project.songs);
 					ctx.applyProject(project);
 					ctx.resetPatternEditor();
 				}
@@ -258,9 +269,7 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
 				ctx.playbackStore.isPlaying = false;
 				ctx.container.audioService.stop();
 				ctx.container.audioService.clearChipProcessors();
-				for (const _ of importedProject.songs) {
-					await ctx.container.audioService.addChipProcessor(AY_CHIP);
-				}
+				await addChipProcessorsForProject(ctx.container, importedProject.songs);
 				ctx.applyProject(importedProject);
 				ctx.resetPatternEditor();
 			}

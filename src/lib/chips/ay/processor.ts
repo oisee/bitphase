@@ -40,7 +40,7 @@ interface SpeedUpdateMessage {
 
 type WorkletCommand =
 	| { type: 'init'; wasmBuffer: ArrayBuffer }
-	| { type: 'play' }
+	| { type: 'play'; initialSpeed?: number }
 	| { type: 'play_from_row'; row: number; patternOrderIndex?: number; speed?: number | null }
 	| { type: 'stop' }
 	| { type: 'update_order'; order: number[] }
@@ -183,8 +183,8 @@ export class AYProcessor
 		this.waveformCallback = callback;
 	}
 
-	play(): void {
-		this.sendCommand({ type: 'play' });
+	play(initialSpeed?: number): void {
+		this.sendCommand({ type: 'play', initialSpeed });
 	}
 
 	playFromRow(row: number, patternOrderIndex?: number, speed?: number | null): void {

@@ -72,15 +72,16 @@ export class AudioService {
 		});
 	}
 
-	play() {
+	play(initialSpeeds?: number[]) {
 		if (this._isPlaying) return;
 
 		this._isPlaying = true;
 
 		this.applyMuteStateToAllChips();
 
-		this.chipProcessors.forEach((chipProcessor) => {
-			chipProcessor.play();
+		this.chipProcessors.forEach((chipProcessor, index) => {
+			const initialSpeed = initialSpeeds?.[index];
+			chipProcessor.play(initialSpeed);
 		});
 	}
 

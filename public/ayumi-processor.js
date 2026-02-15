@@ -357,6 +357,9 @@ class AyumiProcessor extends AudioWorkletProcessor {
 		if (startPatternOrderIndex !== undefined) {
 			this.state.currentPatternOrderIndex = startPatternOrderIndex;
 		}
+		if (initialSpeed !== undefined && initialSpeed > 0) {
+			this.state.setSpeed(initialSpeed);
+		}
 
 		this.port.postMessage({
 			type: 'position_update',
