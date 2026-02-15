@@ -264,7 +264,7 @@ describe('Channel effect interactions', () => {
 			expect(state.channelOnOffCounter[0]).toBe(2);
 		});
 
-		it('new note without any effect does not reset running effects', () => {
+		it('new note without any effect resets arpeggio, vibrato and on/off', () => {
 			state.channelArpeggioCounter[0] = 5;
 			state.channelVibratoCounter[0] = 3;
 			state.channelOnOffCounter[0] = 2;
@@ -272,9 +272,9 @@ describe('Channel effect interactions', () => {
 			const row = makeRow(4, 2, [null]);
 			proc._processNote(0, row);
 
-			expect(state.channelArpeggioCounter[0]).toBe(5);
-			expect(state.channelVibratoCounter[0]).toBe(3);
-			expect(state.channelOnOffCounter[0]).toBe(2);
+			expect(state.channelArpeggioCounter[0]).toBe(0);
+			expect(state.channelVibratoCounter[0]).toBe(0);
+			expect(state.channelOnOffCounter[0]).toBe(0);
 		});
 
 		it('new note with portamento preserves tone sliding', () => {
@@ -294,6 +294,30 @@ describe('Channel effect interactions', () => {
 			proc._processNote(0, row);
 
 			expect(state.channelSlideStep[0]).toBe(0);
+		});
+
+		it('new note without slide up (effect 1) resets slide state', () => {
+			state.channelSlideStep[0] = 10;
+			if (!state.channelSlideAlreadyApplied) state.channelSlideAlreadyApplied = [];
+			state.channelSlideAlreadyApplied[0] = true;
+
+			const row = makeRow(4, 2, [null]);
+			proc._processNote(0, row);
+
+			expect(state.channelSlideStep[0]).toBe(0);
+			expect(state.channelSlideAlreadyApplied[0]).toBe(false);
+		});
+
+		it('new note without slide down (effect 2) resets slide state', () => {
+			state.channelSlideStep[0] = -10;
+			if (!state.channelSlideAlreadyApplied) state.channelSlideAlreadyApplied = [];
+			state.channelSlideAlreadyApplied[0] = true;
+
+			const row = makeRow(4, 2, [{ effect: EffectAlgorithms.VIBRATO, delay: 1, parameter: 0x44 }]);
+			proc._processNote(0, row);
+
+			expect(state.channelSlideStep[0]).toBe(0);
+			expect(state.channelSlideAlreadyApplied[0]).toBe(false);
 		});
 
 		it('new note with effect table keeps effect table', () => {

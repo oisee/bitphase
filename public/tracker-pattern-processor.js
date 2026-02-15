@@ -145,8 +145,6 @@ class TrackerPatternProcessor {
 		);
 		const rowHasExplicitEffect = effects[0] != null && effects[0].effect !== 0;
 
-		if (!rowHasExplicitEffect) return;
-
 		if (!hasEffectOfType(EffectAlgorithms.ARPEGGIO)) {
 			this.state.channelArpeggioCounter[channelIndex] = 0;
 		}
@@ -156,6 +154,9 @@ class TrackerPatternProcessor {
 		if (!hasEffectOfType(EffectAlgorithms.ON_OFF)) {
 			this.state.channelOnOffCounter[channelIndex] = 0;
 		}
+
+		if (!rowHasExplicitEffect) return;
+
 		if (!hasEffectWithTable) {
 			this.state.channelEffectTables[channelIndex] = -1;
 		}
