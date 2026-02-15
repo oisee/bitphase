@@ -11,26 +11,42 @@
 	import { instrumentIdToNumber } from '../../utils/instrument-id';
 	import { playbackStore } from '../../stores/playback.svelte';
 	import { projectStore } from '../../stores/project.svelte';
+	import {
+		envelopePeriodToNoteString,
+		noteStringToEnvelopePeriod
+	} from '../../utils/envelope-note-conversion';
 
 	let {
 		chip,
-		instrumentId = '01'
+		instrumentId = '01',
+		tuningTable = []
 	}: {
 		chip: Chip;
 		instrumentId?: string;
+		tuningTable?: number[];
 	} = $props();
 
 	const ROW_INDEX = 0;
 	const containerContext: { audioService: AudioService } = getContext('container');
 	const schema = chip.schema;
 
-	let envelopeValue = $state('0000');
+	let envelopePeriod = $state(0);
 	let noiseValue = $state('00');
 	let envelopeShape = $state('');
 	let table = $state('');
 	let volume = $state('F');
 	let activeNotes = $state<Array<{ key: string; note: string }>>([]);
 	let noteInputEl: HTMLDivElement | null = $state(null);
+	let envelopeInputEl: HTMLDivElement | null = $state(null);
+
+	const envelopeAsNote = $derived(editorStateStore.envelopeAsNote);
+	const canEnvelopeAsNote = $derived(envelopeAsNote && tuningTable.length > 0);
+	const envelopeDisplayValue = $derived(
+		canEnvelopeAsNote
+			? (envelopePeriodToNoteString(envelopePeriod, tuningTable) ??
+					(envelopePeriod >>> 0).toString(16).toUpperCase().padStart(4, '0'))
+			: (envelopePeriod >>> 0).toString(16).toUpperCase().padStart(4, '0')
+	);
 
 	const previewProcessors = $derived(
 		containerContext.audioService.chipProcessors.filter(
@@ -116,7 +132,7 @@
 	function buildPreviewPattern(noteStrings: string[]): Pattern {
 		const pattern = new PatternModel(0, 1, schema) as Pattern;
 		const pr = pattern.patternRows[0];
-		pr.envelopeValue = parseHex4(envelopeValue);
+		pr.envelopeValue = Math.max(0, Math.min(0xffff, envelopePeriod));
 		pr.noiseValue = parseHex2(noiseValue);
 		pr.envelopeEffect = null;
 
@@ -172,12 +188,34 @@
 		activeNotes = activeNotes.filter((n) => n.key !== key);
 	}
 
-	function clampEnvelopeValue() {
-		const s = envelopeValue
-			.replace(/[^0-9a-fA-F]/g, '')
-			.slice(0, 4)
-			.toUpperCase();
-		envelopeValue = s.padStart(4, '0') || '0000';
+	function clampEnvelopePeriod() {
+		envelopePeriod = Math.max(0, Math.min(0xffff, envelopePeriod));
+	}
+
+	function handleEnvelopeNoteKeyDown(event: KeyboardEvent) {
+		if (isDisabled || !canEnvelopeAsNote) return;
+		event.preventDefault();
+		const key = event.key;
+		const keyLower = key.toLowerCase();
+		let noteStr: string;
+		const pianoNote = PatternNoteInput.mapKeyboardKeyToNote(key);
+		if (pianoNote) {
+			noteStr = formatNoteFromEnum(pianoNote.noteName, pianoNote.octave);
+		} else if (keyLower === 'a') {
+			envelopePeriod = 0;
+			return;
+		} else {
+			const letterNote = PatternNoteInput.getLetterNote(key);
+			if (!letterNote) return;
+			const octave = editorStateStore.octave;
+			noteStr = formatNoteFromEnum(letterNote, octave);
+		}
+		const period = noteStringToEnvelopePeriod(
+			noteStr,
+			tuningTable,
+			editorStateStore.octave
+		);
+		envelopePeriod = Math.max(0, Math.min(0xffff, period));
 	}
 
 	function clampNoiseValue() {
@@ -219,33 +257,51 @@
 	<div class="flex flex-col gap-0.5">
 		<span class="text-[var(--color-app-text-muted)]">Inst</span>
 		<div
-			class="flex min-h-[1.75rem] w-8 items-center rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 uppercase"
+			class="flex h-7 w-8 items-center rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 uppercase"
 			title="Current instrument (select in Instruments panel)">
 			{instrumentId}
 		</div>
 	</div>
 	<label class="flex flex-col gap-0.5">
 		<span class="text-[var(--color-app-text-muted)]">Envelope</span>
-		<input
-			type="text"
-			class="w-14 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 uppercase disabled:cursor-not-allowed disabled:opacity-50"
-			maxlength={4}
-			placeholder="0000"
-			disabled={isDisabled}
-			bind:value={envelopeValue}
-			onblur={clampEnvelopeValue}
-			oninput={(e) => {
-				envelopeValue = (e.currentTarget.value || '')
-					.replace(/[^0-9a-fA-F]/gi, '')
-					.slice(0, 4)
-					.toUpperCase();
-			}} />
+		{#if canEnvelopeAsNote}
+			<div
+				bind:this={envelopeInputEl}
+				class="flex h-7 w-14 items-center rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 font-mono uppercase focus:border-[var(--color-app-primary)] focus:outline-none {isDisabled
+					? 'pointer-events-none cursor-not-allowed opacity-50'
+					: ''}"
+				role="textbox"
+				tabindex={isDisabled ? -1 : 0}
+				aria-label="Envelope as note (keyboard: piano keys or letters)"
+				title="Envelope as note. Piano: Z–P, Q–I; A = OFF; letters = note with current octave."
+				onclick={() => envelopeInputEl?.focus()}
+				onkeydown={handleEnvelopeNoteKeyDown}>
+				{envelopePeriod === 0 ? '—' : envelopeDisplayValue}
+			</div>
+		{:else}
+			<input
+				type="text"
+				class="h-7 w-14 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 font-mono uppercase disabled:cursor-not-allowed disabled:opacity-50"
+				maxlength={4}
+				placeholder="0000"
+				disabled={isDisabled}
+				value={envelopeDisplayValue}
+				onblur={clampEnvelopePeriod}
+				oninput={(e) => {
+					const s = (e.currentTarget.value || '')
+						.replace(/[^0-9a-fA-F]/gi, '')
+						.slice(0, 4)
+						.toUpperCase();
+					const n = parseInt(s || '0', 16);
+					envelopePeriod = isNaN(n) ? 0 : Math.max(0, Math.min(0xffff, n));
+				}} />
+		{/if}
 	</label>
 	<label class="flex flex-col gap-0.5">
 		<span class="text-[var(--color-app-text-muted)]">Shape</span>
 		<input
 			type="text"
-			class="w-8 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 uppercase disabled:cursor-not-allowed disabled:opacity-50"
+			class="h-7 w-8 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 uppercase disabled:cursor-not-allowed disabled:opacity-50"
 			maxlength={1}
 			placeholder="0"
 			disabled={isDisabled}
@@ -262,7 +318,7 @@
 		<span class="text-[var(--color-app-text-muted)]">Noise</span>
 		<input
 			type="text"
-			class="w-10 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 uppercase disabled:cursor-not-allowed disabled:opacity-50"
+			class="h-7 w-10 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 uppercase disabled:cursor-not-allowed disabled:opacity-50"
 			maxlength={2}
 			placeholder="00"
 			disabled={isDisabled}
@@ -279,7 +335,7 @@
 		<span class="text-[var(--color-app-text-muted)]">Table</span>
 		<input
 			type="text"
-			class="w-8 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 uppercase disabled:cursor-not-allowed disabled:opacity-50"
+			class="h-7 w-8 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 uppercase disabled:cursor-not-allowed disabled:opacity-50"
 			maxlength={1}
 			placeholder="0"
 			disabled={isDisabled}
@@ -294,7 +350,7 @@
 		<span class="text-[var(--color-app-text-muted)]">Volume</span>
 		<input
 			type="text"
-			class="w-8 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 uppercase disabled:cursor-not-allowed disabled:opacity-50"
+			class="h-7 w-8 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 uppercase disabled:cursor-not-allowed disabled:opacity-50"
 			maxlength={1}
 			placeholder="F"
 			disabled={isDisabled}
@@ -317,7 +373,7 @@
 		<span class="text-[var(--color-app-text-muted)]">Note</span>
 		<div
 			bind:this={noteInputEl}
-			class="flex min-h-[1.75rem] max-w-[10rem] min-w-14 items-center rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 py-1 focus:border-[var(--color-app-primary)] focus:outline-none {isDisabled
+			class="flex h-7 max-w-[10rem] min-w-14 items-center rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-1.5 focus:border-[var(--color-app-primary)] focus:outline-none {isDisabled
 				? 'pointer-events-none cursor-not-allowed opacity-50'
 				: ''}"
 			role="textbox"

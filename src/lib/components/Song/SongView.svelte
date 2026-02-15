@@ -499,7 +499,8 @@
 							<IconCarbonPlay class="h-3.5 w-3.5 shrink-0" />Preview playground</span>
 						<PreviewRow
 							chip={chipProcessors[activeEditorIndex].chip}
-							instrumentId={editorStateStore.currentInstrument} />
+							instrumentId={editorStateStore.currentInstrument}
+							tuningTable={projectStore.songs[activeEditorIndex]?.tuningTable ?? []} />
 					</div>
 				{/if}
 				{#if settingsStore.showOscilloscopes}
