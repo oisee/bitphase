@@ -40,7 +40,7 @@ export class PatternService {
 				newRow.note = new Note(row.note.name, row.note.octave);
 				newRow.effects = row.effects.map((effect) =>
 					effect && !PatternEffectHandling.isEmptyEffect(effect)
-						? new Effect(effect.effect, effect.delay, effect.parameter)
+						? new Effect(effect.effect, effect.delay, effect.parameter, effect.tableIndex)
 						: null
 				);
 				this.copyRowFields(row, newRow);
@@ -63,7 +63,7 @@ export class PatternService {
 				target[key] =
 					PatternEffectHandling.isEmptyEffect(value)
 						? null
-						: new Effect(value.effect, value.delay, value.parameter);
+						: new Effect(value.effect, value.delay, value.parameter, value.tableIndex);
 			} else if (typeof value === 'object' && value !== null) {
 				target[key] = JSON.parse(JSON.stringify(value));
 			} else {
@@ -79,7 +79,7 @@ export class PatternService {
 				target[key] =
 					PatternEffectHandling.isEmptyEffect(value)
 						? null
-						: new Effect(value.effect, value.delay, value.parameter);
+						: new Effect(value.effect, value.delay, value.parameter, value.tableIndex);
 			} else if (typeof value === 'object' && value !== null) {
 				target[key] = JSON.parse(JSON.stringify(value));
 			} else {
@@ -385,7 +385,7 @@ export class PatternService {
 				targetRow.note = new Note(sourceRow.note.name, sourceRow.note.octave);
 				targetRow.effects = sourceRow.effects.map((effect) =>
 					effect && !PatternEffectHandling.isEmptyEffect(effect)
-						? new Effect(effect.effect, effect.delay, effect.parameter)
+						? new Effect(effect.effect, effect.delay, effect.parameter, effect.tableIndex)
 						: null
 				);
 				this.copyRowFields(sourceRow, targetRow);
