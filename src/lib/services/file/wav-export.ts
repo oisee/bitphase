@@ -5,6 +5,15 @@ import { mixAudioChannels } from '../../utils/audio-mixer';
 import { downloadFile, sanitizeFilename } from '../../utils/file-download';
 import type { WavExportSettings } from './wav-export-settings';
 import { defaultWavExportSettings } from './wav-export-settings';
+import JSZip from 'jszip';
+
+type ExportChannelDescriptor = {
+	songIndex: number;
+	chipType: string;
+	channelIndex: number;
+	label: string;
+	samples: Float32Array;
+};
 
 const RENDERER_SAMPLE_RATE = 44100;
 const RENDERING_PROGRESS_MAX = 90;
@@ -200,7 +209,8 @@ class WavExportService {
 		songIndex: number,
 		totalSongs: number,
 		loops: number,
-		onProgress?: (progress: number, message: string) => void
+		onProgress?: (progress: number, message: string) => void,
+		separateChannels?: boolean
 	): Promise<Float32Array[]> {
 		const song = project.songs[songIndex];
 		if (!song || song.patterns.length === 0) {
@@ -235,12 +245,18 @@ class WavExportService {
 		const loopedChannels: Float32Array[][] = [];
 
 		for (let loop = 0; loop < loops; loop++) {
-			const channels = await renderer.render(project, songIndex, (progress, message) => {
-				const loopProgress = loop / loops + progress / 100 / loops;
-				const mappedProgress = progressStart + 5 + loopProgress * (progressEnd - progressStart - 5);
-				const loopInfo = loops > 1 ? ` (loop ${loop + 1}/${loops})` : '';
-				onProgress?.(mappedProgress, `Song ${songIndex + 1}/${totalSongs}${loopInfo}: ${message}`);
-			});
+			const channels = await renderer.render(
+				project,
+				songIndex,
+				(progress, message) => {
+					const loopProgress = loop / loops + progress / 100 / loops;
+					const mappedProgress =
+						progressStart + 5 + loopProgress * (progressEnd - progressStart - 5);
+					const loopInfo = loops > 1 ? ` (loop ${loop + 1}/${loops})` : '';
+					onProgress?.(mappedProgress, `Song ${songIndex + 1}/${totalSongs}${loopInfo}: ${message}`);
+				},
+				{ separateChannels: separateChannels ?? false }
+			);
 			loopedChannels.push(channels);
 		}
 
@@ -264,6 +280,49 @@ class WavExportService {
 		return result;
 	}
 
+	private buildSeparateChannels(
+		project: Project,
+		renderedBySongIndex: Map<number, Float32Array[]>
+	): ExportChannelDescriptor[] {
+		const descriptors: ExportChannelDescriptor[] = [];
+		let maxLength = 0;
+		for (const channels of renderedBySongIndex.values()) {
+			if (channels[0].length > maxLength) {
+				maxLength = channels[0].length;
+			}
+		}
+
+		const sortedSongIndices = Array.from(renderedBySongIndex.keys()).sort((a, b) => a - b);
+		for (const songIndex of sortedSongIndices) {
+			const song = project.songs[songIndex];
+			const chip = song?.chipType ? getChipByType(song.chipType) : null;
+			const labels = chip?.schema?.channelLabels ?? ['L', 'R'];
+			const channels = renderedBySongIndex.get(songIndex)!;
+			const chipType = song?.chipType ?? 'unknown';
+
+			for (let ch = 0; ch < channels.length; ch++) {
+				const label = labels[ch] ?? `Ch${ch}`;
+				const src = channels[ch];
+				let samples: Float32Array;
+				if (src.length < maxLength) {
+					samples = new Float32Array(maxLength);
+					samples.set(src);
+				} else {
+					samples = src;
+				}
+				descriptors.push({
+					songIndex,
+					chipType,
+					channelIndex: ch,
+					label,
+					samples
+				});
+			}
+		}
+
+		return descriptors;
+	}
+
 	async export(
 		project: Project,
 		settings: WavExportSettings,
@@ -281,15 +340,97 @@ class WavExportService {
 		}
 
 		const totalSongs = project.songs.length;
-		const renderedSongs: Float32Array[][] = [];
+		const separateFiles = settings.channelMode === 'separateFiles';
 
-		for (let i = 0; i < project.songs.length; i++) {
+		if (separateFiles) {
+			const renderedBySongIndex = new Map<number, Float32Array[]>();
+			for (let i = 0; i < project.songs.length; i++) {
+				if (abortSignal?.aborted) {
+					throw new Error('Export cancelled');
+				}
+				try {
+					const channels = await this.renderSong(
+						project,
+						i,
+						totalSongs,
+						settings.loops,
+						onProgress,
+						true
+					);
+					renderedBySongIndex.set(i, channels);
+				} catch (error) {
+					if (error instanceof Error && error.message === 'Song is empty') {
+						continue;
+					}
+					throw error;
+				}
+			}
+
 			if (abortSignal?.aborted) {
 				throw new Error('Export cancelled');
 			}
 
+			if (renderedBySongIndex.size === 0) {
+				throw new Error('No audio data to export');
+			}
+
+			const descriptors = this.buildSeparateChannels(project, renderedBySongIndex);
+			const allSamples = descriptors.map((d) => d.samples);
+			let samplesToEncode = allSamples;
+
+			if (settings.sampleRate !== RENDERER_SAMPLE_RATE) {
+				onProgress?.(RESAMPLING_PROGRESS, `Resampling to ${settings.sampleRate} Hz...`);
+				samplesToEncode = resampleAudio(
+					allSamples,
+					RENDERER_SAMPLE_RATE,
+					settings.sampleRate
+				);
+				if (abortSignal?.aborted) {
+					throw new Error('Export cancelled');
+				}
+			}
+
+			const baseFilename = settings.title || project.name || 'export';
+			const sanitizedBase = sanitizeFilename(baseFilename);
+
+			onProgress?.(ENCODING_PROGRESS, 'Creating ZIP archive...');
+			const zip = new JSZip();
+			for (let i = 0; i < descriptors.length; i++) {
+				if (abortSignal?.aborted) {
+					throw new Error('Export cancelled');
+				}
+				const d = descriptors[i]!;
+				const channelFilename = `${sanitizedBase}_song${d.songIndex + 1}_${d.chipType}_${d.label}.wav`;
+				const wavBuffer = encodeWAV([samplesToEncode[i]!], settings.sampleRate, settings);
+				zip.file(channelFilename, wavBuffer);
+			}
+
+			if (abortSignal?.aborted) {
+				throw new Error('Export cancelled');
+			}
+
+			onProgress?.(DOWNLOAD_PROGRESS, 'Downloading...');
+			const zipBlob = await zip.generateAsync({ type: 'blob' });
+			downloadFile(zipBlob, `${sanitizedBase}_channels.zip`);
+
+			onProgress?.(COMPLETE_PROGRESS, 'Complete!');
+			return;
+		}
+
+		const renderedSongs: Float32Array[][] = [];
+		for (let i = 0; i < project.songs.length; i++) {
+			if (abortSignal?.aborted) {
+				throw new Error('Export cancelled');
+			}
 			try {
-				const channels = await this.renderSong(project, i, totalSongs, settings.loops, onProgress);
+				const channels = await this.renderSong(
+					project,
+					i,
+					totalSongs,
+					settings.loops,
+					onProgress,
+					false
+				);
 				renderedSongs.push(channels);
 			} catch (error) {
 				if (error instanceof Error && error.message === 'Song is empty') {

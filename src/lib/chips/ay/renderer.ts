@@ -8,6 +8,8 @@ const DEFAULT_SPEED = 6;
 const AYUMI_STRUCT_SIZE = 22928;
 const AYUMI_STRUCT_LEFT_OFFSET = 22888;
 const AYUMI_STRUCT_RIGHT_OFFSET = 22896;
+const AYUMI_STRUCT_CHANNEL_OUT_OFFSET = 22904;
+const TONE_CHANNELS = 3;
 const DEFAULT_AYM_FREQUENCY = 1773400;
 
 type PanSetting = { channel: number; pan: number; isEqp: number };
@@ -153,10 +155,14 @@ export class AYChipRenderer implements ChipRenderer {
 		song: any,
 		totalRows: number,
 		patterns: Pattern[],
-		onProgress?: (progress: number, message: string) => void
+		onProgress?: (progress: number, message: string) => void,
+		separateChannels?: boolean
 	): Promise<Float32Array[]> {
 		const leftSamples: number[] = [];
 		const rightSamples: number[] = [];
+		const channelSamples: number[][] = separateChannels
+			? Array.from({ length: TONE_CHANNELS }, () => [])
+			: [];
 		let totalSamples = 0;
 		const maxSamples = SAMPLE_RATE * 300;
 
@@ -230,29 +236,41 @@ export class AYChipRenderer implements ChipRenderer {
 			ayumiEngine.process();
 			ayumiEngine.removeDC();
 
-			const leftOffset = ayumiPtr + AYUMI_STRUCT_LEFT_OFFSET;
-			const rightOffset = ayumiPtr + AYUMI_STRUCT_RIGHT_OFFSET;
-
-			const leftValue = new Float64Array(wasm.memory.buffer, leftOffset, 1)[0];
-			const rightValue = new Float64Array(wasm.memory.buffer, rightOffset, 1)[0];
-
-			leftSamples.push(leftValue);
-			rightSamples.push(rightValue);
+			if (separateChannels) {
+				for (let ch = 0; ch < TONE_CHANNELS; ch++) {
+					const offset = ayumiPtr + AYUMI_STRUCT_CHANNEL_OUT_OFFSET + ch * 8;
+					const value = new Float64Array(wasm.memory.buffer, offset, 1)[0];
+					channelSamples[ch].push(value);
+				}
+			} else {
+				const leftOffset = ayumiPtr + AYUMI_STRUCT_LEFT_OFFSET;
+				const rightOffset = ayumiPtr + AYUMI_STRUCT_RIGHT_OFFSET;
+				const leftValue = new Float64Array(wasm.memory.buffer, leftOffset, 1)[0];
+				const rightValue = new Float64Array(wasm.memory.buffer, rightOffset, 1)[0];
+				leftSamples.push(leftValue);
+				rightSamples.push(rightValue);
+			}
 			totalSamples++;
 		}
 
+		if (separateChannels) {
+			return channelSamples.map((s) => new Float32Array(s));
+		}
 		return [new Float32Array(leftSamples), new Float32Array(rightSamples)];
 	}
 
 	async render(
 		project: Project,
 		songIndex: number,
-		onProgress?: (progress: number, message: string) => void
+		onProgress?: (progress: number, message: string) => void,
+		options?: { separateChannels?: boolean }
 	): Promise<Float32Array[]> {
 		const song = project.songs[songIndex];
 		if (!song || song.patterns.length === 0) {
 			throw new Error('Song is empty');
 		}
+
+		const separateChannels = options?.separateChannels ?? false;
 
 		const { wasm, wasmBuffer } = await this.loadWasmModule(onProgress);
 		const { getPanSettingsForLayout } = await import(
@@ -292,7 +310,7 @@ export class AYChipRenderer implements ChipRenderer {
 		const totalRows = this.calculateTotalRows(song, patternOrder);
 
 		try {
-			const [leftChannel, rightChannel] = await this.renderAudioLoop(
+			const channels = await this.renderAudioLoop(
 				state,
 				patternProcessor,
 				audioDriver,
@@ -303,12 +321,13 @@ export class AYChipRenderer implements ChipRenderer {
 				song,
 				totalRows,
 				patterns,
-				onProgress
+				onProgress,
+				separateChannels
 			);
 
 			wasm.free(ayumiPtr);
 			onProgress?.(100, 'Rendering complete');
-			return [leftChannel, rightChannel];
+			return channels;
 		} catch (error) {
 			wasm.free(ayumiPtr);
 			throw error;

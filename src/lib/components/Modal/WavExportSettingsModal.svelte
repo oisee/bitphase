@@ -8,6 +8,7 @@
 		defaultWavExportSettings,
 		sampleRateOptions,
 		bitDepthOptions,
+		channelModeOptions,
 		type WavExportSettings
 	} from '../../services/file/wav-export-settings';
 	import type { Project } from '../../models/project';
@@ -57,6 +58,21 @@
 			label="Number of Loops"
 			description="How many times the song should loop in the exported file">
 			<RangeInput bind:value={settings.loops} min={1} max={10} step={1} />
+		</FormField>
+
+		<FormField
+			id="channel-mode"
+			label="Channels"
+			description="Mixed: one stereo WAV. Separate: one WAV file per chip channel (e.g. AY A/B/C). Supports multiple chips (1xAY, 2xAY, etc.).">
+			<select
+				id="channel-mode"
+				bind:value={settings.channelMode}
+				class="w-full cursor-pointer rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-2 py-1.5 text-xs text-[var(--color-app-text-primary)] focus:border-[var(--color-app-primary)] focus:outline-none"
+			>
+				{#each channelModeOptions as opt}
+					<option value={opt.value}>{opt.label}</option>
+				{/each}
+			</select>
 		</FormField>
 
 		<div class="mb-4 border-t border-[var(--color-app-border)] pt-4">
