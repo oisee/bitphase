@@ -15,8 +15,12 @@ export interface RowDataContext {
 	rowStringCache: Cache<string, string>;
 }
 
+export interface GetRowDataOptions {
+	debug?: boolean;
+}
+
 export class PatternRowDataService {
-	static getRowData(context: RowDataContext): string {
+	static getRowData(context: RowDataContext, options?: GetRowDataOptions): string {
 		let genericPattern = context.patternGenericCache.get(context.pattern.id);
 		if (!genericPattern) {
 			genericPattern = context.converter.toGeneric(context.pattern);
@@ -25,6 +29,16 @@ export class PatternRowDataService {
 
 		const genericPatternRow = genericPattern.patternRows[context.rowIndex];
 		const genericChannels = genericPattern.channels.map((ch) => ch.rows[context.rowIndex]);
+
+		if (options?.debug) {
+			return context.formatter.formatRow(
+				genericPatternRow,
+				genericChannels,
+				context.rowIndex,
+				context.schema,
+				{ debug: true }
+			);
+		}
 
 		const rowCacheKey = `${context.pattern.id}:${context.rowIndex}`;
 		let rowString = context.rowStringCache.get(rowCacheKey);

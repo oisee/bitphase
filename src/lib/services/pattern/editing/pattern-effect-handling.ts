@@ -1,6 +1,25 @@
 import { formatHex } from '../../../chips/base/field-formatters';
 
+export type EffectLikeObject = {
+	effect: number;
+	delay: number;
+	parameter: number;
+	tableIndex?: number;
+};
+
 export class PatternEffectHandling {
+	static isEmptyEffect(effect: EffectLikeObject | null | undefined): boolean {
+		if (!effect) return true;
+		const noTable =
+			effect.tableIndex === undefined || effect.tableIndex < 0;
+		return (
+			effect.effect === 0 &&
+			(effect.delay ?? 0) === 0 &&
+			(effect.parameter ?? 0) === 0 &&
+			noTable
+		);
+	}
+
 	static formatEffectAsString(
 		effect:
 			| { effect: number; delay: number; parameter: number; tableIndex?: number }
@@ -43,7 +62,7 @@ export class PatternEffectHandling {
 		delay: number;
 		parameter: number;
 		tableIndex?: number;
-	} {
+	} | null {
 		let type: number;
 		const typeChar = value[0] || '.';
 		if (typeChar === '.') {
@@ -67,11 +86,13 @@ export class PatternEffectHandling {
 		if (char2 === 'T' || char2 === 't') {
 			const tableChar = value[3] || '0';
 			const tableIndex = this.charToTableIndex(tableChar);
-			return { effect: type, delay, parameter: 0, tableIndex };
+			const result = { effect: type, delay, parameter: 0, tableIndex };
+			return this.isEmptyEffect(result) ? null : result;
 		}
 
 		const param = parseInt((value.slice(2, 4) || '00').replace(/\./g, '0'), 16) || 0;
-		return { effect: type, delay, parameter: param };
+		const result = { effect: type, delay, parameter: param };
+		return this.isEmptyEffect(result) ? null : result;
 	}
 
 	private static tableIndexToChar(index: number): string {

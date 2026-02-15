@@ -34,6 +34,14 @@ export const settingsItems: SettingsItem[] = [
 		category: 'general'
 	},
 	{
+		label: 'Debug Mode',
+		description: 'Log each playback row in the console in tracker format',
+		type: 'toggle',
+		defaultValue: false,
+		setting: 'debugMode',
+		category: 'general'
+	},
+	{
 		label: 'Pattern Editor Font Size',
 		description: 'Adjust the font size in the pattern editor',
 		type: 'number',

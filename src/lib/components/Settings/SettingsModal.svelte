@@ -31,7 +31,8 @@
 		channelSeparatorWidth: settingsStore.channelSeparatorWidth,
 		decimalRowNumbers: settingsStore.decimalRowNumbers,
 		showOscilloscopes: settingsStore.showOscilloscopes,
-		showInstrumentPreview: settingsStore.showInstrumentPreview
+		showInstrumentPreview: settingsStore.showInstrumentPreview,
+		debugMode: settingsStore.debugMode
 	};
 	let tempSettings = $state<Settings>({ ...currentSettings });
 	let activeTabId = $state(initialTabId || 'general');

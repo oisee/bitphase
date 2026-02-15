@@ -18,7 +18,7 @@ export class EffectField {
 		delay: number;
 		parameter: number;
 		tableIndex?: number;
-	} {
+	} | null {
 		return PatternEffectHandling.parseEffectFromString(str);
 	}
 

@@ -1,6 +1,7 @@
 import { Pattern, Note, Effect } from '../../models/song';
 import { isEffectLike, toNumber } from '../../utils/type-guards';
 import type { ChipSchema } from '../../chips/base/schema';
+import { PatternEffectHandling } from './editing/pattern-effect-handling';
 
 export class PatternService {
 	/**
@@ -38,7 +39,9 @@ export class PatternService {
 				const newRow = clonedPattern.channels[channelIndex].rows[rowIndex];
 				newRow.note = new Note(row.note.name, row.note.octave);
 				newRow.effects = row.effects.map((effect) =>
-					effect ? new Effect(effect.effect, effect.delay, effect.parameter) : null
+					effect && !PatternEffectHandling.isEmptyEffect(effect)
+						? new Effect(effect.effect, effect.delay, effect.parameter)
+						: null
 				);
 				this.copyRowFields(row, newRow);
 			});
@@ -57,7 +60,10 @@ export class PatternService {
 			if (key === 'note' || key === 'effects') continue;
 			const value = source[key];
 			if (isEffectLike(value)) {
-				target[key] = new Effect(value.effect, value.delay, value.parameter);
+				target[key] =
+					PatternEffectHandling.isEmptyEffect(value)
+						? null
+						: new Effect(value.effect, value.delay, value.parameter);
 			} else if (typeof value === 'object' && value !== null) {
 				target[key] = JSON.parse(JSON.stringify(value));
 			} else {
@@ -70,7 +76,10 @@ export class PatternService {
 		for (const key of Object.keys(source)) {
 			const value = source[key];
 			if (isEffectLike(value)) {
-				target[key] = new Effect(value.effect, value.delay, value.parameter);
+				target[key] =
+					PatternEffectHandling.isEmptyEffect(value)
+						? null
+						: new Effect(value.effect, value.delay, value.parameter);
 			} else if (typeof value === 'object' && value !== null) {
 				target[key] = JSON.parse(JSON.stringify(value));
 			} else {
@@ -375,7 +384,9 @@ export class PatternService {
 
 				targetRow.note = new Note(sourceRow.note.name, sourceRow.note.octave);
 				targetRow.effects = sourceRow.effects.map((effect) =>
-					effect ? new Effect(effect.effect, effect.delay, effect.parameter) : null
+					effect && !PatternEffectHandling.isEmptyEffect(effect)
+						? new Effect(effect.effect, effect.delay, effect.parameter)
+						: null
 				);
 				this.copyRowFields(sourceRow, targetRow);
 			}

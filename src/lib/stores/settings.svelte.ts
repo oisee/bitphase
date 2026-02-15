@@ -14,6 +14,7 @@ class SettingsStore {
 	decimalRowNumbers = $state(false);
 	showOscilloscopes = $state(true);
 	showInstrumentPreview = $state(true);
+	debugMode = $state(false);
 
 	init(): void {
 		const stored = localStorage.getItem(STORAGE_KEY);

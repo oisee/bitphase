@@ -178,7 +178,7 @@
 			if (!currentPattern) return;
 
 			chipProcessor.sendInitPattern(currentPattern, patternOrderIndexForInit);
-			chipProcessor.sendInitSpeed(song.initialSpeed);
+			chipProcessor.sendInitTables(projectStore.tables);
 
 			const withTuningTables = chipProcessor as ChipProcessor & Partial<TuningTableSupport>;
 			const withInstruments = chipProcessor as ChipProcessor & Partial<InstrumentSupport>;

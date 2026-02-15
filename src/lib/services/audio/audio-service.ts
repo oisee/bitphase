@@ -148,11 +148,7 @@ export class AudioService {
 		});
 	}
 
-	updateSpeed(speed: number) {
-		this.chipProcessors.forEach((chipProcessor) => {
-			chipProcessor.sendInitSpeed(speed);
-		});
-	}
+	updateSpeed(_speed: number) {}
 
 	removeChipProcessor(index: number): void {
 		if (index < 0 || index >= this.chipProcessors.length) return;

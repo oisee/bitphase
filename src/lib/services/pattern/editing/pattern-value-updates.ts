@@ -7,7 +7,7 @@ export class PatternValueUpdates {
 	static updateFieldValue(
 		context: EditingContext,
 		fieldInfo: FieldInfo,
-		newValue: string | number | null
+		newValue: string | number | null | Record<string, unknown>
 	): Pattern {
 		const genericPattern = context.converter.toGeneric(context.pattern);
 		if (fieldInfo.isGlobal) {

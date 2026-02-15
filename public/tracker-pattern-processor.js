@@ -20,7 +20,13 @@ class TrackerPatternProcessor {
 			this._processNote(channelIndex, row);
 			this._processTable(channelIndex, row);
 			this._processVolume(channelIndex, row);
-			this._processEffects(channelIndex, row);
+			this._processEffects(channelIndex, row, true);
+		}
+
+		for (let channelIndex = 0; channelIndex < pattern.channels.length; channelIndex++) {
+			const channel = pattern.channels[channelIndex];
+			const row = channel.rows[rowIndex];
+			this._processSpeedOnly(channelIndex, row);
 		}
 
 		this.chipAudioDriver.processPatternRow(
@@ -192,13 +198,13 @@ class TrackerPatternProcessor {
 		}
 	}
 
-	_processEffects(channelIndex, row) {
+	_processEffects(channelIndex, row, skipSpeed = false) {
 		if (!row.effects[0]) return;
 
 		const effect = row.effects[0];
 		const hasTableIndex = effect.tableIndex !== undefined && effect.tableIndex >= 0;
 
-		if (hasTableIndex) {
+		if (hasTableIndex && effect.effect !== EffectAlgorithms.SPEED) {
 			this._initEffectTable(channelIndex, effect);
 		}
 
@@ -215,7 +221,7 @@ class TrackerPatternProcessor {
 			this._initChannelArpeggio(channelIndex, effect, hasTableIndex);
 		} else if (effect.effect === EffectAlgorithms.VIBRATO) {
 			this._initChannelVibrato(channelIndex, effect, hasTableIndex);
-		} else if (effect.effect === EffectAlgorithms.SPEED) {
+		} else if (effect.effect === EffectAlgorithms.SPEED && !skipSpeed) {
 			this._initSpeed(effect, hasTableIndex);
 		} else if (effect.effect === EffectAlgorithms.SLIDE_UP) {
 			this._initChannelSlide(channelIndex, effect, hasTableIndex, 1);
@@ -226,6 +232,14 @@ class TrackerPatternProcessor {
 		} else if (effect.effect === EffectAlgorithms.ON_OFF) {
 			this._initChannelOnOff(channelIndex, effect, hasTableIndex);
 		}
+	}
+
+	_processSpeedOnly(channelIndex, row) {
+		if (!row.effects || !row.effects[0]) return;
+		const effect = row.effects[0];
+		if (effect.effect !== EffectAlgorithms.SPEED) return;
+		const hasTableIndex = effect.tableIndex !== undefined && effect.tableIndex >= 0;
+		this._initSpeed(effect, hasTableIndex);
 	}
 
 	_initChannelArpeggio(channelIndex, effect, hasTableIndex) {
@@ -260,6 +274,10 @@ class TrackerPatternProcessor {
 		if (hasTableIndex) {
 			this.state.speedTable = effect.tableIndex;
 			this.state.speedTablePosition = 0;
+			const firstSpeed = this._getFirstNonZeroSpeedTableValue();
+			if (firstSpeed > 0) {
+				this.state.setSpeed(firstSpeed);
+			}
 		} else {
 			this.state.speedTable = -1;
 			if (effect.parameter > 0) {
@@ -359,6 +377,24 @@ class TrackerPatternProcessor {
 
 		const position = this.state.speedTablePosition;
 		return table.rows[position] || 0;
+	}
+
+	_getFirstNonZeroSpeedTableValue() {
+		const tableIndex = this.state.speedTable;
+		if (tableIndex < 0) return 0;
+
+		const table = this.state.getTable(tableIndex);
+		if (!table || !table.rows || table.rows.length === 0) return 0;
+
+		let position = 0;
+		const rows = table.rows;
+		while (position < rows.length && (rows[position] || 0) <= 0) {
+			position++;
+		}
+		if (position >= rows.length) return 0;
+
+		this.state.speedTablePosition = position;
+		return rows[position] || 0;
 	}
 
 	_advanceSpeedTable() {

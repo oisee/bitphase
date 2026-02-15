@@ -27,11 +27,20 @@ export class AYFormatter extends BaseFormatter {
 					if (field) {
 						const value = data[key];
 						if (EffectField.isEffectField(key)) {
-							const effectFormatted = EffectField.formatValue(value);
-							result +=
-								effectFormatted !== null
-									? effectFormatted
-									: this.formatField(isPrimitive(value) ? value : null, field);
+							if (this._debugFormat) {
+								result +=
+									value === undefined
+										? 'undefined'
+										: value === null
+											? 'null'
+											: EffectField.formatValue(value) ?? 'null';
+							} else {
+								const effectFormatted = EffectField.formatValue(value);
+								result +=
+									effectFormatted !== null
+										? effectFormatted
+										: this.formatField(isPrimitive(value) ? value : null, field);
+							}
 						} else if (
 							key === 'envelopeValue' &&
 							this.envelopeAsNote &&

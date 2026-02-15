@@ -153,7 +153,7 @@ export class PatternDeleteHandler {
 		const updatedPattern = PatternValueUpdates.updateFieldValue(
 			context,
 			fieldInfo,
-			newEffectObj as unknown as string | number
+			newEffectObj
 		);
 		return { updatedPattern, shouldMoveNext: false };
 	}

@@ -67,6 +67,7 @@ class TrackerState {
 		this.tickAccumulator = 0.0;
 		this.currentRow = 0;
 		this.currentTick = 0;
+		this.currentSpeed = DEFAULT_SPEED;
 		this.channelPatternVolumes.fill(15);
 		this.channelTables.fill(-1);
 		this.tablePositions.fill(0);

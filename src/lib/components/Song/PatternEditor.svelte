@@ -756,16 +756,23 @@
 		);
 	}
 
-	function getPatternRowData(pattern: Pattern, rowIndex: number): string {
-		return PatternRowDataService.getRowData({
-			pattern,
-			rowIndex,
-			converter,
-			formatter,
-			schema,
-			patternGenericCache,
-			rowStringCache
-		});
+	function getPatternRowData(
+		pattern: Pattern,
+		rowIndex: number,
+		options?: { debug?: boolean }
+	): string {
+		return PatternRowDataService.getRowData(
+			{
+				pattern,
+				rowIndex,
+				converter,
+				formatter,
+				schema,
+				patternGenericCache,
+				rowStringCache
+			},
+			options
+		);
 	}
 
 	function draw() {
@@ -2136,6 +2143,21 @@
 						pending.orderIndex !== currentPatternOrderIndex
 					) {
 						return;
+					}
+
+					if (settingsStore.debugMode && isPlaybackMaster) {
+						const orderIdx =
+							pending.orderIndex !== undefined
+								? pending.orderIndex
+								: currentPatternOrderIndex;
+						const patternId = currentPatternOrder[orderIdx];
+						const pattern = currentPatterns.find((p) => p.id === patternId);
+						if (pattern) {
+							const rowString = getPatternRowData(pattern, pending.row, {
+								debug: true
+							});
+							console.log(`  ▶ ${rowString}`);
+						}
 					}
 
 					if (isPlaybackMaster) {

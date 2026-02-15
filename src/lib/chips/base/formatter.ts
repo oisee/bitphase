@@ -1,4 +1,4 @@
-import type { PatternFormatter } from './formatter-interface';
+import type { PatternFormatter, FormatRowOptions } from './formatter-interface';
 import type { ChipSchema, ChipField } from './schema';
 import type { GenericRow, GenericPatternRow } from '../../models/song/generic';
 import { formatHex, formatSymbol, parseHex, parseSymbol } from './field-formatters';
@@ -9,25 +9,32 @@ import { isPrimitive } from '../../utils/type-guards';
 
 export abstract class BaseFormatter implements PatternFormatter {
 	decimalRowNumbers?: boolean;
+	protected _debugFormat = false;
 
 	formatRow(
 		patternRow: GenericPatternRow,
 		channels: GenericRow[],
 		rowIndex: number,
-		schema: ChipSchema
+		schema: ChipSchema,
+		options?: FormatRowOptions
 	): string {
-		let result = this.getRowNumber(rowIndex) + ' ';
+		this._debugFormat = options?.debug ?? false;
+		try {
+			let result = this.getRowNumber(rowIndex) + ' ';
 
-		if (schema.globalTemplate && schema.globalFields) {
-			result +=
-				this.formatTemplate(schema.globalTemplate, patternRow, schema.globalFields) + ' ';
+			if (schema.globalTemplate && schema.globalFields) {
+				result +=
+					this.formatTemplate(schema.globalTemplate, patternRow, schema.globalFields) + ' ';
+			}
+
+			for (const channel of channels) {
+				result += this.formatTemplate(schema.template, channel, schema.fields) + ' ';
+			}
+
+			return result.trim();
+		} finally {
+			this._debugFormat = false;
 		}
-
-		for (const channel of channels) {
-			result += this.formatTemplate(schema.template, channel, schema.fields) + ' ';
-		}
-
-		return result.trim();
 	}
 
 	parseRow(
@@ -182,6 +189,31 @@ export abstract class BaseFormatter implements PatternFormatter {
 		value: number | string | null | undefined,
 		field: { type: string; length: number; allowZeroValue?: boolean }
 	): string {
+		if (this._debugFormat) {
+			if (value === undefined) return 'undefined';
+			if (value === null) return 'null';
+			switch (field.type) {
+				case 'hex':
+					return (typeof value === 'number' ? value : parseInt(String(value), 16) || 0)
+						.toString(16)
+						.toUpperCase()
+						.padStart(field.length, '0');
+				case 'symbol': {
+					const num =
+						typeof value === 'number'
+							? value
+							: typeof value === 'string'
+								? parseInt(value, 36)
+								: 0;
+					return num.toString(36).toUpperCase().padStart(field.length, '0');
+				}
+				case 'note':
+					return this.formatNote(value, field);
+				default:
+					return String(value);
+			}
+		}
+
 		if (
 			typeof value === 'string' &&
 			value !== '' &&

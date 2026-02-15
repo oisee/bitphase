@@ -155,11 +155,18 @@ export class AYProcessor
 		while (this.commandQueue.length > 0) {
 			const queuedCommand = this.commandQueue.shift();
 			if (queuedCommand) {
-				this.audioNode.port.postMessage(queuedCommand);
+				this.audioNode.port.postMessage(this.toSerializableCommand(queuedCommand));
 			}
 		}
 
-		this.audioNode.port.postMessage(command);
+		this.audioNode.port.postMessage(this.toSerializableCommand(command));
+	}
+
+	private toSerializableCommand(command: WorkletCommand): unknown {
+		if (command.type === 'init') {
+			return command;
+		}
+		return JSON.parse(JSON.stringify(command));
 	}
 
 	setCallbacks(

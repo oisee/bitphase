@@ -9,6 +9,7 @@ export interface Settings {
 	decimalRowNumbers: boolean;
 	showOscilloscopes: boolean;
 	showInstrumentPreview: boolean;
+	debugMode: boolean;
 }
 
 export interface SettingsItem {
