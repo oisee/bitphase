@@ -118,11 +118,11 @@ input[type='number'] {
 	-moz-appearance: textfield;
 }
 
-/* Hide default select dropdown arrow */
 select {
 	-webkit-appearance: none;
 	-moz-appearance: none;
 	appearance: none;
+	cursor: pointer;
 }
 
 ::-webkit-scrollbar {
