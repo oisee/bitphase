@@ -1,7 +1,10 @@
 import type { MenuItem } from '../components/Menu/types';
 import { buildEditMenuItems } from './keybindings';
+import { getDemoMenuItems } from './demo-songs';
 
 export const editMenuItems: MenuItem[] = buildEditMenuItems();
+
+const demoMenuItems: MenuItem[] = getDemoMenuItems();
 
 export const menuItems: MenuItem[] = [
 	{
@@ -59,6 +62,14 @@ export const menuItems: MenuItem[] = [
 	{
 		label: 'Help',
 		items: [
+			{
+				label: 'Demo songs',
+				type: 'expandable',
+				items:
+				demoMenuItems.length > 0
+					? demoMenuItems
+					: [{ label: 'No demo songs', type: 'normal', disabled: true }]
+			},
 			{ label: 'Effects', type: 'normal', action: 'effects' },
 			{ label: 'Documentation', type: 'normal' },
 			{ label: 'About', type: 'normal', action: 'about' }

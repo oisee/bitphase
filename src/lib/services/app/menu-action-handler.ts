@@ -9,6 +9,7 @@ import UserScriptsModal from '../../components/Modal/UserScriptsModal.svelte';
 import WavExportSettingsModal from '../../components/Modal/WavExportSettingsModal.svelte';
 import ProgressModal from '../../components/Modal/ProgressModal.svelte';
 import { ACTION_APPLY_SCRIPT } from '../../config/keybindings';
+import { loadDemoProject } from '../../config/demo-songs';
 import { AY_CHIP } from '../../chips/ay';
 import type { MenuActionContext } from './menu-action-context';
 
@@ -233,6 +234,22 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
 					project: ctx.getCurrentProject(),
 					exportType: 'psg'
 				});
+				return;
+			}
+
+			if (data.action.startsWith('open-demo:')) {
+				const path = data.action.slice('open-demo:'.length);
+				const project = await loadDemoProject(path);
+				if (project) {
+					ctx.playbackStore.isPlaying = false;
+					ctx.container.audioService.stop();
+					ctx.container.audioService.clearChipProcessors();
+					for (const _ of project.songs) {
+						await ctx.container.audioService.addChipProcessor(AY_CHIP);
+					}
+					ctx.applyProject(project);
+					ctx.resetPatternEditor();
+				}
 				return;
 			}
 
