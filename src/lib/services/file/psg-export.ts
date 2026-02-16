@@ -3,6 +3,13 @@ import { downloadFile, sanitizeFilename } from '../../utils/file-download';
 
 const DEFAULT_SPEED = 6;
 
+export interface PsgExportModules {
+	AyumiState: new () => any;
+	TrackerPatternProcessor: new (state: any, driver: any, opts: { postMessage: () => void }) => any;
+	AYAudioDriver: new () => any;
+	AYChipRegisterState: new () => any;
+}
+
 interface AYRegisterState {
 	registers: number[];
 }
@@ -165,9 +172,11 @@ class PsgExportService {
 					state.currentRow,
 					registerState
 				);
+				patternProcessor.processSpeedTable();
 			}
 
 			patternProcessor.processTables();
+			patternProcessor.processEffectTables();
 			patternProcessor.processSlides();
 			patternProcessor.processArpeggio();
 			audioDriver.processInstruments(state, registerState);
@@ -201,6 +210,64 @@ class PsgExportService {
 		return registerFrames;
 	}
 
+	async runCaptureWithModules(
+		project: Project,
+		songIndex: number,
+		modules: PsgExportModules,
+		onProgress?: (progress: number, message: string) => void,
+		abortSignal?: AbortSignal
+	): Promise<ArrayBuffer> {
+		const song = project.songs[songIndex];
+		if (!song || song.patterns.length === 0) {
+			throw new Error('Song is empty');
+		}
+
+		const { AyumiState, TrackerPatternProcessor, AYAudioDriver, AYChipRegisterState } = modules;
+		const state = new AyumiState();
+		state.setTuningTable(song.tuningTable);
+		state.setInstruments(project.instruments);
+		state.setTables(project.tables);
+		state.setPatternOrder(project.patternOrder || [0]);
+		state.setSpeed(song.initialSpeed || DEFAULT_SPEED);
+		if (song.interruptFrequency) {
+			state.intFrequency = song.interruptFrequency;
+		}
+
+		const audioDriver = new AYAudioDriver();
+		const registerState = new AYChipRegisterState();
+		const patternProcessor = new TrackerPatternProcessor(state, audioDriver, {
+			postMessage: () => {}
+		});
+
+		const patternOrder = project.patternOrder || [0];
+		const patterns = this.getPatterns(song, patternOrder);
+
+		if (patterns.length === 0) {
+			throw new Error('No patterns found');
+		}
+
+		state.currentPattern = patterns[0];
+		state.currentPatternOrderIndex = 0;
+
+		const totalRows = this.calculateTotalRows(song, patternOrder);
+		const registerFrames = await this.captureRegisterStates(
+			state,
+			patternProcessor,
+			audioDriver,
+			registerState,
+			song,
+			totalRows,
+			patterns,
+			onProgress
+		);
+
+		if (abortSignal?.aborted) {
+			throw new Error('Export cancelled');
+		}
+
+		return encodePSG(registerFrames);
+	}
+
 	async export(
 		project: Project,
 		songIndex: number = 0,
@@ -229,45 +296,21 @@ class PsgExportService {
 			`${baseUrl}ay-chip-register-state.js`
 		);
 
-		const state = new AyumiState();
-		state.setTuningTable(song.tuningTable);
-		state.setInstruments(project.instruments);
-		state.setTables(project.tables);
-		state.setPatternOrder(project.patternOrder || [0]);
-		state.setSpeed(song.initialSpeed || DEFAULT_SPEED);
-		if (song.interruptFrequency) {
-			state.intFrequency = song.interruptFrequency;
-		}
-
-		const audioDriver = new AYAudioDriver();
-		const registerState = new AYChipRegisterState();
-		const patternProcessor = new TrackerPatternProcessor(state, audioDriver, {
-			postMessage: () => {}
-		});
-
-		const patternOrder = project.patternOrder || [0];
-		const patterns = this.getPatterns(song, patternOrder);
-
-		if (patterns.length === 0) {
-			throw new Error('No patterns found');
-		}
-
-		state.currentPattern = patterns[0];
-		state.currentPatternOrderIndex = 0;
-
-		onProgress?.(50, 'Initializing capture...');
-		const totalRows = this.calculateTotalRows(song, patternOrder);
+		const modules: PsgExportModules = {
+			AyumiState,
+			TrackerPatternProcessor,
+			AYAudioDriver,
+			AYChipRegisterState
+		};
 
 		try {
-			const registerFrames = await this.captureRegisterStates(
-				state,
-				patternProcessor,
-				audioDriver,
-				registerState,
-				song,
-				totalRows,
-				patterns,
-				onProgress
+			onProgress?.(50, 'Initializing capture...');
+			const psgBuffer = await this.runCaptureWithModules(
+				project,
+				songIndex,
+				modules,
+				onProgress,
+				abortSignal
 			);
 
 			if (abortSignal?.aborted) {
@@ -275,7 +318,6 @@ class PsgExportService {
 			}
 
 			onProgress?.(95, 'Encoding PSG file...');
-			const psgBuffer = encodePSG(registerFrames);
 			const blob = new Blob([psgBuffer], { type: 'application/octet-stream' });
 
 			if (abortSignal?.aborted) {
@@ -295,6 +337,39 @@ class PsgExportService {
 }
 
 const psgExportService = new PsgExportService();
+
+export interface GeneratePSGBufferOptions {
+	modules?: PsgExportModules;
+}
+
+export async function generatePSGBuffer(
+	project: Project,
+	songIndex: number = 0,
+	options?: GeneratePSGBufferOptions
+): Promise<ArrayBuffer> {
+	const song = project.songs[songIndex];
+	if (!song || song.patterns.length === 0) {
+		throw new Error('Song is empty');
+	}
+
+	let modules: PsgExportModules;
+	if (options?.modules) {
+		modules = options.modules;
+	} else {
+		const baseUrl = import.meta.env.BASE_URL;
+		const { default: AyumiState } = await import(`${baseUrl}ayumi-state.js`);
+		const { default: TrackerPatternProcessor } = await import(
+			`${baseUrl}tracker-pattern-processor.js`
+		);
+		const { default: AYAudioDriver } = await import(`${baseUrl}ay-audio-driver.js`);
+		const { default: AYChipRegisterState } = await import(
+			`${baseUrl}ay-chip-register-state.js`
+		);
+		modules = { AyumiState, TrackerPatternProcessor, AYAudioDriver, AYChipRegisterState };
+	}
+
+	return psgExportService.runCaptureWithModules(project, songIndex, modules);
+}
 
 export async function exportToPSG(
 	project: Project,
