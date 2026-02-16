@@ -375,7 +375,8 @@ class AYAudioDriver {
 
 	_initEnvelopeOnOff(state, effect, hasTableIndex) {
 		const param = hasTableIndex ? this._getEnvelopeEffectTableValue(state) : effect.parameter;
-		const onOffState = EffectAlgorithms.initOnOff(param);
+		const delay = effect.delay ?? 0;
+		const onOffState = EffectAlgorithms.initOnOff(param, delay);
 		state.envelopeOffDuration = onOffState.offDuration;
 		state.envelopeOnDuration = onOffState.onDuration;
 		state.envelopeOnOffCounter = onOffState.counter;
@@ -474,20 +475,8 @@ class AYAudioDriver {
 		this.processEnvelopeSlide(state);
 		this.processEnvelopePortamento(state);
 		this.processEnvelopeVibrato(state);
-		this.processEnvelopeOnOff(state);
 
 		for (let channelIndex = 0; channelIndex < state.channelInstruments.length; channelIndex++) {
-			if (state.channelOnOffCounter[channelIndex] > 0) {
-				const result = EffectAlgorithms.processOnOffCounter(
-					state.channelOnOffCounter[channelIndex],
-					state.channelOnDuration[channelIndex],
-					state.channelOffDuration[channelIndex],
-					state.channelSoundEnabled[channelIndex]
-				);
-				state.channelOnOffCounter[channelIndex] = result.counter;
-				state.channelSoundEnabled[channelIndex] = result.enabled;
-			}
-
 			const isMuted = state.channelMuted[channelIndex];
 			const isSoundEnabled = state.channelSoundEnabled[channelIndex];
 
@@ -676,6 +665,21 @@ class AYAudioDriver {
 				}
 			}
 		}
+
+		for (let channelIndex = 0; channelIndex < state.channelInstruments.length; channelIndex++) {
+			if (state.channelOnOffCounter[channelIndex] > 0) {
+				const result = EffectAlgorithms.processOnOffCounter(
+					state.channelOnOffCounter[channelIndex],
+					state.channelOnDuration[channelIndex],
+					state.channelOffDuration[channelIndex],
+					state.channelSoundEnabled[channelIndex]
+				);
+				state.channelOnOffCounter[channelIndex] = result.counter;
+				state.channelSoundEnabled[channelIndex] = result.enabled;
+			}
+		}
+
+		this.processEnvelopeOnOff(state);
 
 		for (let channelIndex = 0; channelIndex < state.channelInstruments.length; channelIndex++) {
 			if (state.channelMuted[channelIndex]) {
