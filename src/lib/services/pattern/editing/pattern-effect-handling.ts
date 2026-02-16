@@ -40,12 +40,15 @@ export class PatternEffectHandling {
 			type = 'P';
 		} else if (effect.effect === 'E'.charCodeAt(0)) {
 			type = 'E';
+		} else if (effect.effect === 'D'.charCodeAt(0)) {
+			type = 'D';
 		} else if (effect.effect >= 1 && effect.effect <= 15) {
 			type = effect.effect.toString(16).toUpperCase();
 		} else {
 			type = effect.effect.toString(16).toUpperCase();
 		}
-		const delay = formatHex(effect.delay, 1);
+		const delay =
+			effect.effect === 'D'.charCodeAt(0) ? '.' : formatHex(effect.delay, 1);
 
 		if (effect.tableIndex !== undefined) {
 			const tableChar =
@@ -77,6 +80,8 @@ export class PatternEffectHandling {
 			type = 'P'.charCodeAt(0);
 		} else if (typeChar === 'E' || typeChar === 'e') {
 			type = 'E'.charCodeAt(0);
+		} else if (typeChar === 'D' || typeChar === 'd') {
+			type = 'D'.charCodeAt(0);
 		} else {
 			type = parseInt(typeChar, 16) || 0;
 		}

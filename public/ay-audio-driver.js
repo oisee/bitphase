@@ -310,6 +310,8 @@ class AYAudioDriver {
 			this._initEnvelopePortamento(state, effect, patternRow, hasTableIndex);
 		} else if (effect.effect === EffectAlgorithms.ON_OFF) {
 			this._initEnvelopeOnOff(state, effect, hasTableIndex);
+		} else if (effect.effect === EffectAlgorithms.DETUNE) {
+			this._initEnvelopeDetune(state, effect, hasTableIndex);
 		} else if (effect.effect === EffectAlgorithms.AUTO_ENVELOPE) {
 			this._initAutoEnvelope(state, effect);
 		}
@@ -381,6 +383,11 @@ class AYAudioDriver {
 		state.envelopeOnDuration = onOffState.onDuration;
 		state.envelopeOnOffCounter = onOffState.counter;
 		state.envelopeOnOffEnabled = onOffState.enabled;
+	}
+
+	_initEnvelopeDetune(state, effect, hasTableIndex) {
+		const param = hasTableIndex ? this._getEnvelopeEffectTableValue(state) : effect.parameter;
+		state.envelopeDetune = (param & 0xff) - 0x80;
 	}
 
 	_initAutoEnvelope(state, effect) {
@@ -710,7 +717,8 @@ class AYAudioDriver {
 			state.channelVibratoSliding && state.channelVibratoSliding[channelIndex]
 				? state.channelVibratoSliding[channelIndex]
 				: 0;
-		return (baseTone + toneSliding + vibratoSliding) & 0xfff;
+		const detune = state.channelDetune ? state.channelDetune[channelIndex] || 0 : 0;
+		return (baseTone + toneSliding + vibratoSliding + detune) & 0xfff;
 	}
 
 	getEffectiveBaseTone(state, channelIndex) {
@@ -725,7 +733,8 @@ class AYAudioDriver {
 			state.channelVibratoSliding && state.channelVibratoSliding[channelIndex]
 				? state.channelVibratoSliding[channelIndex]
 				: 0;
-		return (baseTone + toneSliding + vibratoSliding) & 0xfff;
+		const detune = state.channelDetune ? state.channelDetune[channelIndex] || 0 : 0;
+		return (baseTone + toneSliding + vibratoSliding + detune) & 0xfff;
 	}
 
 	processAutoEnvelope(state, registerState) {
@@ -929,8 +938,13 @@ class AYAudioDriver {
 
 		if (baseValue > 0) {
 			const vibratoOffset = state.envelopeVibratoSliding ?? 0;
+			const detuneOffset = state.envelopeDetune ?? 0;
 			const finalEnvelopeValue =
-				baseValue + state.envelopeSlideCurrent + state.envelopeAddValue + vibratoOffset;
+				baseValue +
+				state.envelopeSlideCurrent +
+				state.envelopeAddValue +
+				vibratoOffset +
+				detuneOffset;
 			const wrappedValue = ((finalEnvelopeValue % 0x10000) + 0x10000) % 0x10000;
 			registerState.envelopePeriod = wrappedValue;
 		}

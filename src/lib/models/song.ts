@@ -28,7 +28,8 @@ enum EffectType {
 	OnOff = 6,
 	Speed = 'S'.charCodeAt(0),
 	Vibrato = 'V'.charCodeAt(0),
-	AutoEnvelope = 'E'.charCodeAt(0)
+	AutoEnvelope = 'E'.charCodeAt(0),
+	Detune = 'D'.charCodeAt(0)
 }
 
 class Note {

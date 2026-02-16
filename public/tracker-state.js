@@ -51,6 +51,7 @@ class TrackerState {
 		this.channelVibratoDelay = Array(channelCount).fill(0);
 		this.channelVibratoCounter = Array(channelCount).fill(0);
 		this.channelVibratoPosition = Array(channelCount).fill(0);
+		this.channelDetune = Array(channelCount).fill(0);
 
 		this.channelEffectTables = Array(channelCount).fill(-1);
 		this.channelEffectTablePositions = Array(channelCount).fill(0);
@@ -98,6 +99,7 @@ class TrackerState {
 		this.channelVibratoDelay.fill(0);
 		this.channelVibratoCounter.fill(0);
 		this.channelVibratoPosition.fill(0);
+		this.channelDetune.fill(0);
 
 		this.channelEffectTables.fill(-1);
 		this.channelEffectTablePositions.fill(0);

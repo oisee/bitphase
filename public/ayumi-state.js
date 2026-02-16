@@ -64,6 +64,7 @@ class AyumiState extends TrackerState {
 		this.autoEnvelopeActive = false;
 		this.autoEnvelopeNumerator = 0;
 		this.autoEnvelopeDenominator = 0;
+		this.envelopeDetune = 0;
 	}
 
 	setWasmModule(module, ptr, wasmBuffer) {
@@ -148,6 +149,7 @@ class AyumiState extends TrackerState {
 		this.autoEnvelopeActive = false;
 		this.autoEnvelopeNumerator = 0;
 		this.autoEnvelopeDenominator = 0;
+		this.envelopeDetune = 0;
 	}
 }
 

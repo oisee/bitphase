@@ -7,6 +7,7 @@ class EffectAlgorithms {
 	static ON_OFF = 6;
 	static SPEED = 'S'.charCodeAt(0);
 	static AUTO_ENVELOPE = 'E'.charCodeAt(0);
+	static DETUNE = 'D'.charCodeAt(0);
 
 	static isSlideGroupEffect(effectType) {
 		return (

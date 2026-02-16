@@ -87,7 +87,8 @@ class VT2Converter {
 		'2': EffectType.SlideDown,
 		'3': EffectType.Portamento,
 		'6': EffectType.OnOff,
-		B: EffectType.Speed
+		B: EffectType.Speed,
+		D: EffectType.Detune
 	} as const;
 
 	/**

@@ -231,6 +231,8 @@ class TrackerPatternProcessor {
 			this._initChannelPortamento(channelIndex, row, effect, hasTableIndex);
 		} else if (effect.effect === EffectAlgorithms.ON_OFF) {
 			this._initChannelOnOff(channelIndex, effect, hasTableIndex);
+		} else if (effect.effect === EffectAlgorithms.DETUNE) {
+			this._initChannelDetune(channelIndex, effect, hasTableIndex);
 		}
 	}
 
@@ -348,6 +350,11 @@ class TrackerPatternProcessor {
 		this.state.channelOffDuration[channelIndex] = onOffState.offDuration;
 		this.state.channelOnDuration[channelIndex] = onOffState.onDuration;
 		this.state.channelOnOffCounter[channelIndex] = onOffState.counter;
+	}
+
+	_initChannelDetune(channelIndex, effect, hasTableIndex) {
+		const param = hasTableIndex ? this._getEffectTableValue(channelIndex) : effect.parameter;
+		this.state.channelDetune[channelIndex] = (param & 0xff) - 0x80;
 	}
 
 	_initEffectTable(channelIndex, effect) {
