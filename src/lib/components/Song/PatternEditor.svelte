@@ -2124,6 +2124,7 @@
 			currentPatternOrderIndexUpdate?: number
 		) => {
 			if (!services.audioService.playing) return;
+			if (!isPlaybackMaster) return;
 
 			pendingPlaybackPosition = {
 				row: currentRow,
@@ -2148,7 +2149,7 @@
 						return;
 					}
 
-					if (settingsStore.debugMode && isPlaybackMaster) {
+					if (settingsStore.debugMode) {
 						const orderIdx =
 							pending.orderIndex !== undefined
 								? pending.orderIndex
@@ -2163,20 +2164,17 @@
 						}
 					}
 
-					if (isPlaybackMaster) {
-						selectedRow = pending.row;
-						if (
-							pending.orderIndex !== undefined &&
-							services.audioService.getPlayPatternId() === null
-						) {
-							currentPatternOrderIndex = pending.orderIndex;
-							lastPatternOrderIndexFromPlayback = pending.orderIndex;
-						}
-						if (pending.orderIndex === currentPatternOrderIndex) {
-							userJustChangedPattern = false;
-						}
+					selectedRow = pending.row;
+					if (
+						pending.orderIndex !== undefined &&
+						services.audioService.getPlayPatternId() === null
+					) {
+						currentPatternOrderIndex = pending.orderIndex;
+						lastPatternOrderIndexFromPlayback = pending.orderIndex;
 					}
-					draw();
+					if (pending.orderIndex === currentPatternOrderIndex) {
+						userJustChangedPattern = false;
+					}
 				});
 			}
 		};
