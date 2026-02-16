@@ -66,8 +66,7 @@ export class PatternEditorRenderer extends BaseCanvasRenderer {
 
 		if (this.schema.globalColumnLabels) {
 			const globalPositions = this.calculateGlobalColumnPositions(data.rowString);
-			const textColor =
-				this.patternColors.patternRowNum || this.patternColors.patternText;
+			const textColor = this.patternColors.patternRowNum || this.patternColors.patternText;
 			for (const { fieldKey, x, width } of globalPositions) {
 				const label = this.schema.globalColumnLabels[fieldKey];
 				if (label) {

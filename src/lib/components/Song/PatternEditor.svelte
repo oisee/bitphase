@@ -583,9 +583,7 @@
 					playbackRafId = null;
 				}
 				selectedRow = 0;
-				const initialSpeeds = projectStore.songs.map(
-					(song) => song?.initialSpeed ?? 3
-				);
+				const initialSpeeds = projectStore.songs.map((song) => song?.initialSpeed ?? 3);
 				services.audioService.play(initialSpeeds);
 			}
 		} catch (error) {
@@ -634,11 +632,11 @@
 				selectedRow,
 				canvasHeight,
 				lineHeight,
-			createPatternIfMissing: (patternId: number) => {
-				const newPattern = PatternService.createEmptyPattern(patternId);
-				updatePatterns([...patterns, newPattern]);
-				return newPattern;
-			}
+				createPatternIfMissing: (patternId: number) => {
+					const newPattern = PatternService.createEmptyPattern(patternId);
+					updatePatterns([...patterns, newPattern]);
+					return newPattern;
+				}
 			},
 			lastVisibleRowsCache
 		);
@@ -780,6 +778,7 @@
 
 	function draw() {
 		if (!ctx || !renderer || !textParser) return;
+		if (document.hidden) return;
 
 		renderer.drawBackground(canvasHeight);
 
@@ -788,6 +787,17 @@
 		if (!patternToDraw) return;
 
 		const visibleRows = getVisibleRows(patternToDraw);
+		const bounds = getSelectionBounds();
+		const channelMutedByPatternId = new Map<number, boolean[]>();
+
+		function getCachedChannelMuted(pattern: Pattern): boolean[] {
+			let muted = channelMutedByPatternId.get(pattern.id);
+			if (muted === undefined) {
+				muted = getChannelMutedState(pattern);
+				channelMutedByPatternId.set(pattern.id, muted);
+			}
+			return muted;
+		}
 
 		for (const row of visibleRows) {
 			const y = row.displayIndex * lineHeight;
@@ -809,9 +819,8 @@
 				if (!textParser || !renderer) continue;
 				const segments = textParser.parseRowString(rowString, row.rowIndex);
 				const cellPositions = getCellPositions(rowString, row.rowIndex);
-				const channelMuted = getChannelMutedState(patternToRender);
+				const channelMuted = getCachedChannelMuted(patternToRender);
 
-				const bounds = getSelectionBounds();
 				const isCurrentPattern = row.patternIndex === patternId;
 				const isInSelection =
 					isCurrentPattern &&
@@ -865,7 +874,7 @@
 
 				const channelLabels =
 					schema.channelLabels || patternToDraw.channels.map((ch) => ch.label);
-				const channelMuted = getChannelMutedState(patternToDraw);
+				const channelMuted = getCachedChannelMuted(patternToDraw);
 
 				renderer.drawChannelLabels({
 					rowString,
@@ -1937,7 +1946,7 @@
 			ctx = canvas.getContext('2d')!;
 			setupCanvas();
 			needsSetup = false;
-			draw();
+			if (!document.hidden) draw();
 			lastDrawnRow = selectedRow;
 			lastDrawnOrderIndex = currentPatternOrderIndex;
 			lastPatternOrderLength = patternOrder.length;
@@ -1949,7 +1958,7 @@
 			lastFontFamily = fontFamily;
 			lastChannelSeparatorWidth = channelSeparatorWidth;
 			requestAnimationFrame(() => {
-				if (ctx && canvas) {
+				if (ctx && canvas && !document.hidden) {
 					updateSize();
 					setupCanvas();
 					draw();
@@ -1961,7 +1970,7 @@
 		if (fontSizeChanged || fontFamilyChanged || channelSeparatorWidthChanged) {
 			clearAllCaches();
 			setupCanvas();
-			draw();
+			if (!document.hidden) draw();
 			lastFontSize = fontSize;
 			lastFontFamily = fontFamily;
 			lastChannelSeparatorWidth = channelSeparatorWidth;
@@ -1987,7 +1996,7 @@
 		}
 
 		if (rowChanged || orderChanged || patternChanged || patternLengthChanged || sizeChanged) {
-			draw();
+			if (!document.hidden) draw();
 			lastDrawnRow = selectedRow;
 			lastDrawnOrderIndex = currentPatternOrderIndex;
 			lastPatternOrderLength = patternOrder.length;
@@ -2024,17 +2033,24 @@
 	$effect(() => {
 		if (!containerDiv) return;
 
+		let rafId: number | null = null;
 		const resizeObserver = new ResizeObserver(() => {
-			if (containerDiv.clientHeight > 0) {
-				updateSize();
-				setupCanvas();
-				draw();
-			}
+			if (containerDiv.clientHeight <= 0) return;
+			if (rafId !== null) return;
+			rafId = requestAnimationFrame(() => {
+				rafId = null;
+				if (!document.hidden) {
+					updateSize();
+					setupCanvas();
+					draw();
+				}
+			});
 		});
 
 		resizeObserver.observe(containerDiv);
 
 		return () => {
+			if (rafId !== null) cancelAnimationFrame(rafId);
 			resizeObserver.disconnect();
 		};
 	});
