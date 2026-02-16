@@ -115,6 +115,18 @@
 			example: '6.24 - On/Off with delay 0, on duration 2, off duration 4'
 		},
 		{
+			code: 'D',
+			name: 'Detune',
+			description: 'Offsets the channel pitch by a signed amount for fine tuning.',
+			format: 'D.XY',
+			formatWithTable: 'D.TY',
+			tableDescription:
+				'where Y is table id (0-9, A-Z). Will replace detune value with table values (0-FF, 80 = no detune).',
+			delay: 'N/A',
+			parameter: 'XY - signed detune (00-FF, 80 = 0). 00-7F = negative, 81-FF = positive',
+			example: 'D.85 - Detune +5'
+		},
+		{
 			code: 'S',
 			name: 'Speed',
 			description: 'Changes the playback speed of the song.',
