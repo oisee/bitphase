@@ -1177,6 +1177,7 @@
 				'playPreviewRow' in chipProcessor &&
 				!pressedKeyChannels.has(event.key)
 			) {
+				services.audioService.setPreviewActiveForChip(songIndex);
 				const processor = chipProcessor as ChipProcessor & PreviewNoteSupport;
 				const isNoteField =
 					fieldInfoBeforeEdit.fieldType === 'note' ||
@@ -1219,6 +1220,7 @@
 				const processor = chipProcessor as ChipProcessor & PreviewNoteSupport;
 				previewService.stopNote(processor, channel === -1 ? undefined : channel);
 			}
+			services.audioService.setPreviewActiveForChip(null);
 			pressedKeyChannels.delete(event.key);
 		}
 	}
@@ -1879,6 +1881,7 @@
 				previewChannel >= 0 &&
 				(fieldInfo.channelIndex >= 0 || fieldInfo.fieldKey === 'envelopeValue');
 			if (shouldPreview && chipProcessor && 'playPreviewRow' in chipProcessor) {
+				services.audioService.setPreviewActiveForChip(songIndex);
 				const processor = chipProcessor as ChipProcessor & PreviewNoteSupport;
 				const isNoteField =
 					fieldInfo.fieldType === 'note' || fieldInfo.fieldKey === 'envelopeValue';

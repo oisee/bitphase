@@ -3,6 +3,7 @@
 
 	const triggerWidth = 0.1;
 	const STROKE_COLOR_CACHE_FRAMES = 60;
+	const ZERO_SAMPLES = new Float32Array(512);
 
 	let {
 		channelLabels = ['A', 'B', 'C'],
@@ -192,15 +193,10 @@
 				}
 				const ctx = canvas.getContext('2d');
 				if (!ctx) continue;
-				if (ch.length === 0 || index >= ch.length) {
-					ctx.clearRect(0, 0, w, h);
-					continue;
-				}
-				const samples = ch[index];
-				if (!samples) {
-					ctx.clearRect(0, 0, w, h);
-					continue;
-				}
+				const samples =
+					ch.length > 0 && index < ch.length && ch[index]
+						? ch[index]
+						: ZERO_SAMPLES;
 				drawChannel(ctx, samples, w, h, cachedStrokeColor);
 			}
 		}

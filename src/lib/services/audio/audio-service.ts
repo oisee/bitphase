@@ -8,6 +8,7 @@ import { waveformStore } from '../../stores/waveform.svelte';
 export class AudioService {
 	private _audioContext: AudioContext | null = new AudioContext();
 	private _isPlaying = false;
+	private _previewChipIndex: number | null = null;
 	public chipSettings: ChipSettings = new ChipSettings();
 	private _masterGainNode: GainNode | null = null;
 	private _playPatternRestoreOrder: number[] | null = null;
@@ -68,14 +69,24 @@ export class AudioService {
 			setWaveformCallback?: (cb: (channels: Float32Array[]) => void) => void;
 		};
 		processorWithWaveform.setWaveformCallback?.((channels: Float32Array[]) => {
-			if (this._isPlaying) waveformStore.setChannels(chipIndex, channels);
+			const showWaveform =
+				this._isPlaying || (this._previewChipIndex !== null && chipIndex === this._previewChipIndex);
+			if (showWaveform) waveformStore.setChannels(chipIndex, channels);
 		});
+	}
+
+	setPreviewActiveForChip(chipIndex: number | null): void {
+		this._previewChipIndex = chipIndex;
+		if (chipIndex === null && !this._isPlaying) {
+			waveformStore.clear();
+		}
 	}
 
 	play(initialSpeeds?: number[]) {
 		if (this._isPlaying) return;
 
 		this._isPlaying = true;
+		this._previewChipIndex = null;
 
 		this.applyMuteStateToAllChips();
 
@@ -93,6 +104,7 @@ export class AudioService {
 		if (this._isPlaying) return;
 
 		this._isPlaying = true;
+		this._previewChipIndex = null;
 
 		this.applyMuteStateToAllChips();
 
@@ -106,6 +118,7 @@ export class AudioService {
 		if (!this._isPlaying) return;
 
 		this._isPlaying = false;
+		this._previewChipIndex = null;
 
 		waveformStore.clear();
 
