@@ -165,7 +165,10 @@
 		const patternOrderIndexForInit = playPattern ? 0 : sharedPatternOrderIndex;
 
 		if (playPattern) {
-			services.audioService.setPlayPatternRestoreOrder([...projectStore.patternOrder], patternId);
+			services.audioService.setPlayPatternRestoreOrder(
+				[...projectStore.patternOrder],
+				patternId
+			);
 			services.audioService.updateOrder([patternId]);
 		}
 
@@ -208,10 +211,14 @@
 		const songPatterns = projectStore.patterns[chipIndex];
 		if (!song || !songPatterns) return null;
 
-		const lastSpeed = findLastSpeedCommand(songPatterns, projectStore.patternOrder, sharedPatternOrderIndex, 0);
+		const lastSpeed = findLastSpeedCommand(
+			songPatterns,
+			projectStore.patternOrder,
+			sharedPatternOrderIndex,
+			0
+		);
 		return lastSpeed !== null ? lastSpeed : song.initialSpeed;
 	}
-
 
 	let patternOrderHeight = $state(PATTERN_EDITOR_CONSTANTS.DEFAULT_CANVAS_HEIGHT);
 
@@ -271,7 +278,10 @@
 			if (!pattern || pattern.length === length) continue;
 			const schema = chipProcessors[j].chip.schema;
 			const resized = PatternService.resizePattern(pattern, length, schema);
-			projectStore.updatePatterns(j, PatternService.updatePatternInArray(songPatterns, resized));
+			projectStore.updatePatterns(
+				j,
+				PatternService.updatePatternInArray(songPatterns, resized)
+			);
 		}
 		if (sharedSelectedRow >= length) {
 			sharedSelectedRow = Math.max(0, length - 1);
@@ -316,145 +326,145 @@
 					fullHeight={true}
 					icon={IconCarbonListBoxes}
 					class="overflow-hidden p-0">
-				<PatternOrder
-					bind:currentPatternOrderIndex={sharedPatternOrderIndex}
-					bind:selectedRow={sharedSelectedRow}
-					canvasHeight={patternOrderHeight}
-					onMakeUnique={handleMakeUnique}
-					onPatternOrderEdited={async () => {
-						await tick();
-						patternEditors.forEach((e) => e?.requestRedraw?.());
-					}}
-					onPatternSelect={(index) =>
-						patternEditors[0]?.markPatternChangeFromUser?.(index)} />
+					<PatternOrder
+						bind:currentPatternOrderIndex={sharedPatternOrderIndex}
+						bind:selectedRow={sharedSelectedRow}
+						canvasHeight={patternOrderHeight}
+						onMakeUnique={handleMakeUnique}
+						onPatternOrderEdited={async () => {
+							await tick();
+							patternEditors.forEach((e) => e?.requestRedraw?.());
+						}}
+						onPatternSelect={(index) =>
+							patternEditors[0]?.markPatternChangeFromUser?.(index)} />
 				</Card>
 			</div>
 			<div
 				class="flex flex-1 flex-col justify-center overflow-hidden transition-all duration-300 {blurredContentClass}">
 				<div class="flex flex-1 justify-center overflow-hidden">
-				{#each projectStore.songs as song, i}
-					<Card
-						title={`${chipProcessors[i].chip.name} - (${i + 1})`}
-						fullHeight={true}
-						icon={IconCarbonChip}
-						class="flex flex-col p-0">
-						{#snippet headerContent()}
-							<div class="flex items-center gap-1">
-								<div
-									class="flex items-center rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] {playbackStore.isPlaying
-										? 'opacity-50'
-										: ''}">
-									<Input
-										value={patternLengthValue}
-										id="pattern-length-input-{i}"
-										type="number"
-										min="1"
-										max="256"
-										step="1"
-										disabled={playbackStore.isPlaying}
-										class="h-5 w-10 border-0 bg-transparent px-1 py-0 text-center font-mono text-xs leading-none focus:ring-0 disabled:cursor-not-allowed"
-										onfocus={() => {
-											if (!playbackStore.isPlaying) {
-												activeEditorIndex = i;
-												patternEditor = patternEditors[i];
-											}
-										}}
-										oninput={(e) => {
-											if (!playbackStore.isPlaying) {
-												patternLengthValue = (
-													e.target as HTMLInputElement
-												).value;
-											}
-										}}
-										onblur={() => {
-											if (!playbackStore.isPlaying) {
-												commitPatternLength();
-											}
-										}}
-										onkeydown={(e: KeyboardEvent) => {
-											if (playbackStore.isPlaying) {
-												e.preventDefault();
-												return;
-											}
-											if (e.key === 'Enter') {
-												e.preventDefault();
-												commitPatternLength();
-												(e.target as HTMLInputElement)?.blur();
-											}
-										}} />
+					{#each projectStore.songs as song, i}
+						<Card
+							title={`${chipProcessors[i].chip.name} - (${i + 1})`}
+							fullHeight={true}
+							icon={IconCarbonChip}
+							class="flex flex-col p-0">
+							{#snippet headerContent()}
+								<div class="flex items-center gap-1">
 									<div
-										class="flex flex-col border-l border-[var(--color-app-border)]">
-										<button
-											type="button"
+										class="flex items-center rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] {playbackStore.isPlaying
+											? 'opacity-50'
+											: ''}">
+										<Input
+											value={patternLengthValue}
+											id="pattern-length-input-{i}"
+											type="number"
+											min="1"
+											max="256"
+											step="1"
 											disabled={playbackStore.isPlaying}
-											class="flex h-2.5 w-3.5 cursor-pointer items-center justify-center border-b border-[var(--color-app-border)] transition-colors hover:bg-[var(--color-app-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
-											onclick={() => {
+											class="h-5 w-10 border-0 bg-transparent px-1 py-0 text-center font-mono text-xs leading-none focus:ring-0 disabled:cursor-not-allowed"
+											onfocus={() => {
 												if (!playbackStore.isPlaying) {
 													activeEditorIndex = i;
 													patternEditor = patternEditors[i];
-													incrementPatternLength();
 												}
 											}}
-											title="Increment pattern length">
-											<IconCarbonChevronUp
-												class="h-2 w-2 text-[var(--color-app-text-muted)]" />
-										</button>
-										<button
-											type="button"
-											disabled={playbackStore.isPlaying}
-											class="flex h-2.5 w-3.5 cursor-pointer items-center justify-center transition-colors hover:bg-[var(--color-app-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
-											onclick={() => {
+											oninput={(e) => {
 												if (!playbackStore.isPlaying) {
-													activeEditorIndex = i;
-													patternEditor = patternEditors[i];
-													decrementPatternLength();
+													patternLengthValue = (
+														e.target as HTMLInputElement
+													).value;
 												}
 											}}
-											title="Decrement pattern length">
-											<IconCarbonChevronDown
-												class="h-2 w-2 text-[var(--color-app-text-muted)]" />
-										</button>
+											onblur={() => {
+												if (!playbackStore.isPlaying) {
+													commitPatternLength();
+												}
+											}}
+											onkeydown={(e: KeyboardEvent) => {
+												if (playbackStore.isPlaying) {
+													e.preventDefault();
+													return;
+												}
+												if (e.key === 'Enter') {
+													e.preventDefault();
+													commitPatternLength();
+													(e.target as HTMLInputElement)?.blur();
+												}
+											}} />
+										<div
+											class="flex flex-col border-l border-[var(--color-app-border)]">
+											<button
+												type="button"
+												disabled={playbackStore.isPlaying}
+												class="flex h-2.5 w-3.5 cursor-pointer items-center justify-center border-b border-[var(--color-app-border)] transition-colors hover:bg-[var(--color-app-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+												onclick={() => {
+													if (!playbackStore.isPlaying) {
+														activeEditorIndex = i;
+														patternEditor = patternEditors[i];
+														incrementPatternLength();
+													}
+												}}
+												title="Increment pattern length">
+												<IconCarbonChevronUp
+													class="h-2 w-2 text-[var(--color-app-text-muted)]" />
+											</button>
+											<button
+												type="button"
+												disabled={playbackStore.isPlaying}
+												class="flex h-2.5 w-3.5 cursor-pointer items-center justify-center transition-colors hover:bg-[var(--color-app-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+												onclick={() => {
+													if (!playbackStore.isPlaying) {
+														activeEditorIndex = i;
+														patternEditor = patternEditors[i];
+														decrementPatternLength();
+													}
+												}}
+												title="Decrement pattern length">
+												<IconCarbonChevronDown
+													class="h-2 w-2 text-[var(--color-app-text-muted)]" />
+											</button>
+										</div>
 									</div>
+									{#if projectStore.songs.length > 1}
+										<button
+											type="button"
+											disabled={playbackStore.isPlaying}
+											class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-[var(--color-pattern-note-off)] transition-colors hover:bg-[var(--color-app-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+											title="Remove song"
+											onclick={() =>
+												onaction?.({
+													action: 'remove-song',
+													songIndex: i
+												})}>
+											<IconCarbonClose class="h-3.5 w-3.5" />
+										</button>
+									{/if}
 								</div>
-								{#if projectStore.songs.length > 1}
-									<button
-										type="button"
-										disabled={playbackStore.isPlaying}
-										class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-[var(--color-pattern-note-off)] transition-colors hover:bg-[var(--color-app-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"
-										title="Remove song"
-										onclick={() =>
-											onaction?.({
-												action: 'remove-song',
-												songIndex: i
-											})}>
-										<IconCarbonClose class="h-3.5 w-3.5" />
-									</button>
-								{/if}
+							{/snippet}
+							<div class="flex flex-1 flex-col overflow-hidden">
+								<PatternEditor
+									bind:this={patternEditors[i]}
+									songIndex={i}
+									bind:currentPatternOrderIndex={sharedPatternOrderIndex}
+									bind:selectedRow={sharedSelectedRow}
+									isActive={activeEditorIndex === i}
+									isPlaybackMaster={i === 0}
+									onfocus={() => {
+										activeEditorIndex = i;
+										patternEditor = patternEditors[i];
+									}}
+									{onaction}
+									initAllChips={initAllChipsForPlayback}
+									{initAllChipsForPlayPattern}
+									{getSpeedForChip}
+									{getSpeedForPlayPattern}
+									{tuningTableVersion}
+									chip={chipProcessors[i].chip}
+									chipProcessor={chipProcessors[i]} />
 							</div>
-						{/snippet}
-						<div class="flex flex-1 flex-col overflow-hidden">
-							<PatternEditor
-								bind:this={patternEditors[i]}
-								songIndex={i}
-								bind:currentPatternOrderIndex={sharedPatternOrderIndex}
-								bind:selectedRow={sharedSelectedRow}
-								isActive={activeEditorIndex === i}
-								isPlaybackMaster={i === 0}
-								onfocus={() => {
-									activeEditorIndex = i;
-									patternEditor = patternEditors[i];
-								}}
-								{onaction}
-								initAllChips={initAllChipsForPlayback}
-								{initAllChipsForPlayPattern}
-								{getSpeedForChip}
-								{getSpeedForPlayPattern}
-								{tuningTableVersion}
-								chip={chipProcessors[i].chip}
-								chipProcessor={chipProcessors[i]} />
-						</div>
-					</Card>
-				{/each}
+						</Card>
+					{/each}
 				</div>
 			</div>
 			{#if isRightPanelExpanded}
@@ -472,53 +482,55 @@
 			<div class="min-h-0 flex-1 overflow-hidden">
 				<TabView tabs={rightPanelTabs} bind:activeTabId={rightPanelActiveTabId}>
 					{#snippet children(tabId)}
-					{#if tabId === 'tables'}
-						<TablesView
-							bind:isExpanded={isRightPanelExpanded} />
-					{:else if tabId === 'instruments'}
-						<InstrumentsView
-							bind:isExpanded={isRightPanelExpanded}
-							chip={chipProcessors[0].chip} />
-					{:else if tabId === 'details'}
-						<DetailsView
-							{chipProcessors}
-							onChipSettingsApplied={() => {
-								tuningTableVersion++;
-							}} />
-					{/if}
+						{#if tabId === 'tables'}
+							<TablesView bind:isExpanded={isRightPanelExpanded} />
+						{:else if tabId === 'instruments'}
+							<InstrumentsView
+								bind:isExpanded={isRightPanelExpanded}
+								chip={chipProcessors[0].chip} />
+						{:else if tabId === 'details'}
+							<DetailsView
+								{chipProcessors}
+								onChipSettingsApplied={() => {
+									tuningTableVersion++;
+								}} />
+						{/if}
 					{/snippet}
 				</TabView>
 			</div>
-		{#if projectStore.songs.length > 0 && activeEditorIndex < projectStore.songs.length}
-			<div class="flex shrink-0 flex-col border-t border-[var(--color-app-border)]/50">
-				{#if settingsStore.showInstrumentPreview && chipProcessors[activeEditorIndex].chip.previewRow}
-					{@const PreviewRow = chipProcessors[activeEditorIndex].chip.previewRow}
-					<div class="flex flex-col gap-2 bg-[var(--color-app-surface)] px-2 py-3">
-						<span
-							class="flex items-center gap-1.5 text-xs text-[var(--color-app-text-muted)]">
-							<IconCarbonPlay class="h-3.5 w-3.5 shrink-0" />Preview playground</span>
-						<PreviewRow
-							chip={chipProcessors[activeEditorIndex].chip}
-							instrumentId={editorStateStore.currentInstrument}
-							tuningTable={projectStore.songs[activeEditorIndex]?.tuningTable ?? []} />
-					</div>
-				{/if}
-				{#if settingsStore.showOscilloscopes}
-					<div class="border-t border-[var(--color-app-border)]/50">
-						<ChannelOscilloscopes
-							channelLabels={projectStore.songs.flatMap((_, i) =>
-								(
-									chipProcessors[i]?.chip.schema.channelLabels ?? [
-										'A',
-										'B',
-										'C'
-									]
-								).map((l) => (projectStore.songs.length > 1 ? `${i + 1}${l}` : l))
-							)} />
-					</div>
-				{/if}
-			</div>
-		{/if}
+			{#if projectStore.songs.length > 0 && activeEditorIndex < projectStore.songs.length}
+				<div class="flex shrink-0 flex-col border-t border-[var(--color-app-border)]/50">
+					{#if settingsStore.showInstrumentPreview && chipProcessors[activeEditorIndex].chip.previewRow}
+						{@const PreviewRow = chipProcessors[activeEditorIndex].chip.previewRow}
+						<div class="flex flex-col gap-2 bg-[var(--color-app-surface)] px-2 py-3">
+							<span
+								class="flex items-center gap-1.5 text-xs text-[var(--color-app-text-muted)]">
+								<IconCarbonPlay class="h-3.5 w-3.5 shrink-0" />Preview playground</span>
+							<PreviewRow
+								chip={chipProcessors[activeEditorIndex].chip}
+								instrumentId={editorStateStore.currentInstrument}
+								tuningTable={projectStore.songs[activeEditorIndex]?.tuningTable ??
+									[]} />
+						</div>
+					{/if}
+					{#if settingsStore.showOscilloscopes}
+						<div class="border-t border-[var(--color-app-border)]/50">
+							<ChannelOscilloscopes
+								channelLabels={projectStore.songs.flatMap((_, i) =>
+									(
+										chipProcessors[i]?.chip.schema.channelLabels ?? [
+											'A',
+											'B',
+											'C'
+										]
+									).map((l) =>
+										projectStore.songs.length > 1 ? `${i + 1}${l}` : l
+									)
+								)} />
+						</div>
+					{/if}
+				</div>
+			{/if}
 		</div>
 	</div>
 	{#if projectStore.songs.length > 0 && activeEditorIndex < projectStore.songs.length}

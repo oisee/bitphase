@@ -74,10 +74,17 @@
 			if (hadActiveNotes) {
 				hadActiveNotes = false;
 				processors.forEach((proc) => proc.stopPreviewNote());
+				containerContext.audioService.setPreviewActiveForChips(null);
 			}
 			return;
 		}
 		hadActiveNotes = true;
+		const chipIndices = containerContext.audioService.chipProcessors
+			.map((p, i) => (p.chip === chip ? i : -1))
+			.filter((i) => i >= 0);
+		if (chipIndices.length > 0) {
+			containerContext.audioService.setPreviewActiveForChips(chipIndices);
+		}
 		const normalizedId = (instrumentId || '01').toUpperCase().padStart(2, '0');
 		const currentInstrument = projectStore.instruments.find(
 			(i) => i.id.toUpperCase().padStart(2, '0') === normalizedId

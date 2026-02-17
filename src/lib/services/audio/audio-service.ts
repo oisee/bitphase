@@ -8,7 +8,7 @@ import { waveformStore } from '../../stores/waveform.svelte';
 export class AudioService {
 	private _audioContext: AudioContext | null = new AudioContext();
 	private _isPlaying = false;
-	private _previewChipIndex: number | null = null;
+	private _previewChipIndices = new Set<number>();
 	public chipSettings: ChipSettings = new ChipSettings();
 	private _masterGainNode: GainNode | null = null;
 	private _playPatternRestoreOrder: number[] | null = null;
@@ -69,24 +69,26 @@ export class AudioService {
 			setWaveformCallback?: (cb: (channels: Float32Array[]) => void) => void;
 		};
 		processorWithWaveform.setWaveformCallback?.((channels: Float32Array[]) => {
-			const showWaveform =
-				this._isPlaying || (this._previewChipIndex !== null && chipIndex === this._previewChipIndex);
+			const showWaveform = this._isPlaying || this._previewChipIndices.has(chipIndex);
 			if (showWaveform) waveformStore.setChannels(chipIndex, channels);
 		});
 	}
 
-	setPreviewActiveForChip(chipIndex: number | null): void {
-		this._previewChipIndex = chipIndex;
-		if (chipIndex === null && !this._isPlaying) {
-			waveformStore.clear();
+	setPreviewActiveForChips(indices: number | number[] | null): void {
+		if (indices === null) {
+			this._previewChipIndices.clear();
+			if (!this._isPlaying) waveformStore.clear();
+			return;
 		}
+		const arr = Array.isArray(indices) ? indices : [indices];
+		this._previewChipIndices = new Set(arr);
 	}
 
 	play(initialSpeeds?: number[]) {
 		if (this._isPlaying) return;
 
 		this._isPlaying = true;
-		this._previewChipIndex = null;
+		this._previewChipIndices.clear();
 
 		this.applyMuteStateToAllChips();
 
@@ -104,7 +106,7 @@ export class AudioService {
 		if (this._isPlaying) return;
 
 		this._isPlaying = true;
-		this._previewChipIndex = null;
+		this._previewChipIndices.clear();
 
 		this.applyMuteStateToAllChips();
 
@@ -118,7 +120,7 @@ export class AudioService {
 		if (!this._isPlaying) return;
 
 		this._isPlaying = false;
-		this._previewChipIndex = null;
+		this._previewChipIndices.clear();
 
 		waveformStore.clear();
 
