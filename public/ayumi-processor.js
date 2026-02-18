@@ -193,36 +193,12 @@ class AyumiProcessor extends AudioWorkletProcessor {
 			this.pendingRowAfterPatternChange = null;
 		}
 
-		if (
-			hadPendingRow &&
-			!this.paused &&
-			this.state.currentPattern &&
-			this.state.currentPattern.length > 0 &&
-			this.state.currentRow > 0 &&
-			this.patternProcessor &&
-			this.audioDriver &&
-			this.ayumiEngine
-		) {
-			for (let r = 0; r < this.state.currentRow; r++) {
-				this.patternProcessor.parsePatternRow(
-					this.state.currentPattern,
-					r,
-					this.registerState
-				);
-			}
-			this.audioDriver.processInstruments(this.state, this.registerState);
-			this.ayumiEngine.applyRegisterState(this.registerState);
+		if (hadPendingRow && !this.paused) {
+			this.runCatchUpRows(this.state.currentRow);
 		}
 
 		if (!this.paused) {
-			this.port.postMessage({
-				type: 'position_update',
-				currentRow: this.state.currentRow,
-				currentTick: this.state.currentTick,
-				currentPatternOrderIndex: this.state.currentPatternOrderIndex
-			});
-			this.lastPositionUpdateTime = 0;
-			this.pendingPositionUpdate = null;
+			this.postPositionUpdate();
 		}
 	}
 
@@ -255,16 +231,20 @@ class AyumiProcessor extends AudioWorkletProcessor {
 		}
 	}
 
+	applyChannelSilent(registerState, channelIndex) {
+		registerState.channels[channelIndex].volume = 0;
+		registerState.channels[channelIndex].mixer = {
+			tone: false,
+			noise: false,
+			envelope: false
+		};
+	}
+
 	handleSetChannelMute({ channelIndex, muted }) {
 		if (channelIndex >= 0 && channelIndex < 3) {
 			this.state.channelMuted[channelIndex] = muted;
 			if (muted) {
-				this.registerState.channels[channelIndex].volume = 0;
-				this.registerState.channels[channelIndex].mixer = {
-					tone: false,
-					noise: false,
-					envelope: false
-				};
+				this.applyChannelSilent(this.registerState, channelIndex);
 				this.state.channelEnvelopeEnabled[channelIndex] = false;
 				if (this.ayumiEngine) {
 					this.ayumiEngine.applyRegisterState(this.registerState);
@@ -316,13 +296,7 @@ class AyumiProcessor extends AudioWorkletProcessor {
 			this.pendingRowAfterPatternChange = row;
 		}
 
-		this.port.postMessage({
-			type: 'position_update',
-			currentRow: this.state.currentRow,
-			currentTick: this.state.currentTick,
-			currentPatternOrderIndex: this.state.currentPatternOrderIndex
-		});
-		this.lastPositionUpdateTime = 0;
+		this.postPositionUpdate();
 	}
 
 	handlePlay({ startPatternOrderIndex, initialSpeed }) {
@@ -331,28 +305,7 @@ class AyumiProcessor extends AudioWorkletProcessor {
 			return;
 		}
 
-		this.paused = false;
-		this.pendingNextPattern = null;
-		this.nextPatternRequested = false;
-		this.fadeInSamples = Math.floor(sampleRate * this.fadeInDuration);
-		this.registerState.reset();
-		if (this.ayumiEngine) {
-			this.ayumiEngine.reset();
-			this.ayumiEngine.applyRegisterState(this.registerState);
-		}
-
-		this.state.reset();
-		if (!this.audioDriver || !this.patternProcessor || !this.ayumiEngine) {
-			this.audioDriver = new AYAudioDriver();
-			this.ayumiEngine = new AyumiEngine(this.state.wasmModule, this.state.ayumiPtr);
-			this.patternProcessor = new TrackerPatternProcessor(
-				this.state,
-				this.audioDriver,
-				this.port
-			);
-		}
-
-		this.enforceMuteState();
+		this.startPlaybackCommon();
 
 		if (startPatternOrderIndex !== undefined) {
 			this.state.currentPatternOrderIndex = startPatternOrderIndex;
@@ -361,14 +314,7 @@ class AyumiProcessor extends AudioWorkletProcessor {
 			this.state.setSpeed(initialSpeed);
 		}
 
-		this.port.postMessage({
-			type: 'position_update',
-			currentRow: this.state.currentRow,
-			currentTick: this.state.currentTick,
-			currentPatternOrderIndex: this.state.currentPatternOrderIndex
-		});
-		this.lastPositionUpdateTime = 0;
-		this.pendingPositionUpdate = null;
+		this.postPositionUpdate();
 	}
 
 	handlePlayFromRow({ row, patternOrderIndex, speed }) {
@@ -377,28 +323,7 @@ class AyumiProcessor extends AudioWorkletProcessor {
 			return;
 		}
 
-		this.paused = false;
-		this.pendingNextPattern = null;
-		this.nextPatternRequested = false;
-		this.fadeInSamples = Math.floor(sampleRate * this.fadeInDuration);
-		this.registerState.reset();
-		if (this.ayumiEngine) {
-			this.ayumiEngine.reset();
-			this.ayumiEngine.applyRegisterState(this.registerState);
-		}
-
-		this.state.reset();
-		if (!this.audioDriver || !this.patternProcessor || !this.ayumiEngine) {
-			this.audioDriver = new AYAudioDriver();
-			this.ayumiEngine = new AyumiEngine(this.state.wasmModule, this.state.ayumiPtr);
-			this.patternProcessor = new TrackerPatternProcessor(
-				this.state,
-				this.audioDriver,
-				this.port
-			);
-		}
-
-		this.enforceMuteState();
+		this.startPlaybackCommon();
 
 		if (patternOrderIndex !== undefined) {
 			if (this.state.currentPatternOrderIndex !== patternOrderIndex) {
@@ -415,6 +340,50 @@ class AyumiProcessor extends AudioWorkletProcessor {
 			this.state.setSpeed(speed);
 		}
 
+		this.postPositionUpdate();
+		this.runCatchUpRows(this.state.currentRow);
+	}
+
+	enforceMuteState() {
+		for (let ch = 0; ch < 3; ch++) {
+			if (this.state.channelMuted[ch]) {
+				this.applyChannelSilent(this.registerState, ch);
+				this.state.channelEnvelopeEnabled[ch] = false;
+			}
+		}
+		if (this.ayumiEngine) {
+			this.ayumiEngine.applyRegisterState(this.registerState);
+		}
+	}
+
+	ensurePlaybackWorkers() {
+		if (!this.audioDriver || !this.patternProcessor || !this.ayumiEngine) {
+			this.audioDriver = new AYAudioDriver();
+			this.ayumiEngine = new AyumiEngine(this.state.wasmModule, this.state.ayumiPtr);
+			this.patternProcessor = new TrackerPatternProcessor(
+				this.state,
+				this.audioDriver,
+				this.port
+			);
+		}
+	}
+
+	startPlaybackCommon() {
+		this.paused = false;
+		this.pendingNextPattern = null;
+		this.nextPatternRequested = false;
+		this.fadeInSamples = Math.floor(sampleRate * this.fadeInDuration);
+		this.registerState.reset();
+		if (this.ayumiEngine) {
+			this.ayumiEngine.reset();
+			this.ayumiEngine.applyRegisterState(this.registerState);
+		}
+		this.state.reset();
+		this.ensurePlaybackWorkers();
+		this.enforceMuteState();
+	}
+
+	postPositionUpdate() {
 		this.port.postMessage({
 			type: 'position_update',
 			currentRow: this.state.currentRow,
@@ -423,42 +392,28 @@ class AyumiProcessor extends AudioWorkletProcessor {
 		});
 		this.lastPositionUpdateTime = 0;
 		this.pendingPositionUpdate = null;
-
-		if (
-			this.state.currentPattern &&
-			this.state.currentPattern.length > 0 &&
-			this.state.currentRow > 0 &&
-			this.patternProcessor &&
-			this.audioDriver &&
-			this.ayumiEngine
-		) {
-			for (let r = 0; r < this.state.currentRow; r++) {
-				this.patternProcessor.parsePatternRow(
-					this.state.currentPattern,
-					r,
-					this.registerState
-				);
-			}
-			this.audioDriver.processInstruments(this.state, this.registerState);
-			this.ayumiEngine.applyRegisterState(this.registerState);
-		}
 	}
 
-	enforceMuteState() {
-		for (let ch = 0; ch < 3; ch++) {
-			if (this.state.channelMuted[ch]) {
-				this.registerState.channels[ch].volume = 0;
-				this.registerState.channels[ch].mixer = {
-					tone: false,
-					noise: false,
-					envelope: false
-				};
-				this.state.channelEnvelopeEnabled[ch] = false;
-			}
+	runCatchUpRows(upToRow) {
+		if (
+			!this.state.currentPattern ||
+			this.state.currentPattern.length === 0 ||
+			upToRow <= 0 ||
+			!this.patternProcessor ||
+			!this.audioDriver ||
+			!this.ayumiEngine
+		) {
+			return;
 		}
-		if (this.ayumiEngine) {
-			this.ayumiEngine.applyRegisterState(this.registerState);
+		for (let r = 0; r < upToRow; r++) {
+			this.patternProcessor.parsePatternRow(
+				this.state.currentPattern,
+				r,
+				this.registerState
+			);
 		}
+		this.audioDriver.processInstruments(this.state, this.registerState);
+		this.ayumiEngine.applyRegisterState(this.registerState);
 	}
 
 	handleStop() {
@@ -509,12 +464,7 @@ class AyumiProcessor extends AudioWorkletProcessor {
 	handleStopPreview(channel) {
 		if (channel !== undefined) {
 			this.previewActiveChannels.delete(channel);
-			this.registerState.channels[channel].volume = 0;
-			this.registerState.channels[channel].mixer = {
-				tone: false,
-				noise: false,
-				envelope: false
-			};
+			this.applyChannelSilent(this.registerState, channel);
 			this.state.channelSoundEnabled[channel] = false;
 
 			if (this.ayumiEngine) {

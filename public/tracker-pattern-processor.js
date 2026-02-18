@@ -217,22 +217,31 @@ class TrackerPatternProcessor {
 			this.state.channelSlideCount[channelIndex] = 0;
 		}
 
-		if (effect.effect === EffectAlgorithms.ARPEGGIO) {
-			this._initChannelArpeggio(channelIndex, effect, hasTableIndex);
-		} else if (effect.effect === EffectAlgorithms.VIBRATO) {
-			this._initChannelVibrato(channelIndex, effect, hasTableIndex);
-		} else if (effect.effect === EffectAlgorithms.SPEED && !skipSpeed) {
-			this._initSpeed(effect, hasTableIndex);
-		} else if (effect.effect === EffectAlgorithms.SLIDE_UP) {
-			this._initChannelSlide(channelIndex, effect, hasTableIndex, 1);
-		} else if (effect.effect === EffectAlgorithms.SLIDE_DOWN) {
-			this._initChannelSlide(channelIndex, effect, hasTableIndex, -1);
-		} else if (effect.effect === EffectAlgorithms.PORTAMENTO) {
-			this._initChannelPortamento(channelIndex, row, effect, hasTableIndex);
-		} else if (effect.effect === EffectAlgorithms.ON_OFF) {
-			this._initChannelOnOff(channelIndex, effect, hasTableIndex);
-		} else if (effect.effect === EffectAlgorithms.DETUNE) {
-			this._initChannelDetune(channelIndex, effect, hasTableIndex);
+		switch (effect.effect) {
+			case EffectAlgorithms.ARPEGGIO:
+				this._initChannelArpeggio(channelIndex, effect, hasTableIndex);
+				break;
+			case EffectAlgorithms.VIBRATO:
+				this._initChannelVibrato(channelIndex, effect, hasTableIndex);
+				break;
+			case EffectAlgorithms.SPEED:
+				if (!skipSpeed) this._initSpeed(effect, hasTableIndex);
+				break;
+			case EffectAlgorithms.SLIDE_UP:
+				this._initChannelSlide(channelIndex, effect, hasTableIndex, 1);
+				break;
+			case EffectAlgorithms.SLIDE_DOWN:
+				this._initChannelSlide(channelIndex, effect, hasTableIndex, -1);
+				break;
+			case EffectAlgorithms.PORTAMENTO:
+				this._initChannelPortamento(channelIndex, row, effect, hasTableIndex);
+				break;
+			case EffectAlgorithms.ON_OFF:
+				this._initChannelOnOff(channelIndex, effect, hasTableIndex);
+				break;
+			case EffectAlgorithms.DETUNE:
+				this._initChannelDetune(channelIndex, effect, hasTableIndex);
+				break;
 		}
 	}
 
@@ -469,32 +478,38 @@ class TrackerPatternProcessor {
 		const effectType = this.state.channelEffectTypes[channelIndex];
 		const param = this._getEffectTableValue(channelIndex);
 
-		if (effectType === EffectAlgorithms.VIBRATO) {
-			const speed = (param >> 4) & 15;
-			const depth = param & 15;
-			this.state.channelVibratoSpeed[channelIndex] = speed === 0 ? 1 : speed;
-			this.state.channelVibratoDepth[channelIndex] = depth;
-		} else if (effectType === EffectAlgorithms.SLIDE_UP) {
-			this.state.channelSlideStep[channelIndex] = param;
-		} else if (effectType === EffectAlgorithms.SLIDE_DOWN) {
-			this.state.channelSlideStep[channelIndex] = -param;
-		} else if (effectType === EffectAlgorithms.PORTAMENTO) {
-			const delta = this.state.channelPortamentoDelta[channelIndex];
-			const currentSliding = this.state.channelToneSliding[channelIndex];
-			this.state.channelSlideStep[channelIndex] = param;
-			if (delta - currentSliding < 0) {
+		switch (effectType) {
+			case EffectAlgorithms.VIBRATO: {
+				const { speed, depth } = EffectAlgorithms.parseVibratoParameter(param);
+				this.state.channelVibratoSpeed[channelIndex] = speed;
+				this.state.channelVibratoDepth[channelIndex] = depth;
+				break;
+			}
+			case EffectAlgorithms.SLIDE_UP:
+				this.state.channelSlideStep[channelIndex] = param;
+				break;
+			case EffectAlgorithms.SLIDE_DOWN:
 				this.state.channelSlideStep[channelIndex] = -param;
+				break;
+			case EffectAlgorithms.PORTAMENTO: {
+				const delta = this.state.channelPortamentoDelta[channelIndex];
+				const currentSliding = this.state.channelToneSliding[channelIndex];
+				this.state.channelSlideStep[channelIndex] =
+					param * EffectAlgorithms.getPortamentoStepSign(delta, currentSliding);
+				break;
 			}
-		} else if (effectType === EffectAlgorithms.ON_OFF) {
-			const offDuration = param & 15;
-			const onDuration = param >> 4;
-			this.state.channelOffDuration[channelIndex] = offDuration;
-			this.state.channelOnDuration[channelIndex] = onDuration;
-		} else if (effectType === EffectAlgorithms.SPEED) {
-			if (param > 0) {
-				this.state.setSpeed(param);
-				this.port.postMessage({ type: 'speed_update', speed: param });
+			case EffectAlgorithms.ON_OFF: {
+				const { offDuration, onDuration } = EffectAlgorithms.parseOnOffParameter(param);
+				this.state.channelOffDuration[channelIndex] = offDuration;
+				this.state.channelOnDuration[channelIndex] = onDuration;
+				break;
 			}
+			case EffectAlgorithms.SPEED:
+				if (param > 0) {
+					this.state.setSpeed(param);
+					this.port.postMessage({ type: 'speed_update', speed: param });
+				}
+				break;
 		}
 	}
 

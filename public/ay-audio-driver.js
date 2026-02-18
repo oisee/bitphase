@@ -1,69 +1,6 @@
 import AYChipRegisterState from './ay-chip-register-state.js';
 import EffectAlgorithms from './effect-algorithms.js';
-
-const PT3_VOL = [
-	[
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00
-	],
-	[
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
-		0x01
-	],
-	[
-		0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02,
-		0x02
-	],
-	[
-		0x00, 0x00, 0x00, 0x01, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x02, 0x03, 0x03,
-		0x03
-	],
-	[
-		0x00, 0x00, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x03, 0x03, 0x03, 0x03, 0x04,
-		0x04
-	],
-	[
-		0x00, 0x00, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x03, 0x03, 0x03, 0x04, 0x04, 0x04, 0x05,
-		0x05
-	],
-	[
-		0x00, 0x00, 0x01, 0x01, 0x02, 0x02, 0x02, 0x03, 0x03, 0x04, 0x04, 0x04, 0x05, 0x05, 0x06,
-		0x06
-	],
-	[
-		0x00, 0x00, 0x01, 0x01, 0x02, 0x02, 0x03, 0x03, 0x04, 0x04, 0x05, 0x05, 0x06, 0x06, 0x07,
-		0x07
-	],
-	[
-		0x00, 0x01, 0x01, 0x02, 0x02, 0x03, 0x03, 0x04, 0x04, 0x05, 0x05, 0x06, 0x06, 0x07, 0x07,
-		0x08
-	],
-	[
-		0x00, 0x01, 0x01, 0x02, 0x02, 0x03, 0x04, 0x04, 0x05, 0x05, 0x06, 0x07, 0x07, 0x08, 0x08,
-		0x09
-	],
-	[
-		0x00, 0x01, 0x01, 0x02, 0x03, 0x03, 0x04, 0x05, 0x05, 0x06, 0x07, 0x07, 0x08, 0x09, 0x09,
-		0x0a
-	],
-	[
-		0x00, 0x01, 0x01, 0x02, 0x03, 0x04, 0x04, 0x05, 0x06, 0x07, 0x07, 0x08, 0x09, 0x0a, 0x0a,
-		0x0b
-	],
-	[
-		0x00, 0x01, 0x02, 0x02, 0x03, 0x04, 0x05, 0x06, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0a, 0x0b,
-		0x0c
-	],
-	[
-		0x00, 0x01, 0x02, 0x03, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0a, 0x0b, 0x0c,
-		0x0d
-	],
-	[
-		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
-		0x0e
-	],
-	[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f]
-];
+import { PT3VolumeTable } from './pt3-volume-table.js';
 
 class AYAudioDriver {
 	constructor() {
@@ -91,7 +28,7 @@ class AYAudioDriver {
 		if (vol < 0) vol = 0;
 		if (vol > 15) vol = 15;
 
-		let finalVolume = PT3_VOL[patternVolume][vol];
+		let finalVolume = PT3VolumeTable[patternVolume][vol];
 
 		if (instrumentEnvelopeEnabled && channelEnvelopeEnabled && !envelopeDisabledByOnOff) {
 			finalVolume = finalVolume | 16;
@@ -298,22 +235,31 @@ class AYAudioDriver {
 			state.envelopeSlideDelayCounter = 0;
 		}
 
-		if (effect.effect === EffectAlgorithms.ARPEGGIO) {
-			this._initEnvelopeArpeggio(state, effect, hasTableIndex);
-		} else if (effect.effect === EffectAlgorithms.VIBRATO) {
-			this._initEnvelopeVibrato(state, effect, hasTableIndex);
-		} else if (effect.effect === EffectAlgorithms.SLIDE_UP) {
-			this._initEnvelopeSlide(state, effect, hasTableIndex, 1);
-		} else if (effect.effect === EffectAlgorithms.SLIDE_DOWN) {
-			this._initEnvelopeSlide(state, effect, hasTableIndex, -1);
-		} else if (effect.effect === EffectAlgorithms.PORTAMENTO) {
-			this._initEnvelopePortamento(state, effect, patternRow, hasTableIndex);
-		} else if (effect.effect === EffectAlgorithms.ON_OFF) {
-			this._initEnvelopeOnOff(state, effect, hasTableIndex);
-		} else if (effect.effect === EffectAlgorithms.DETUNE) {
-			this._initEnvelopeDetune(state, effect, hasTableIndex);
-		} else if (effect.effect === EffectAlgorithms.AUTO_ENVELOPE) {
-			this._initAutoEnvelope(state, effect);
+		switch (effect.effect) {
+			case EffectAlgorithms.ARPEGGIO:
+				this._initEnvelopeArpeggio(state, effect, hasTableIndex);
+				break;
+			case EffectAlgorithms.VIBRATO:
+				this._initEnvelopeVibrato(state, effect, hasTableIndex);
+				break;
+			case EffectAlgorithms.SLIDE_UP:
+				this._initEnvelopeSlide(state, effect, hasTableIndex, 1);
+				break;
+			case EffectAlgorithms.SLIDE_DOWN:
+				this._initEnvelopeSlide(state, effect, hasTableIndex, -1);
+				break;
+			case EffectAlgorithms.PORTAMENTO:
+				this._initEnvelopePortamento(state, effect, patternRow, hasTableIndex);
+				break;
+			case EffectAlgorithms.ON_OFF:
+				this._initEnvelopeOnOff(state, effect, hasTableIndex);
+				break;
+			case EffectAlgorithms.DETUNE:
+				this._initEnvelopeDetune(state, effect, hasTableIndex);
+				break;
+			case EffectAlgorithms.AUTO_ENVELOPE:
+				this._initAutoEnvelope(state, effect);
+				break;
 		}
 	}
 
@@ -448,27 +394,32 @@ class AYAudioDriver {
 		const effectType = state.envelopeEffectType;
 		const param = this._getEnvelopeEffectTableValue(state);
 
-		if (effectType === EffectAlgorithms.VIBRATO) {
-			const speed = (param >> 4) & 15;
-			const depth = param & 15;
-			state.envelopeVibratoSpeed = speed === 0 ? 1 : speed;
-			state.envelopeVibratoDepth = depth;
-		} else if (effectType === EffectAlgorithms.SLIDE_UP) {
-			state.envelopeSlideDelta = param;
-		} else if (effectType === EffectAlgorithms.SLIDE_DOWN) {
-			state.envelopeSlideDelta = -param;
-		} else if (effectType === EffectAlgorithms.PORTAMENTO) {
-			const delta = state.envelopePortamentoDelta;
-			const currentSliding = state.envelopeSlideCurrent;
-			state.envelopePortamentoStep = param;
-			if (delta - currentSliding < 0) {
-				state.envelopePortamentoStep = -param;
+		switch (effectType) {
+			case EffectAlgorithms.VIBRATO: {
+				const { speed, depth } = EffectAlgorithms.parseVibratoParameter(param);
+				state.envelopeVibratoSpeed = speed;
+				state.envelopeVibratoDepth = depth;
+				break;
 			}
-		} else if (effectType === EffectAlgorithms.ON_OFF) {
-			const offDuration = param & 15;
-			const onDuration = param >> 4;
-			state.envelopeOffDuration = offDuration;
-			state.envelopeOnDuration = onDuration;
+			case EffectAlgorithms.SLIDE_UP:
+				state.envelopeSlideDelta = param;
+				break;
+			case EffectAlgorithms.SLIDE_DOWN:
+				state.envelopeSlideDelta = -param;
+				break;
+			case EffectAlgorithms.PORTAMENTO: {
+				const delta = state.envelopePortamentoDelta;
+				const currentSliding = state.envelopeSlideCurrent;
+				state.envelopePortamentoStep =
+					param * EffectAlgorithms.getPortamentoStepSign(delta, currentSliding);
+				break;
+			}
+			case EffectAlgorithms.ON_OFF: {
+				const { offDuration, onDuration } = EffectAlgorithms.parseOnOffParameter(param);
+				state.envelopeOffDuration = offDuration;
+				state.envelopeOnDuration = onDuration;
+				break;
+			}
 		}
 	}
 

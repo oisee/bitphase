@@ -125,9 +125,15 @@ class EffectAlgorithms {
 		};
 	}
 
+	static parseOnOffParameter(parameter) {
+		return {
+			offDuration: parameter & 15,
+			onDuration: parameter >> 4
+		};
+	}
+
 	static initOnOff(parameter) {
-		const offDuration = parameter & 15;
-		const onDuration = parameter >> 4;
+		const { offDuration, onDuration } = EffectAlgorithms.parseOnOffParameter(parameter);
 		return {
 			onDuration,
 			offDuration,
@@ -214,18 +220,29 @@ class EffectAlgorithms {
 		return 0;
 	}
 
+	static parseVibratoParameter(parameter) {
+		const rawSpeed = (parameter >> 4) & 15;
+		return {
+			speed: rawSpeed === 0 ? 1 : rawSpeed,
+			depth: parameter & 15
+		};
+	}
+
 	static initVibrato(parameter, delay) {
-		const speed = (parameter >> 4) & 15;
-		const depth = parameter & 15;
+		const { speed, depth } = EffectAlgorithms.parseVibratoParameter(parameter);
 		const normalizedDelay = delay || 0;
 		const initialCounter = normalizedDelay === 0 ? 1 : normalizedDelay;
 		return {
-			speed: speed === 0 ? 1 : speed,
+			speed,
 			depth,
 			delay: normalizedDelay,
 			counter: initialCounter,
 			position: 0
 		};
+	}
+
+	static getPortamentoStepSign(delta, currentSliding) {
+		return delta - currentSliding < 0 ? -1 : 1;
 	}
 
 	static processVibratoCounter(counter, delay, speed, position) {
