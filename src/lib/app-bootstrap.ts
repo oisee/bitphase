@@ -4,6 +4,7 @@ import { editorStateStore } from './stores/editor-state.svelte';
 import { themeStore } from './stores/theme.svelte';
 import { themeService } from './services/theme/theme-service';
 import { userScriptsStore } from './stores/user-scripts.svelte';
+import { alphaNoticeStore } from './stores/alpha-notice.svelte';
 
 export function runAppBootstrap(): void {
 	settingsStore.init();
@@ -11,4 +12,5 @@ export function runAppBootstrap(): void {
 	editorStateStore.init();
 	themeStore.init(themeService);
 	userScriptsStore.init();
+	alphaNoticeStore.init();
 }

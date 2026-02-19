@@ -30,8 +30,19 @@
 	import { createMenuActionHandler } from './lib/services/app/menu-action-handler';
 	import type { MenuActionContext } from './lib/services/app/menu-action-context';
 	import { projectStore } from './lib/stores/project.svelte';
+	import AlphaNoticeModal from './lib/components/Modal/AlphaNoticeModal.svelte';
+	import { alphaNoticeStore } from './lib/stores/alpha-notice.svelte';
 
 	runAppBootstrap();
+
+	let alphaNoticeShownThisSession = $state(false);
+
+	$effect(() => {
+		if (!projectStore.initialized || alphaNoticeShownThisSession) return;
+		if (alphaNoticeStore.hasSeen) return;
+		alphaNoticeShownThisSession = true;
+		open(AlphaNoticeModal, {});
+	});
 
 	let lastAppliedThemeId = $state<string | null>(null);
 
