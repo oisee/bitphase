@@ -2,14 +2,29 @@
 	import Button from '../Button/Button.svelte';
 	import { alphaNoticeStore } from '../../stores/alpha-notice.svelte';
 
-	let { resolve } = $props<{
+	let { resolve, onCloseRef } = $props<{
 		resolve?: (value?: unknown) => void;
+		onCloseRef?: { current: (() => void) | null };
 	}>();
 
 	function handleAcknowledge() {
 		alphaNoticeStore.markSeen();
 		resolve?.();
 	}
+
+	function handleCloseByBackdrop() {
+		alphaNoticeStore.markSeen();
+		resolve?.();
+	}
+
+	$effect(() => {
+		if (onCloseRef) {
+			onCloseRef.current = handleCloseByBackdrop;
+			return () => {
+				onCloseRef.current = null;
+			};
+		}
+	});
 </script>
 
 <div class="flex w-[400px] flex-col">
