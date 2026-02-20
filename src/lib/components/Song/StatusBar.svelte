@@ -141,16 +141,8 @@
 		);
 	});
 
-	let secondsTick = $state(0);
 	let baseTime = $state(0);
 	let baseTimestamp = $state(0);
-
-	$effect(() => {
-		const id = setInterval(() => {
-			secondsTick++;
-		}, 1000);
-		return () => clearInterval(id);
-	});
 
 	$effect(() => {
 		selectedRow;
@@ -163,8 +155,7 @@
 	function formatTime(seconds: number): string {
 		const minutes = Math.floor(seconds / 60);
 		const secs = Math.floor(seconds % 60);
-		const cs = Math.floor((seconds % 1) * 100);
-		return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}:${cs.toString().padStart(2, '0')}`;
+		return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 	}
 
 	function getRowSpeed(pattern: Pattern, rowIdx: number, currentSpeed: number): number {
@@ -299,7 +290,6 @@
 
 	const displayedTime = $derived.by(() => {
 		if (!playbackStore.isPlaying) return currentTime;
-		void secondsTick;
 		const elapsed = baseTime + (Date.now() - baseTimestamp) / 1000;
 		return Math.min(elapsed, maxTime);
 	});
