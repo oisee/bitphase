@@ -2,8 +2,16 @@ import type { ChipProcessor, SettingsSubscriber } from '../../chips/base/process
 import type { Chip } from '../../chips/types';
 import type { Table } from '../../models/project';
 import { ChipSettings } from './chip-settings';
+import type { CatchUpSegment } from './play-from-position';
 import { channelMuteStore } from '../../stores/channel-mute.svelte';
 import { waveformStore } from '../../stores/waveform.svelte';
+
+import type { Pattern } from '../../models/song';
+
+export interface PlayFromRowOptions {
+	catchUpSegments?: CatchUpSegment[];
+	startPattern?: Pattern;
+}
 
 export class AudioService {
 	private _audioContext: AudioContext | null = new AudioContext();
@@ -101,7 +109,8 @@ export class AudioService {
 	playFromRow(
 		row: number,
 		patternOrderIndex?: number,
-		getSpeedForChip?: (chipIndex: number) => number | null
+		getSpeedForChip?: (chipIndex: number) => number | null,
+		options?: PlayFromRowOptions
 	) {
 		if (this._isPlaying) return;
 
@@ -110,9 +119,27 @@ export class AudioService {
 
 		this.applyMuteStateToAllChips();
 
+		const catchUpSegments = options?.catchUpSegments;
+		const startPattern = options?.startPattern;
+		const orderIndex = patternOrderIndex ?? 0;
+
 		this.chipProcessors.forEach((chipProcessor, index) => {
-			const speed = getSpeedForChip ? getSpeedForChip(index) : undefined;
-			chipProcessor.playFromRow(row, patternOrderIndex, speed);
+			const speed = getSpeedForChip ? getSpeedForChip(index) ?? null : null;
+			if (
+				catchUpSegments &&
+				startPattern &&
+				chipProcessor.playFromPosition
+			) {
+				chipProcessor.playFromPosition(
+					row,
+					orderIndex,
+					speed,
+					catchUpSegments,
+					startPattern
+				);
+			} else {
+				chipProcessor.playFromRow(row, patternOrderIndex, speed ?? undefined);
+			}
 		});
 	}
 

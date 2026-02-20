@@ -12,7 +12,9 @@ export const AY_CHIP_SCHEMA: ChipSchema = {
 			type: 'hex',
 			length: 4,
 			color: 'patternEnvelope',
-			allowZeroValue: true
+			allowZeroValue: true,
+			usedForBacktracking: true,
+			backtrackWhen: 'nonZero'
 		},
 		envelopeEffect: { key: 'envelopeEffect', type: 'hex', length: 4, color: 'patternEffect' },
 		noiseValue: {
@@ -20,7 +22,9 @@ export const AY_CHIP_SCHEMA: ChipSchema = {
 			type: 'hex',
 			length: 2,
 			color: 'patternNoise',
-			allowZeroValue: true
+			allowZeroValue: true,
+			usedForBacktracking: true,
+			backtrackWhen: 'any'
 		}
 	},
 	channelLabels: ['A', 'B', 'C'],
@@ -31,35 +35,51 @@ export const AY_CHIP_SCHEMA: ChipSchema = {
 	},
 	template: '{note} {instrument}{envelopeShape}{table}{volume} {effect}',
 	fields: {
-		note: { key: 'note', type: 'note', length: 3, color: 'patternNote', selectable: 'atomic' },
+		note: {
+			key: 'note',
+			type: 'note',
+			length: 3,
+			color: 'patternNote',
+			selectable: 'atomic',
+			usedForBacktracking: true,
+			backtrackWhen: 'nonZero'
+		},
 		instrument: {
 			key: 'instrument',
 			type: 'symbol',
 			length: 2,
 			color: 'patternInstrument',
 			selectable: 'character',
-			allowZeroValue: false
+			allowZeroValue: false,
+			usedForBacktracking: true,
+			backtrackWhen: 'nonZero'
 		},
 		envelopeShape: {
 			key: 'envelopeShape',
 			type: 'hex',
 			length: 1,
 			color: 'patternEnvelope',
-			selectable: 'character'
+			selectable: 'character',
+			usedForBacktracking: true,
+			backtrackWhen: 'nonZero'
 		},
 		table: {
 			key: 'table',
 			type: 'symbol',
 			length: 1,
 			color: 'patternTable',
-			selectable: 'character'
+			selectable: 'character',
+			usedForBacktracking: true,
+			backtrackWhen: 'any'
 		},
 		volume: {
 			key: 'volume',
 			type: 'hex',
 			length: 1,
 			color: 'patternText',
-			selectable: 'character'
+			selectable: 'character',
+			usedForBacktracking: true,
+			backtrackWhen: 'nonZero'
 		},
 		effect: {
 			key: 'effect',

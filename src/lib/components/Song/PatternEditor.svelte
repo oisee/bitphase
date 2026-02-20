@@ -72,6 +72,10 @@
 	import { keybindingsStore } from '../../stores/keybindings.svelte';
 	import { ShortcutString } from '../../utils/shortcut-string';
 	import { projectStore } from '../../stores/project.svelte';
+	import {
+		computeStateHorizon,
+		buildCatchUpSegmentsToHorizon
+	} from '../../services/audio/play-from-position';
 
 	let {
 		songIndex,
@@ -525,10 +529,30 @@
 				cancelAnimationFrame(playbackRafId);
 				playbackRafId = null;
 			}
+
+			const getPattern = (id: number) => findOrCreatePattern(id);
+			const horizon = chip.schema
+				? computeStateHorizon(
+						patternOrder,
+						getPattern,
+						currentPatternOrderIndex,
+						selectedRow,
+						chip.schema
+					)
+				: null;
+			const catchUpSegments = horizon
+				? buildCatchUpSegmentsToHorizon(
+						patternOrder,
+						getPattern,
+						horizon.orderIndex,
+						horizon.row
+					)
+				: [];
 			services.audioService.playFromRow(
 				selectedRow,
 				currentPatternOrderIndex,
-				getSpeedForChip
+				getSpeedForChip,
+				{ catchUpSegments, startPattern: currentPattern }
 			);
 		} catch (error) {
 			console.error('Error during playback from cursor:', error);
@@ -555,7 +579,33 @@
 				cancelAnimationFrame(playbackRafId);
 				playbackRafId = null;
 			}
-			services.audioService.playFromRow(0, 0, getSpeedForPlayPattern ?? getSpeedForChip);
+
+			const getPattern = (id: number) => findOrCreatePattern(id);
+			const orderIndexForBacktrack =
+				services.audioService.getPlayPatternId() !== null
+					? Math.max(0, patternOrder.indexOf(currentPattern.id))
+					: 0;
+			const horizon = chip.schema
+				? computeStateHorizon(
+						patternOrder,
+						getPattern,
+						orderIndexForBacktrack,
+						0,
+						chip.schema
+					)
+				: null;
+			const catchUpSegments = horizon
+				? buildCatchUpSegmentsToHorizon(
+						patternOrder,
+						getPattern,
+						horizon.orderIndex,
+						horizon.row
+					)
+				: [];
+			services.audioService.playFromRow(0, 0, getSpeedForPlayPattern ?? getSpeedForChip, {
+				catchUpSegments,
+				startPattern: currentPattern
+			});
 		} catch (error) {
 			console.error('Error during play pattern:', error);
 			services.audioService.stop();
@@ -582,9 +632,34 @@
 					cancelAnimationFrame(playbackRafId);
 					playbackRafId = null;
 				}
-				selectedRow = 0;
-				const initialSpeeds = projectStore.songs.map((song) => song?.initialSpeed ?? 3);
-				services.audioService.play(initialSpeeds);
+
+				const defaultGetSpeed = (index: number) =>
+					projectStore.songs[index]?.initialSpeed ?? 3;
+				const getPattern = (id: number) => findOrCreatePattern(id);
+				const startRow = 0;
+				const horizon = chip.schema
+					? computeStateHorizon(
+							patternOrder,
+							getPattern,
+							currentPatternOrderIndex,
+							startRow,
+							chip.schema
+						)
+					: null;
+				const catchUpSegments = horizon
+					? buildCatchUpSegmentsToHorizon(
+							patternOrder,
+							getPattern,
+							horizon.orderIndex,
+							horizon.row
+						)
+					: [];
+				services.audioService.playFromRow(
+					startRow,
+					currentPatternOrderIndex,
+					getSpeedForChip ?? defaultGetSpeed,
+					{ catchUpSegments, startPattern: currentPattern }
+				);
 			}
 		} catch (error) {
 			console.error('Error during playback toggle:', error);

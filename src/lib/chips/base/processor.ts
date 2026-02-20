@@ -2,12 +2,20 @@ import type { Chip } from '../types';
 import type { Pattern, Instrument } from '../../models/song';
 import type { Table } from '../../models/project';
 import type { ChipSettings } from '../../services/audio/chip-settings';
+import type { CatchUpSegment } from '../../services/audio/play-from-position';
 
 export interface ChipProcessor {
 	chip: Chip;
 	initialize(wasmBuffer: ArrayBuffer, audioNode: AudioWorkletNode): void;
 	play(initialSpeed?: number): void;
 	playFromRow(row: number, patternOrderIndex?: number, speed?: number | null): void;
+	playFromPosition?(
+		row: number,
+		patternOrderIndex: number,
+		speed: number | null,
+		catchUpSegments: CatchUpSegment[],
+		startPattern: Pattern
+	): void;
 	stop(): void;
 	updateOrder(order: number[]): void;
 	sendInitPattern(pattern: Pattern, patternOrderIndex: number): void;

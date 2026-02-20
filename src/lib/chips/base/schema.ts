@@ -1,5 +1,7 @@
 export type FieldType = 'note' | 'hex' | 'symbol' | 'dec' | 'text';
 
+export type BacktrackWhen = 'any' | 'nonZero';
+
 export interface ChipField {
 	key: string;
 	type: FieldType;
@@ -9,6 +11,8 @@ export interface ChipField {
 	skip?: boolean;
 	defaultValue?: unknown;
 	allowZeroValue?: boolean;
+	usedForBacktracking?: boolean;
+	backtrackWhen?: BacktrackWhen;
 }
 
 export type SettingType = 'text' | 'number' | 'select' | 'toggle';

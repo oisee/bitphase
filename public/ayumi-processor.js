@@ -59,6 +59,9 @@ class AyumiProcessor extends AudioWorkletProcessor {
 			case 'play_from_row':
 				this.handlePlayFromRow(data);
 				break;
+			case 'play_from_position':
+				this.handlePlayFromPosition(data);
+				break;
 			case 'stop':
 				this.handleStop();
 				break;
@@ -342,6 +345,48 @@ class AyumiProcessor extends AudioWorkletProcessor {
 
 		this.postPositionUpdate();
 		this.runCatchUpRows(this.state.currentRow);
+	}
+
+	handlePlayFromPosition({
+		catchUpSegments,
+		startPattern,
+		startPatternOrderIndex,
+		startRow,
+		speed
+	}) {
+		if (!this.state.wasmModule || !this.initialized) {
+			console.warn('Play aborted: wasmModule not initialized');
+			return;
+		}
+
+		this.startPlaybackCommon();
+
+		if (speed !== undefined && speed !== null && speed > 0) {
+			this.state.setSpeed(speed);
+		}
+
+		if (catchUpSegments?.length && this.patternProcessor && this.audioDriver && this.ayumiEngine) {
+			for (const segment of catchUpSegments) {
+				this.state.setPattern(segment.pattern, segment.patternOrderIndex);
+				const numRows = segment.numRows ?? 0;
+				for (let r = 0; r < numRows; r++) {
+					this.patternProcessor.parsePatternRow(
+						this.state.currentPattern,
+						r,
+						this.registerState
+					);
+					this.patternProcessor.processTables();
+					this.audioDriver.processInstruments(this.state, this.registerState);
+					this.ayumiEngine.applyRegisterState(this.registerState);
+				}
+			}
+		}
+
+		this.state.setPattern(startPattern, startPatternOrderIndex);
+		this.state.currentPatternOrderIndex = startPatternOrderIndex;
+		this.state.currentRow = startRow;
+
+		this.postPositionUpdate();
 	}
 
 	enforceMuteState() {

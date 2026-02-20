@@ -10,6 +10,7 @@ import type {
 	PreviewNoteSupport
 } from '../base/processor';
 import type { ChipSettings } from '../../services/audio/chip-settings';
+import type { CatchUpSegment } from '../../services/audio/play-from-position';
 
 type PositionUpdateMessage = {
 	type: 'position_update';
@@ -38,10 +39,20 @@ interface SpeedUpdateMessage {
 	speed: number;
 }
 
+type PlayFromPositionCommand = {
+	type: 'play_from_position';
+	catchUpSegments: CatchUpSegment[];
+	startPattern: Pattern;
+	startPatternOrderIndex: number;
+	startRow: number;
+	speed: number | null;
+};
+
 type WorkletCommand =
 	| { type: 'init'; wasmBuffer: ArrayBuffer }
 	| { type: 'play'; initialSpeed?: number }
 	| { type: 'play_from_row'; row: number; patternOrderIndex?: number; speed?: number | null }
+	| PlayFromPositionCommand
 	| { type: 'stop' }
 	| { type: 'update_order'; order: number[] }
 	| { type: 'init_pattern'; pattern: Pattern; patternOrderIndex: number }
@@ -189,6 +200,23 @@ export class AYProcessor
 
 	playFromRow(row: number, patternOrderIndex?: number, speed?: number | null): void {
 		this.sendCommand({ type: 'play_from_row', row, patternOrderIndex, speed });
+	}
+
+	playFromPosition(
+		row: number,
+		patternOrderIndex: number,
+		speed: number | null,
+		catchUpSegments: CatchUpSegment[],
+		startPattern: Pattern
+	): void {
+		this.sendCommand({
+			type: 'play_from_position',
+			catchUpSegments,
+			startPattern,
+			startPatternOrderIndex: patternOrderIndex,
+			startRow: row,
+			speed
+		});
 	}
 
 	stop(): void {
