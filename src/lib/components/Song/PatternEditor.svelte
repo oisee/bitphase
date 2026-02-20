@@ -230,7 +230,6 @@
 	let selectionEndColumn = $state<number | null>(null);
 	let isSelecting = $state(false);
 	let mouseDownCell: { row: number; column: number } | null = null;
-	let hadSelectionBeforeClick = $state(false);
 	let autoScrollInterval: number | null = null;
 	let autoScrollDirection: number = 0;
 	let isEnterKeyHeld = $state(false);
@@ -1469,7 +1468,6 @@
 		}
 
 		mouseDownCell = { row: cell.row, column: cell.column };
-		hadSelectionBeforeClick = hasSelection();
 
 		if (event.shiftKey && selectionStartRow !== null) {
 			selectionEndRow = cell.row;
@@ -1477,11 +1475,6 @@
 			selectedRow = cell.row;
 			selectedColumn = cell.column;
 		} else {
-			selectionStartRow = cell.row;
-			selectionStartColumn = cell.column;
-			selectionEndRow = cell.row;
-			selectionEndColumn = cell.column;
-			isSelecting = true;
 			window.addEventListener('mousemove', handleGlobalMouseMove);
 			window.addEventListener('mouseup', handleCanvasMouseUp);
 		}
@@ -1505,40 +1498,42 @@
 		}
 
 		if (!currentPattern || !renderer || !textParser) return;
-		if (!isSelecting || !mouseDownCell || playbackStore.isPlaying) return;
+		if (!mouseDownCell || playbackStore.isPlaying) return;
 
 		const cell = findCellAtPosition(x, y);
 		if (!cell) return;
 
-		selectionEndRow = cell.row;
-		selectionEndColumn = cell.column;
-		draw();
+		if (!isSelecting) {
+			const movedToDifferentCell =
+				cell.row !== mouseDownCell.row || cell.column !== mouseDownCell.column;
+			if (movedToDifferentCell) {
+				isSelecting = true;
+				selectionStartRow = mouseDownCell.row;
+				selectionStartColumn = mouseDownCell.column;
+				selectionEndRow = cell.row;
+				selectionEndColumn = cell.column;
+			}
+		} else {
+			selectionEndRow = cell.row;
+			selectionEndColumn = cell.column;
+		}
+		if (isSelecting) draw();
 	}
 
 	function handleCanvasMouseUp(): void {
 		stopAutoScroll();
 		window.removeEventListener('mousemove', handleGlobalMouseMove);
 		window.removeEventListener('mouseup', handleCanvasMouseUp);
-		if (isSelecting && mouseDownCell) {
-			if (
-				selectionStartRow === selectionEndRow &&
-				selectionStartColumn === selectionEndColumn
-			) {
-				selectionStartRow = null;
-				selectionStartColumn = null;
-				selectionEndRow = null;
-				selectionEndColumn = null;
-				if (!hadSelectionBeforeClick && !playbackStore.isPlaying) {
-					selectedRow = mouseDownCell.row;
-				}
-				if (!hadSelectionBeforeClick) {
-					selectedColumn = mouseDownCell.column;
-				}
-			}
+		if (mouseDownCell && !isSelecting) {
+			selectionStartRow = null;
+			selectionStartColumn = null;
+			selectionEndRow = null;
+			selectionEndColumn = null;
+			selectedRow = mouseDownCell.row;
+			selectedColumn = mouseDownCell.column;
 		}
 		isSelecting = false;
 		mouseDownCell = null;
-		hadSelectionBeforeClick = false;
 		draw();
 	}
 

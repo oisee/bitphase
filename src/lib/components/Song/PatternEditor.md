@@ -71,9 +71,8 @@ Main canvas-based tracker interface for editing musical patterns. Handles render
 
 ### Selection State
 
-- **isSelecting** - True during mouse drag selection operation
+- **isSelecting** - True during mouse drag selection operation (set when pointer moves to another cell)
 - **mouseDownCell** - Cell coordinates where mouse button was pressed
-- **hadSelectionBeforeClick** - Prevents accidental selection clearing on single click
 
 ### Auto-Scroll State
 
@@ -193,12 +192,12 @@ Performance optimization through memoization:
 ### Mouse Clicks & Drag
 
 - **findCellAtPosition(x, y)** - Hit-tests mouse coordinates to find nearest cell
-- **handleCanvasMouseDown(event)** - Starts selection or toggles channel mute
+- **handleCanvasMouseDown(event)** - Prepares for navigation or selection
     - Clicks on channel labels toggle mute state
-    - Clicks on cells start selection (shift extends existing selection)
-    - Attaches global mouse listeners for out-of-bounds tracking
-- **handleCanvasMouseMove(event)** - Extends selection during drag operation
-- **handleCanvasMouseUp()** - Finalizes selection or moves cursor if single click
+    - Clicks on cells record position and attach global listeners (shift extends existing selection)
+    - Selection is only started on drag (see handleCanvasMouseMove)
+- **handleCanvasMouseMove(event)** - Starts selection when drag to another cell, then extends selection
+- **handleCanvasMouseUp()** - Single click: navigate to cell and clear selection. Drag: keep selection
     - Cleans up global mouse listeners and stops auto-scroll
 
 ### Auto-Scroll During Selection
