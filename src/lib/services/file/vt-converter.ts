@@ -10,6 +10,7 @@ import {
 	InstrumentRow
 } from '../../models/song';
 import { PT3TuneTables, generate12TETTuningTable } from '../../models/pt3/tuning-tables';
+import { convertPT3ToVT2 } from './pt3-to-vt2';
 
 interface VT2Module {
 	title: string;
@@ -478,7 +479,7 @@ class VT2Converter {
 					module.chipFrequency = parseInt(value) || 1773400;
 					break;
 				case 'IntFreq':
-					module.interruptFrequency = (parseInt(value) || 50000) / 1000;
+					module.interruptFrequency = parseInt(value) || 50;
 					break;
 			}
 		}
@@ -944,6 +945,26 @@ export async function loadVT2File(file: File): Promise<Project> {
 export function convertVT2String(content: string): Project {
 	const converter = new VT2Converter();
 	return converter.convert(content);
+}
+
+/**
+ * Loads and converts a PT3 file to a Project object
+ */
+export async function loadPT3File(file: File): Promise<Project> {
+	const buffer = await file.arrayBuffer();
+	const vt2Content = convertPT3ToVT2(buffer);
+	const project = convertVT2String(vt2Content);
+	console.log('[PT3 import]', {
+		patternOrder: project.patternOrder,
+		patternOrderLength: project.patternOrder?.length,
+		songsCount: project.songs.length,
+		patternsCount: project.songs[0]?.patterns?.length ?? 0,
+		patternIds: project.songs[0]?.patterns?.map((p) => p.id) ?? [],
+		initialSpeed: project.songs[0]?.initialSpeed,
+		instrumentsCount: project.instruments?.length ?? 0,
+		loopPointId: project.loopPointId
+	});
+	return project;
 }
 
 export { VT2Converter };

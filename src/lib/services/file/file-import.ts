@@ -1,5 +1,5 @@
 import type { Chip } from '../../chips/types';
-import { loadVT2File } from './vt-converter';
+import { loadVT2File, loadPT3File } from './vt-converter';
 import { Project, Table } from '../../models/project';
 import {
 	Song,
@@ -239,11 +239,11 @@ export class FileImportService {
 		return decoder.decode(combined);
 	}
 
-	static async importVT2(): Promise<Project | null> {
+	static async importModule(): Promise<Project | null> {
 		try {
 			const input = document.createElement('input');
 			input.type = 'file';
-			input.accept = '.vt2';
+			input.accept = '.pt3,.vt2';
 			input.style.display = 'none';
 
 			document.body.appendChild(input);
@@ -261,10 +261,26 @@ export class FileImportService {
 					}
 
 					try {
-						const project = await loadVT2File(file);
+						const buffer = await file.arrayBuffer();
+						const bytes = new Uint8Array(buffer);
+						const header = String.fromCharCode(
+							...bytes.slice(0, Math.min(32, bytes.length))
+						);
+						const isPT3 =
+							header.startsWith('ProTracker 3.') ||
+							header.startsWith('Vortex Tracker II');
+						const isVT2 = header.startsWith('[Module]');
+						if (!isPT3 && !isVT2) {
+							throw new Error(
+								'Unknown format. Expected PT3 or VT2 module (.pt3, .vt2).'
+							);
+						}
+						const project = isPT3
+							? await loadPT3File(file)
+							: await loadVT2File(file);
 						resolve(project);
 					} catch (error) {
-						console.error('Error loading VT2 file:', error);
+						console.error('Error loading module file:', error);
 						reject(error);
 					}
 				};
@@ -277,7 +293,7 @@ export class FileImportService {
 				input.click();
 			});
 		} catch (error) {
-			console.error('Error importing VT2 file:', error);
+			console.error('Error importing module file:', error);
 			throw error;
 		}
 	}
@@ -330,8 +346,8 @@ export class FileImportService {
 		switch (action) {
 			case 'open':
 				return await this.importBTP();
-			case 'import-vt2':
-				return await this.importVT2();
+			case 'import-module':
+				return await this.importModule();
 			default:
 				console.warn('Unknown import action:', action);
 				return null;
