@@ -46,6 +46,10 @@
 		type ClipboardContext
 	} from '../../services/pattern/clipboard-service';
 	import {
+		ChannelSwapService,
+		type ChannelSwapContext
+	} from '../../services/pattern/channel-swap-service';
+	import {
 		PatternKeyboardShortcutsService,
 		type PatternKeyboardShortcutsContext
 	} from '../../services/pattern/pattern-keyboard-shortcuts';
@@ -536,25 +540,17 @@
 				if (usePerChip) {
 					return {
 						getStartPatternForChip: (chipIndex: number) => {
-							const patternId =
-								patternOrder[currentPatternOrderIndex];
-							const songPatterns =
-								projectStore.patterns[chipIndex] ?? [];
-							const schema =
-								chipProcessors[chipIndex]?.chip?.schema;
+							const patternId = patternOrder[currentPatternOrderIndex];
+							const songPatterns = projectStore.patterns[chipIndex] ?? [];
+							const schema = chipProcessors[chipIndex]?.chip?.schema;
 							return (
 								songPatterns.find((p) => p.id === patternId) ??
-								PatternService.createEmptyPattern(
-									patternId,
-									schema
-								)
+								PatternService.createEmptyPattern(patternId, schema)
 							);
 						},
 						getCatchUpSegmentsForChip: (chipIndex: number) => {
-							const songPatterns =
-								projectStore.patterns[chipIndex] ?? [];
-							const schema =
-								chipProcessors[chipIndex]?.chip?.schema;
+							const songPatterns = projectStore.patterns[chipIndex] ?? [];
+							const schema = chipProcessors[chipIndex]?.chip?.schema;
 							const getPattern = (id: number) =>
 								songPatterns.find((p) => p.id === id);
 							const horizon =
@@ -578,8 +574,7 @@
 						}
 					};
 				}
-				const getPattern = (id: number) =>
-					findOrCreatePattern(id);
+				const getPattern = (id: number) => findOrCreatePattern(id);
 				const horizon = chip.schema
 					? computeStateHorizon(
 							patternOrder,
@@ -745,25 +740,17 @@
 					if (usePerChip) {
 						return {
 							getStartPatternForChip: (chipIndex: number) => {
-								const patternId =
-									patternOrder[currentPatternOrderIndex];
-								const songPatterns =
-									projectStore.patterns[chipIndex] ?? [];
-								const schema =
-									chipProcessors[chipIndex]?.chip?.schema;
+								const patternId = patternOrder[currentPatternOrderIndex];
+								const songPatterns = projectStore.patterns[chipIndex] ?? [];
+								const schema = chipProcessors[chipIndex]?.chip?.schema;
 								return (
 									songPatterns.find((p) => p.id === patternId) ??
-									PatternService.createEmptyPattern(
-										patternId,
-										schema
-									)
+									PatternService.createEmptyPattern(patternId, schema)
 								);
 							},
 							getCatchUpSegmentsForChip: (chipIndex: number) => {
-								const songPatterns =
-									projectStore.patterns[chipIndex] ?? [];
-								const schema =
-									chipProcessors[chipIndex]?.chip?.schema;
+								const songPatterns = projectStore.patterns[chipIndex] ?? [];
+								const schema = chipProcessors[chipIndex]?.chip?.schema;
 								const getPattern = (id: number) =>
 									songPatterns.find((p) => p.id === id);
 								const horizon =
@@ -787,8 +774,7 @@
 							}
 						};
 					}
-					const getPattern = (id: number) =>
-						findOrCreatePattern(id);
+					const getPattern = (id: number) => findOrCreatePattern(id);
 					const horizon = chip.schema
 						? computeStateHorizon(
 								patternOrder,
@@ -1281,6 +1267,8 @@
 			) => {
 				incrementFieldValue(delta, isOctaveIncrement, keyForPreview);
 			},
+			onSwapChannelLeft: swapChannelLeft,
+			onSwapChannelRight: swapChannelRight,
 			selectionStartRow,
 			selectionStartColumn,
 			selectionEndRow,
@@ -1778,6 +1766,66 @@
 				draw();
 			}
 		);
+	}
+
+	function createChannelSwapContext(): ChannelSwapContext {
+		const clipboardCtx = createClipboardContext();
+		return {
+			pattern: clipboardCtx.pattern,
+			getCellPositions: clipboardCtx.getCellPositions,
+			getPatternRowData: clipboardCtx.getPatternRowData,
+			createEditingContext: clipboardCtx.createEditingContext,
+			converter,
+			schema
+		};
+	}
+
+	function swapChannelLeft(): void {
+		const patternId = patternOrder[currentPatternOrderIndex];
+		const originalPattern = findOrCreatePattern(patternId);
+		const bounds = hasSelection()
+			? getSelectionBounds()
+			: {
+					minRow: selectedRow,
+					maxRow: selectedRow,
+					minCol: selectedColumn,
+					maxCol: selectedColumn
+				};
+		if (!bounds) return;
+
+		const updatedPattern = ChannelSwapService.swapChannelsLeft(
+			originalPattern,
+			bounds,
+			createChannelSwapContext()
+		);
+		recordBulkPatternEdit(originalPattern, updatedPattern);
+		updatePatternInArray(updatedPattern);
+		clearAllCaches();
+		draw();
+	}
+
+	function swapChannelRight(): void {
+		const patternId = patternOrder[currentPatternOrderIndex];
+		const originalPattern = findOrCreatePattern(patternId);
+		const bounds = hasSelection()
+			? getSelectionBounds()
+			: {
+					minRow: selectedRow,
+					maxRow: selectedRow,
+					minCol: selectedColumn,
+					maxCol: selectedColumn
+				};
+		if (!bounds) return;
+
+		const updatedPattern = ChannelSwapService.swapChannelsRight(
+			originalPattern,
+			bounds,
+			createChannelSwapContext()
+		);
+		recordBulkPatternEdit(originalPattern, updatedPattern);
+		updatePatternInArray(updatedPattern);
+		clearAllCaches();
+		draw();
 	}
 
 	function deleteSelection(): void {

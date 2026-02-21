@@ -19,7 +19,9 @@ import {
 	ACTION_TRANSPOSE_OCTAVE_DOWN,
 	ACTION_APPLY_SCRIPT,
 	ACTION_TOGGLE_PLAYBACK,
-	ACTION_CYCLE_CHANNEL
+	ACTION_CYCLE_CHANNEL,
+	ACTION_SWAP_CHANNEL_LEFT,
+	ACTION_SWAP_CHANNEL_RIGHT
 } from '../../config/keybindings';
 
 export interface PatternKeyboardShortcutsContext {
@@ -58,6 +60,8 @@ export interface PatternKeyboardShortcutsContext {
 		isOctaveIncrement?: boolean,
 		keyForPreview?: string
 	) => void;
+	onSwapChannelLeft: () => void;
+	onSwapChannelRight: () => void;
 	selectionStartRow: number | null;
 	selectionStartColumn: number | null;
 	selectionEndRow: number | null;
@@ -155,6 +159,16 @@ function dispatchCommandAction(
 				);
 				ctx.onClearSelection();
 				ctx.onSetSelectedColumn(newState.selectedColumn);
+			}
+			return true;
+		case ACTION_SWAP_CHANNEL_LEFT:
+			if (!ctx.isPlaying) {
+				ctx.onSwapChannelLeft();
+			}
+			return true;
+		case ACTION_SWAP_CHANNEL_RIGHT:
+			if (!ctx.isPlaying) {
+				ctx.onSwapChannelRight();
 			}
 			return true;
 		default:

@@ -29,13 +29,15 @@ function addChipProcessorsForProject(
 function dispatchEditorKey(
 	patternEditor: MenuActionContext['getPatternEditor'],
 	key: string,
-	modifiers?: { ctrlKey?: boolean; shiftKey?: boolean }
+	modifiers?: { ctrlKey?: boolean; shiftKey?: boolean; altKey?: boolean; code?: string }
 ) {
 	const editor = patternEditor();
 	const event = new KeyboardEvent('keydown', {
 		key,
+		code: modifiers?.code ?? key,
 		ctrlKey: modifiers?.ctrlKey ?? false,
 		shiftKey: modifiers?.shiftKey ?? false,
+		altKey: modifiers?.altKey ?? false,
 		bubbles: true
 	});
 	editor?.handleKeyDownFromMenu?.(event);
@@ -93,6 +95,24 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
 
 			if (data.action === 'transpose-octave-down') {
 				dispatchEditorKey(ctx.getPatternEditor, '-', { shiftKey: true });
+				return;
+			}
+
+			if (data.action === 'swap-channel-left') {
+				dispatchEditorKey(ctx.getPatternEditor, 'ArrowLeft', {
+					ctrlKey: true,
+					altKey: true,
+					code: 'ArrowLeft'
+				});
+				return;
+			}
+
+			if (data.action === 'swap-channel-right') {
+				dispatchEditorKey(ctx.getPatternEditor, 'ArrowRight', {
+					ctrlKey: true,
+					altKey: true,
+					code: 'ArrowRight'
+				});
 				return;
 			}
 
@@ -167,11 +187,11 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
 				return;
 			}
 
-		if (data.action === 'new-song-ay') {
-			ctx.playbackStore.isPlaying = false;
-			ctx.container.audioService.stop();
-			const project = ctx.getCurrentProject();
-			const newSong = await ctx.projectService.createNewSong(AY_CHIP, project.songs);
+			if (data.action === 'new-song-ay') {
+				ctx.playbackStore.isPlaying = false;
+				ctx.container.audioService.stop();
+				const project = ctx.getCurrentProject();
+				const newSong = await ctx.projectService.createNewSong(AY_CHIP, project.songs);
 				if (project.songs.length > 0 && project.patternOrder.length > 0) {
 					const refSong = project.songs[0] as unknown as {
 						patterns: { id: number; length: number }[];
