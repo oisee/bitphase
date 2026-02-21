@@ -337,40 +337,61 @@ function parsePT3(data: Uint8Array): VTM {
 		}
 
 		const cmd = pat.items[lnNum].channel[chNum].additionalCommand;
+		const hasBytes = (n: number) => ptr + n <= size;
 		if (cmd.number === 1) {
-			cmd.delay = readU8(data, ptr);
-			ptr++;
-			const tmp = readS16LE(data, ptr);
-			ptr += 2;
-			cmd.parameter = tmp < 0 ? -tmp : tmp;
-			if (tmp < 0) cmd.number++;
+			if (hasBytes(3)) {
+				cmd.delay = readU8(data, ptr);
+				ptr++;
+				const tmp = readS16LE(data, ptr);
+				ptr += 2;
+				cmd.parameter = tmp < 0 ? -tmp : tmp;
+				if (tmp < 0) cmd.number++;
+			} else {
+				ptr = Math.min(ptr + 3, size);
+			}
 		} else if (cmd.number === 2) {
 			cmd.number++;
-			cmd.delay = readU8(data, ptr);
-			ptr += 3;
-			const tmp = readS16LE(data, ptr);
-			ptr += 2;
-			cmd.parameter = tmp < 0 ? -tmp : tmp;
+			if (hasBytes(5)) {
+				cmd.delay = readU8(data, ptr);
+				ptr += 3;
+				const tmp = readS16LE(data, ptr);
+				ptr += 2;
+				cmd.parameter = tmp < 0 ? -tmp : tmp;
+			} else {
+				ptr = Math.min(ptr + 5, size);
+			}
 		} else if (cmd.number === 3 || cmd.number === 4) {
 			cmd.number++;
-			cmd.parameter = readU8(data, ptr);
-			ptr++;
+			if (hasBytes(1)) {
+				cmd.parameter = readU8(data, ptr);
+				ptr++;
+			}
 		} else if (cmd.number === 5) {
 			cmd.number++;
-			cmd.parameter = (readU8(data, ptr) << 4) | readU8(data, ptr + 1);
-			ptr += 2;
+			if (hasBytes(2)) {
+				cmd.parameter = (readU8(data, ptr) << 4) | readU8(data, ptr + 1);
+				ptr += 2;
+			} else {
+				ptr = Math.min(ptr + 2, size);
+			}
 		} else if (cmd.number === 8) {
 			cmd.number++;
-			cmd.delay = readU8(data, ptr);
-			ptr++;
-			const tmp = readS16LE(data, ptr);
-			ptr += 2;
-			cmd.parameter = tmp < 0 ? -tmp : tmp;
-			if (tmp < 0) cmd.number++;
+			if (hasBytes(3)) {
+				cmd.delay = readU8(data, ptr);
+				ptr++;
+				const tmp = readS16LE(data, ptr);
+				ptr += 2;
+				cmd.parameter = tmp < 0 ? -tmp : tmp;
+				if (tmp < 0) cmd.number++;
+			} else {
+				ptr = Math.min(ptr + 3, size);
+			}
 		} else if (cmd.number === 9) {
 			cmd.number = 0x0b;
-			cmd.parameter = readU8(data, ptr);
-			ptr++;
+			if (hasBytes(1)) {
+				cmd.parameter = readU8(data, ptr);
+				ptr++;
+			}
 		}
 
 		chPtr[chNum] = ptr;

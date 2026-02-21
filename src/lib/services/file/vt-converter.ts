@@ -96,7 +96,8 @@ class VT2Converter {
 	 * Converts a VT2 file content to a Project object
 	 */
 	convert(vt2Content: string): Project {
-		const lines = vt2Content.split('\n').map((line) => line.trim());
+		const normalized = vt2Content.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+		const lines = normalized.split('\n').map((line) => line.trim());
 
 		const moduleSections = this.splitModuleSections(lines);
 		const isTurboSound = moduleSections.length > 1;
@@ -444,8 +445,10 @@ class VT2Converter {
 		const moduleLines = this.extractSection(lines, '[Module]');
 
 		for (const line of moduleLines) {
-			const [key, value] = line.split('=', 2);
-			if (!key || value === undefined) continue;
+			const eqIndex = line.indexOf('=');
+			if (eqIndex < 0) continue;
+			const key = line.slice(0, eqIndex).trim();
+			const value = line.slice(eqIndex + 1).trim();
 
 			switch (key) {
 				case 'Title':
@@ -478,9 +481,11 @@ class VT2Converter {
 				case 'ChipFreq':
 					module.chipFrequency = parseInt(value) || 1773400;
 					break;
-				case 'IntFreq':
-					module.interruptFrequency = parseInt(value) || 50;
+				case 'IntFreq': {
+					const raw = parseInt(value) || 50;
+					module.interruptFrequency = raw >= 1000 ? raw / 1000 : raw;
 					break;
+				}
 			}
 		}
 
@@ -786,7 +791,7 @@ class VT2Converter {
 	} {
 		const trimmed = effectsStr.trim();
 
-		if (!trimmed || (trimmed.length !== 3 && trimmed.length !== 4)) {
+		if (!trimmed || trimmed.length < 1 || trimmed.length > 4) {
 			return { channelEffect: [null], envelopeEffect: null };
 		}
 
@@ -801,8 +806,10 @@ class VT2Converter {
 
 		if (trimmed.length === 3) {
 			parameter = parseInt(trimmed.slice(1, 3).replace(/\./g, '0'), 16) || 0;
-		} else {
-			const [_, delayChar, param1Char, param2Char] = trimmed;
+		} else if (trimmed.length === 4) {
+			const delayChar = trimmed[1];
+			const param1Char = trimmed[2];
+			const param2Char = trimmed[3];
 			delay = this.parseHexDigit(delayChar);
 			const param1 = param1Char !== '.' ? this.parseHexDigit(param1Char) : 0;
 			const param2 = param2Char !== '.' ? this.parseHexDigit(param2Char) : 0;
