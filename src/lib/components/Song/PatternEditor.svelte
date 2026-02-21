@@ -1909,6 +1909,9 @@
 		}
 
 		if (fieldInfo.fieldType === 'note') {
+			if (currentValue === null || currentValue === undefined || currentValue === '') {
+				return pattern;
+			}
 			const newValue = PatternValueUpdates.incrementNoteValue(
 				currentValue as string,
 				adjustedDelta
@@ -1932,7 +1935,10 @@
 			editorStateStore.envelopeAsNote &&
 			tuningTable
 		) {
-			const currentPeriod = (currentValue as number) ?? 0;
+			if (currentValue === null || currentValue === undefined || currentValue === '') {
+				return pattern;
+			}
+			const currentPeriod = currentValue as number;
 			const noteIndex = envelopePeriodToNote(currentPeriod, tuningTable);
 			if (noteIndex !== null) {
 				const semitonesDelta = isOctaveIncrement ? delta * 12 : delta;
@@ -1963,8 +1969,18 @@
 				fieldInfo.fieldType === 'symbol') &&
 			!EffectField.isEffectField(fieldInfo.fieldKey)
 		) {
+			if (
+				PatternValueUpdates.isDisplayedAsEmpty(
+					currentValue,
+					fieldInfo.fieldType,
+					fieldDefinition?.length ?? 1,
+					fieldDefinition?.allowZeroValue
+				)
+			) {
+				return pattern;
+			}
 			const newValue = PatternValueUpdates.incrementNumericValue(
-				(currentValue as number) ?? 0,
+				currentValue as number,
 				delta,
 				fieldInfo.fieldType,
 				fieldDefinition?.length

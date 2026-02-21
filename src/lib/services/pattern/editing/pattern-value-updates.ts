@@ -1,6 +1,7 @@
 import type { Pattern } from '../../../models/song';
 import { NoteName } from '../../../models/song';
 import { formatNoteFromEnum, parseNoteFromString } from '../../../utils/note-utils';
+import { formatHex, formatSymbol } from '../../../chips/base/field-formatters';
 import type { EditingContext, FieldInfo } from './editing-context';
 
 export class PatternValueUpdates {
@@ -43,6 +44,24 @@ export class PatternValueUpdates {
 		return field
 			? { key: fieldKey, type: field.type, length: field.length, allowZeroValue: field.allowZeroValue }
 			: null;
+	}
+
+	static isDisplayedAsEmpty(
+		value: string | number | null | undefined,
+		fieldType: string,
+		length: number,
+		allowZeroValue?: boolean
+	): boolean {
+		if (fieldType === 'hex') {
+			return formatHex(value, length, allowZeroValue) === '.'.repeat(length);
+		}
+		if (fieldType === 'symbol') {
+			return formatSymbol(value, length, allowZeroValue) === '.'.repeat(length);
+		}
+		if (fieldType === 'dec') {
+			return value === null || value === undefined;
+		}
+		return value === null || value === undefined || value === '';
 	}
 
 	static incrementNoteValue(currentValue: string, delta: number): string {
