@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import MenuPanel from './MenuPanel.svelte';
 	import type { MenuItem } from './types';
 
@@ -13,6 +14,26 @@
 		onAction?: (data: { action: string }) => void;
 		onClose?: () => void;
 	} = $props();
+
+	let menuEl = $state<HTMLDivElement | undefined>(undefined);
+	let renderUpward = $state(false);
+
+	$effect(() => {
+		if (!position) {
+			renderUpward = false;
+			return;
+		}
+		renderUpward = false;
+		tick().then(() => {
+			if (!menuEl) return;
+			const rect = menuEl.getBoundingClientRect();
+			if (rect.bottom > window.innerHeight) {
+				renderUpward = true;
+			} else if (rect.top < 0) {
+				renderUpward = false;
+			}
+		});
+	});
 
 	function handleClose(): void {
 		onClose?.();
@@ -31,8 +52,11 @@
 		}}>
 	</div>
 	<div
+		bind:this={menuEl}
 		class="fixed z-50"
-		style="left: {position.x}px; top: {position.y}px;">
+		style="left: {position.x}px; top: {position.y}px; transform: {renderUpward
+			? 'translateY(-100%)'
+			: 'none'};">
 		<MenuPanel
 			isFirst={true}
 			{items}
