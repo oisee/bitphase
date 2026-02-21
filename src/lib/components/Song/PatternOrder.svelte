@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Pattern } from '../../models/song';
+	import type { ChipSchema } from '../../chips/base/schema';
 	import { getPatternOrderColors } from '../../utils/pattern-order-colors';
 	import { getFonts } from '../../utils/fonts';
 	import { setupCanvas as setupCanvasUtil } from '../../utils/canvas-utils';
@@ -21,6 +22,7 @@
 	interface Props {
 		currentPatternOrderIndex: number;
 		selectedRow: number;
+		chipSchemas?: (ChipSchema | undefined)[];
 		canvasHeight?: number;
 		lineHeight?: number;
 		onPatternSelect?: (index: number) => void;
@@ -31,6 +33,7 @@
 	let {
 		currentPatternOrderIndex = $bindable(),
 		selectedRow = $bindable(),
+		chipSchemas = [],
 		canvasHeight = 600,
 		onPatternSelect,
 		onMakeUnique,
@@ -419,24 +422,47 @@
 		if (editingPatternValue !== '') {
 			const displayedValue = editingPatternValue.padStart(2, '0');
 			const newId = parseInt(displayedValue);
-			const currentPatternId = patternOrder[editingPatternIndex];
-			const currentPattern = patternsRecord[currentPatternId];
 
-			const result = PatternService.setPatternIdInOrder(
-				patternsRecord,
-				patternOrder,
-				editingPatternIndex,
-				newId,
-				currentPattern
-			);
+			if (
+				chipSchemas.length > 0 &&
+				chipSchemas.length === projectStore.patterns.length
+			) {
+				const result = PatternService.setPatternIdInOrderMultiChip(
+					projectStore.patterns,
+					patternOrder,
+					editingPatternIndex,
+					newId,
+					(songIndex) => chipSchemas[songIndex]
+				);
 
-			if (result) {
-				const newPattern = result.newPatterns[newId];
-				if (newPattern && !patternsRecord[newId]) {
-					projectStore.addPatternToAllSongs(newPattern);
+				if (result) {
+					result.newPatternsPerSong.forEach((newPatterns, songIndex) => {
+						projectStore.updatePatterns(songIndex, newPatterns);
+					});
+					projectStore.patternOrder = result.newPatternOrder;
+					onPatternOrderEdited?.();
 				}
-				projectStore.patternOrder = result.newPatternOrder;
-				onPatternOrderEdited?.();
+			} else {
+				const currentPatternId = patternOrder[editingPatternIndex];
+				const currentPattern = patternsRecord[currentPatternId];
+
+				const result = PatternService.setPatternIdInOrder(
+					patternsRecord,
+					patternOrder,
+					editingPatternIndex,
+					newId,
+					currentPattern,
+					chipSchemas[0]
+				);
+
+				if (result) {
+					const newPattern = result.newPatterns[newId];
+					if (newPattern && !patternsRecord[newId]) {
+						projectStore.addPatternToAllSongs(newPattern);
+					}
+					projectStore.patternOrder = result.newPatternOrder;
+					onPatternOrderEdited?.();
+				}
 			}
 		}
 
@@ -581,17 +607,40 @@
 	}
 
 	function addPatternAtIndex(index: number): void {
-		const result = PatternService.addPatternAfter(patternsRecord, patternOrder, index);
+		if (chipSchemas.length > 0 && chipSchemas.length === projectStore.patterns.length) {
+			const result = PatternService.addPatternAfterMultiChip(
+				projectStore.patterns,
+				patternOrder,
+				index,
+				(songIndex) => chipSchemas[songIndex]
+			);
 
-		const newPattern = result.newPatterns[result.newPatternId];
-		if (newPattern) {
-			projectStore.addPatternToAllSongs(newPattern);
+			result.newPatternsPerSong.forEach((newPatterns, songIndex) => {
+				projectStore.updatePatterns(songIndex, newPatterns);
+			});
+			projectStore.patternOrder = result.newPatternOrder;
+			shiftColorsAfterAdd(result.insertIndex);
+			currentPatternOrderIndex = result.insertIndex;
+			selectedRow = 0;
+			onPatternSelect?.(result.insertIndex);
+		} else {
+			const result = PatternService.addPatternAfter(
+				patternsRecord,
+				patternOrder,
+				index,
+				chipSchemas[0]
+			);
+
+			const newPattern = result.newPatterns[result.newPatternId];
+			if (newPattern) {
+				projectStore.addPatternToAllSongs(newPattern);
+			}
+			projectStore.patternOrder = result.newPatternOrder;
+			shiftColorsAfterAdd(result.insertIndex);
+			currentPatternOrderIndex = result.insertIndex;
+			selectedRow = 0;
+			onPatternSelect?.(result.insertIndex);
 		}
-		projectStore.patternOrder = result.newPatternOrder;
-		shiftColorsAfterAdd(result.insertIndex);
-		currentPatternOrderIndex = result.insertIndex;
-		selectedRow = 0;
-		onPatternSelect?.(result.insertIndex);
 
 		afterPatternOperation();
 	}
@@ -618,29 +667,50 @@
 	}
 
 	function clonePatternAtIndex(index: number): void {
-		const targetPatternId = patternOrder[index];
-		const targetPattern = ensurePatternInRecord(targetPatternId);
+		if (chipSchemas.length > 0 && chipSchemas.length === projectStore.patterns.length) {
+			const result = PatternService.clonePatternAfterMultiChip(
+				projectStore.patterns,
+				patternOrder,
+				index,
+				(songIndex) => chipSchemas[songIndex]
+			);
 
-		if (!targetPattern) return;
+			if (!result) return;
 
-		const result = PatternService.clonePatternAfter(
-			patternsRecord,
-			patternOrder,
-			index,
-			targetPattern
-		);
+			result.newPatternsPerSong.forEach((newPatterns, songIndex) => {
+				projectStore.updatePatterns(songIndex, newPatterns);
+			});
+			projectStore.patternOrder = result.newPatternOrder;
+			shiftColorsAfterAdd(result.insertIndex);
+			currentPatternOrderIndex = result.insertIndex;
+			selectedRow = 0;
+			onPatternSelect?.(result.insertIndex);
+		} else {
+			const targetPatternId = patternOrder[index];
+			const targetPattern = ensurePatternInRecord(targetPatternId);
 
-		if (!result) return;
+			if (!targetPattern) return;
 
-		const clonedPattern = result.newPatterns[result.newPatternId];
-		if (clonedPattern) {
-			projectStore.addPatternToAllSongs(clonedPattern);
+			const result = PatternService.clonePatternAfter(
+				patternsRecord,
+				patternOrder,
+				index,
+				targetPattern,
+				chipSchemas[0]
+			);
+
+			if (!result) return;
+
+			const clonedPattern = result.newPatterns[result.newPatternId];
+			if (clonedPattern) {
+				projectStore.addPatternToAllSongs(clonedPattern);
+			}
+			projectStore.patternOrder = result.newPatternOrder;
+			shiftColorsAfterAdd(result.insertIndex);
+			currentPatternOrderIndex = result.insertIndex;
+			selectedRow = 0;
+			onPatternSelect?.(result.insertIndex);
 		}
-		projectStore.patternOrder = result.newPatternOrder;
-		shiftColorsAfterAdd(result.insertIndex);
-		currentPatternOrderIndex = result.insertIndex;
-		selectedRow = 0;
-		onPatternSelect?.(result.insertIndex);
 
 		afterPatternOperation();
 	}

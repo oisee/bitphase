@@ -11,6 +11,8 @@ import type { Pattern } from '../../models/song';
 export interface PlayFromRowOptions {
 	catchUpSegments?: CatchUpSegment[];
 	startPattern?: Pattern;
+	getCatchUpSegmentsForChip?: (chipIndex: number) => CatchUpSegment[];
+	getStartPatternForChip?: (chipIndex: number) => Pattern;
 }
 
 export class AudioService {
@@ -121,21 +123,25 @@ export class AudioService {
 
 		const catchUpSegments = options?.catchUpSegments;
 		const startPattern = options?.startPattern;
+		const getCatchUpSegmentsForChip = options?.getCatchUpSegmentsForChip;
+		const getStartPatternForChip = options?.getStartPatternForChip;
 		const orderIndex = patternOrderIndex ?? 0;
 
 		this.chipProcessors.forEach((chipProcessor, index) => {
 			const speed = getSpeedForChip ? getSpeedForChip(index) ?? null : null;
+			const chipCatchUp = getCatchUpSegmentsForChip?.(index) ?? catchUpSegments;
+			const chipStartPattern = getStartPatternForChip?.(index) ?? startPattern;
 			if (
-				catchUpSegments &&
-				startPattern &&
+				chipCatchUp &&
+				chipStartPattern &&
 				chipProcessor.playFromPosition
 			) {
 				chipProcessor.playFromPosition(
 					row,
 					orderIndex,
 					speed,
-					catchUpSegments,
-					startPattern
+					chipCatchUp,
+					chipStartPattern
 				);
 			} else {
 				chipProcessor.playFromRow(row, patternOrderIndex, speed ?? undefined);

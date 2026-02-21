@@ -120,6 +120,42 @@ export class PatternService {
 	}
 
 	/**
+	 * Add a new empty pattern after the specified index, creating one pattern per song with each song's schema
+	 */
+	static addPatternAfterMultiChip(
+		allPatterns: Pattern[][],
+		patternOrder: number[],
+		index: number,
+		getSchema: (songIndex: number) => ChipSchema | undefined
+	): {
+		newPatternsPerSong: Pattern[][];
+		newPatternOrder: number[];
+		newPatternId: number;
+		insertIndex: number;
+	} {
+		const newPatternId = this.findNextAvailablePatternIdFromPatterns(allPatterns, patternOrder);
+		const insertIndex = index + 1;
+		const newPatternOrder = [...patternOrder];
+		newPatternOrder.splice(insertIndex, 0, newPatternId);
+
+		const newPatternsPerSong = allPatterns.map((songPatterns, songIndex) => {
+			const newPattern = this.createEmptyPattern(newPatternId, getSchema(songIndex));
+			const existing = songPatterns.find((p) => p.id === newPatternId);
+			if (existing) {
+				return songPatterns.map((p) => (p.id === newPatternId ? newPattern : p));
+			}
+			return [...songPatterns, newPattern];
+		});
+
+		return {
+			newPatternsPerSong,
+			newPatternOrder,
+			newPatternId,
+			insertIndex
+		};
+	}
+
+	/**
 	 * Remove a pattern at the specified index
 	 */
 	static removePatternAt(
@@ -179,6 +215,52 @@ export class PatternService {
 
 		return {
 			newPatterns,
+			newPatternOrder,
+			newPatternId,
+			insertIndex
+		};
+	}
+
+	/**
+	 * Clone a pattern and insert it after the specified index, creating one clone per song with each song's schema
+	 */
+	static clonePatternAfterMultiChip(
+		allPatterns: Pattern[][],
+		patternOrder: number[],
+		index: number,
+		getSchema: (songIndex: number) => ChipSchema | undefined
+	): {
+		newPatternsPerSong: Pattern[][];
+		newPatternOrder: number[];
+		newPatternId: number;
+		insertIndex: number;
+	} | null {
+		const targetPatternId = patternOrder[index];
+		const newPatternId =
+			this.findNextAvailablePatternIdFromPatterns(allPatterns, patternOrder);
+		const insertIndex = index + 1;
+		const newPatternOrder = [...patternOrder];
+		newPatternOrder.splice(insertIndex, 0, newPatternId);
+
+		const hasAnySource = allPatterns.some((songPatterns) =>
+			songPatterns.some((p) => p.id === targetPatternId)
+		);
+		if (!hasAnySource) return null;
+
+		const newPatternsPerSong = allPatterns.map((songPatterns, songIndex) => {
+			const sourcePattern = songPatterns.find((p) => p.id === targetPatternId);
+			if (!sourcePattern) return songPatterns;
+
+			const clonedPattern = this.clonePattern(
+				sourcePattern,
+				newPatternId,
+				getSchema(songIndex)
+			);
+			return [...songPatterns, clonedPattern];
+		});
+
+		return {
+			newPatternsPerSong,
 			newPatternOrder,
 			newPatternId,
 			insertIndex
@@ -304,6 +386,40 @@ export class PatternService {
 
 		return {
 			newPatterns: patterns,
+			newPatternOrder
+		};
+	}
+
+	/**
+	 * Change the pattern ID at a specific position, creating the pattern for each song with its schema if needed
+	 */
+	static setPatternIdInOrderMultiChip(
+		allPatterns: Pattern[][],
+		patternOrder: number[],
+		index: number,
+		newId: number,
+		getSchema: (songIndex: number) => ChipSchema | undefined
+	): {
+		newPatternsPerSong: Pattern[][];
+		newPatternOrder: number[];
+	} | null {
+		if (newId < 0 || newId > 99) return null;
+
+		const newPatternOrder = patternOrder.map((id, i) => (i === index ? newId : id));
+
+		const newPatternsPerSong = allPatterns.map((songPatterns, songIndex) => {
+			const existing = songPatterns.find((p) => p.id === newId);
+			if (existing) return songPatterns;
+
+			const currentPattern = songPatterns.find((p) => p.id === patternOrder[index]);
+			const newPattern = currentPattern
+				? this.clonePattern(currentPattern, newId, getSchema(songIndex))
+				: this.createEmptyPattern(newId, getSchema(songIndex));
+			return [...songPatterns, newPattern];
+		});
+
+		return {
+			newPatternsPerSong,
 			newPatternOrder
 		};
 	}

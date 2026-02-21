@@ -529,29 +529,85 @@
 				playbackRafId = null;
 			}
 
-			const getPattern = (id: number) => findOrCreatePattern(id);
-			const horizon = chip.schema
-				? computeStateHorizon(
-						patternOrder,
-						getPattern,
-						currentPatternOrderIndex,
-						selectedRow,
-						chip.schema
-					)
-				: null;
-			const catchUpSegments = horizon
-				? buildCatchUpSegmentsToHorizon(
-						patternOrder,
-						getPattern,
-						horizon.orderIndex,
-						horizon.row
-					)
-				: [];
+			const chipProcessors = services.audioService.chipProcessors;
+			const usePerChip = chipProcessors.length > 1;
+
+			const buildOptions = () => {
+				if (usePerChip) {
+					return {
+						getStartPatternForChip: (chipIndex: number) => {
+							const patternId =
+								patternOrder[currentPatternOrderIndex];
+							const songPatterns =
+								projectStore.patterns[chipIndex] ?? [];
+							const schema =
+								chipProcessors[chipIndex]?.chip?.schema;
+							return (
+								songPatterns.find((p) => p.id === patternId) ??
+								PatternService.createEmptyPattern(
+									patternId,
+									schema
+								)
+							);
+						},
+						getCatchUpSegmentsForChip: (chipIndex: number) => {
+							const songPatterns =
+								projectStore.patterns[chipIndex] ?? [];
+							const schema =
+								chipProcessors[chipIndex]?.chip?.schema;
+							const getPattern = (id: number) =>
+								songPatterns.find((p) => p.id === id);
+							const horizon =
+								schema && songPatterns.length > 0
+									? computeStateHorizon(
+											patternOrder,
+											getPattern,
+											currentPatternOrderIndex,
+											selectedRow,
+											schema
+										)
+									: null;
+							return horizon
+								? buildCatchUpSegmentsToHorizon(
+										patternOrder,
+										getPattern,
+										horizon.orderIndex,
+										horizon.row
+									)
+								: [];
+						}
+					};
+				}
+				const getPattern = (id: number) =>
+					findOrCreatePattern(id);
+				const horizon = chip.schema
+					? computeStateHorizon(
+							patternOrder,
+							getPattern,
+							currentPatternOrderIndex,
+							selectedRow,
+							chip.schema
+						)
+					: null;
+				const catchUpSegments = horizon
+					? buildCatchUpSegmentsToHorizon(
+							patternOrder,
+							getPattern,
+							horizon.orderIndex,
+							horizon.row
+						)
+					: [];
+				return {
+					catchUpSegments,
+					startPattern: currentPattern
+				};
+			};
+
 			services.audioService.playFromRow(
 				selectedRow,
 				currentPatternOrderIndex,
 				getSpeedForChip,
-				{ catchUpSegments, startPattern: currentPattern }
+				buildOptions()
 			);
 		} catch (error) {
 			console.error('Error during playback from cursor:', error);
@@ -579,31 +635,78 @@
 				playbackRafId = null;
 			}
 
-			const getPattern = (id: number) => findOrCreatePattern(id);
-			const orderIndexForBacktrack =
-				services.audioService.getPlayPatternId() !== null
-					? Math.max(0, patternOrder.indexOf(currentPattern.id))
-					: 0;
-			const horizon = chip.schema
-				? computeStateHorizon(
-						patternOrder,
-						getPattern,
-						orderIndexForBacktrack,
-						0,
-						chip.schema
-					)
-				: null;
-			const catchUpSegments = horizon
-				? buildCatchUpSegmentsToHorizon(
-						patternOrder,
-						getPattern,
-						horizon.orderIndex,
-						horizon.row
-					)
-				: [];
+			const chipProcessors = services.audioService.chipProcessors;
+			const usePerChip = chipProcessors.length > 1;
+
+			const buildOptions = () => {
+				if (usePerChip) {
+					return {
+						getStartPatternForChip: (chipIndex: number) => {
+							const patternId = patternOrder[0];
+							const songPatterns = projectStore.patterns[chipIndex] ?? [];
+							const schema = chipProcessors[chipIndex]?.chip?.schema;
+							return (
+								songPatterns.find((p) => p.id === patternId) ??
+								PatternService.createEmptyPattern(patternId, schema)
+							);
+						},
+						getCatchUpSegmentsForChip: (chipIndex: number) => {
+							const songPatterns = projectStore.patterns[chipIndex] ?? [];
+							const schema = chipProcessors[chipIndex]?.chip?.schema;
+							const getPattern = (id: number) =>
+								songPatterns.find((p) => p.id === id);
+							const orderIndexForBacktrack =
+								services.audioService.getPlayPatternId() !== null
+									? Math.max(0, patternOrder.indexOf(currentPattern.id))
+									: 0;
+							const horizon =
+								schema && songPatterns.length > 0
+									? computeStateHorizon(
+											patternOrder,
+											getPattern,
+											orderIndexForBacktrack,
+											0,
+											schema
+										)
+									: null;
+							return horizon
+								? buildCatchUpSegmentsToHorizon(
+										patternOrder,
+										getPattern,
+										horizon.orderIndex,
+										horizon.row
+									)
+								: [];
+						}
+					};
+				}
+				const getPattern = (id: number) => findOrCreatePattern(id);
+				const orderIndexForBacktrack =
+					services.audioService.getPlayPatternId() !== null
+						? Math.max(0, patternOrder.indexOf(currentPattern.id))
+						: 0;
+				const horizon = chip.schema
+					? computeStateHorizon(
+							patternOrder,
+							getPattern,
+							orderIndexForBacktrack,
+							0,
+							chip.schema
+						)
+					: null;
+				const catchUpSegments = horizon
+					? buildCatchUpSegmentsToHorizon(
+							patternOrder,
+							getPattern,
+							horizon.orderIndex,
+							horizon.row
+						)
+					: [];
+				return { catchUpSegments, startPattern: currentPattern };
+			};
+
 			services.audioService.playFromRow(0, 0, getSpeedForPlayPattern ?? getSpeedForChip, {
-				catchUpSegments,
-				startPattern: currentPattern
+				...buildOptions()
 			});
 		} catch (error) {
 			console.error('Error during play pattern:', error);
@@ -634,30 +737,86 @@
 
 				const defaultGetSpeed = (index: number) =>
 					projectStore.songs[index]?.initialSpeed ?? 3;
-				const getPattern = (id: number) => findOrCreatePattern(id);
+				const chipProcessors = services.audioService.chipProcessors;
+				const usePerChip = chipProcessors.length > 1;
 				const startRow = 0;
-				const horizon = chip.schema
-					? computeStateHorizon(
-							patternOrder,
-							getPattern,
-							currentPatternOrderIndex,
-							startRow,
-							chip.schema
-						)
-					: null;
-				const catchUpSegments = horizon
-					? buildCatchUpSegmentsToHorizon(
-							patternOrder,
-							getPattern,
-							horizon.orderIndex,
-							horizon.row
-						)
-					: [];
+
+				const buildOptions = () => {
+					if (usePerChip) {
+						return {
+							getStartPatternForChip: (chipIndex: number) => {
+								const patternId =
+									patternOrder[currentPatternOrderIndex];
+								const songPatterns =
+									projectStore.patterns[chipIndex] ?? [];
+								const schema =
+									chipProcessors[chipIndex]?.chip?.schema;
+								return (
+									songPatterns.find((p) => p.id === patternId) ??
+									PatternService.createEmptyPattern(
+										patternId,
+										schema
+									)
+								);
+							},
+							getCatchUpSegmentsForChip: (chipIndex: number) => {
+								const songPatterns =
+									projectStore.patterns[chipIndex] ?? [];
+								const schema =
+									chipProcessors[chipIndex]?.chip?.schema;
+								const getPattern = (id: number) =>
+									songPatterns.find((p) => p.id === id);
+								const horizon =
+									schema && songPatterns.length > 0
+										? computeStateHorizon(
+												patternOrder,
+												getPattern,
+												currentPatternOrderIndex,
+												startRow,
+												schema
+											)
+										: null;
+								return horizon
+									? buildCatchUpSegmentsToHorizon(
+											patternOrder,
+											getPattern,
+											horizon.orderIndex,
+											horizon.row
+										)
+									: [];
+							}
+						};
+					}
+					const getPattern = (id: number) =>
+						findOrCreatePattern(id);
+					const horizon = chip.schema
+						? computeStateHorizon(
+								patternOrder,
+								getPattern,
+								currentPatternOrderIndex,
+								startRow,
+								chip.schema
+							)
+						: null;
+					const catchUpSegments = horizon
+						? buildCatchUpSegmentsToHorizon(
+								patternOrder,
+								getPattern,
+								horizon.orderIndex,
+								horizon.row
+							)
+						: [];
+					return {
+						catchUpSegments,
+						startPattern: currentPattern
+					};
+				};
+
 				services.audioService.playFromRow(
 					startRow,
 					currentPatternOrderIndex,
 					getSpeedForChip ?? defaultGetSpeed,
-					{ catchUpSegments, startPattern: currentPattern }
+					buildOptions()
 				);
 			}
 		} catch (error) {
