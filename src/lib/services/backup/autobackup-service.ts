@@ -94,7 +94,7 @@ export const autobackupService = {
 
 		const blob = new Blob([entry.data], { type: 'application/gzip' });
 		const text = await FileImportService.decompressData(blob);
-		return FileImportService.reconstructFromJson(text);
+		return await FileImportService.reconstructFromJsonAsync(text);
 	},
 
 	async clearAutobackup(): Promise<void> {

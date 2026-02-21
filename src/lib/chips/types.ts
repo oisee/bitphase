@@ -3,6 +3,7 @@ import type { ChipSchema } from './base/schema';
 import type { PatternConverter } from './base/adapter';
 import type { PatternFormatter } from './base/formatter-interface';
 import type { ChipRenderer } from './base/renderer';
+import type { ResourceLoader } from './base/resource-loader';
 import type { Component } from 'svelte';
 
 export interface Chip {
@@ -14,8 +15,8 @@ export interface Chip {
 	schema: ChipSchema;
 	createConverter: () => PatternConverter;
 	createFormatter: () => PatternFormatter;
-	createRenderer: () => ChipRenderer;
-	instrumentEditor: Component<any>;
+	createRenderer: (loader?: ResourceLoader) => ChipRenderer;
+	instrumentEditor?: Component<any>;
 	previewRow?: Component<any>;
 }
 

@@ -1,11 +1,21 @@
 import type { Project } from '../../models/project';
 import type { Chip } from '../../chips/types';
-import { getChipByType, createRenderer } from '../../chips/registry';
+import type { ResourceLoader } from '../../chips/base/resource-loader';
 import { mixAudioChannels } from '../../utils/audio-mixer';
+
+async function getRegistry() {
+	return import('../../chips/registry');
+}
 import { downloadFile, sanitizeFilename } from '../../utils/file-download';
 import type { WavExportSettings } from './wav-export-settings';
 import { defaultWavExportSettings } from './wav-export-settings';
 import JSZip from 'jszip';
+
+export type WavExportOptions = {
+	onOutput?: (buffer: ArrayBuffer, filename: string) => void | Promise<void>;
+	resourceLoader?: ResourceLoader;
+	getChip?: (chipType: string) => Chip | null;
+};
 
 type ExportChannelDescriptor = {
 	songIndex: number;
@@ -177,17 +187,23 @@ export type { ChipRenderer } from '../../chips/base/renderer';
 
 class WavExportService {
 
-	private getChipForSong(project: Project, songIndex: number): Chip {
+	private async getChipForSong(
+		project: Project,
+		songIndex: number,
+		getChipOverride?: (chipType: string) => Chip | null
+	): Promise<Chip> {
+		const resolveChip =
+			getChipOverride ?? (await getRegistry()).getChipByType;
 		const song = project.songs[songIndex];
 
 		if (song?.chipType) {
-			const chip = getChipByType(song.chipType);
+			const chip = resolveChip(song.chipType);
 			if (chip) {
 				return chip;
 			}
 		}
 
-		const defaultChip = getChipByType('ay');
+		const defaultChip = resolveChip('ay');
 		if (!defaultChip) {
 			throw new Error('No chip available');
 		}
@@ -210,7 +226,9 @@ class WavExportService {
 		totalSongs: number,
 		loops: number,
 		onProgress?: (progress: number, message: string) => void,
-		separateChannels?: boolean
+		separateChannels?: boolean,
+		resourceLoader?: ResourceLoader,
+		getChipOverride?: (chipType: string) => Chip | null
 	): Promise<Float32Array[]> {
 		const song = project.songs[songIndex];
 		if (!song || song.patterns.length === 0) {
@@ -229,13 +247,13 @@ class WavExportService {
 			`Rendering song ${songIndex + 1}/${totalSongs} (${song.chipType || 'unknown chip'})...`
 		);
 
-		const chip = this.getChipForSong(project, songIndex);
+		const chip = await this.getChipForSong(project, songIndex, getChipOverride);
 		onProgress?.(
 			progressStart + 2,
 			`Loading ${chip.name} renderer for song ${songIndex + 1}...`
 		);
 
-		const renderer = await createRenderer(chip);
+		const renderer = chip.createRenderer(resourceLoader);
 		if (!renderer) {
 			throw new Error(`No renderer available for chip: ${chip.name} (song ${songIndex + 1})`);
 		}
@@ -280,10 +298,12 @@ class WavExportService {
 		return result;
 	}
 
-	private buildSeparateChannels(
+	private async buildSeparateChannels(
 		project: Project,
-		renderedBySongIndex: Map<number, Float32Array[]>
-	): ExportChannelDescriptor[] {
+		renderedBySongIndex: Map<number, Float32Array[]>,
+		getChipOverride?: (chipType: string) => Chip | null
+	): Promise<ExportChannelDescriptor[]> {
+		const resolveChip = getChipOverride ?? (await getRegistry()).getChipByType;
 		const descriptors: ExportChannelDescriptor[] = [];
 		let maxLength = 0;
 		for (const channels of renderedBySongIndex.values()) {
@@ -295,7 +315,7 @@ class WavExportService {
 		const sortedSongIndices = Array.from(renderedBySongIndex.keys()).sort((a, b) => a - b);
 		for (const songIndex of sortedSongIndices) {
 			const song = project.songs[songIndex];
-			const chip = song?.chipType ? getChipByType(song.chipType) : null;
+			const chip = song?.chipType ? resolveChip(song.chipType) : null;
 			const labels = chip?.schema?.channelLabels ?? ['L', 'R'];
 			const channels = renderedBySongIndex.get(songIndex)!;
 			const chipType = song?.chipType ?? 'unknown';
@@ -327,8 +347,10 @@ class WavExportService {
 		project: Project,
 		settings: WavExportSettings,
 		onProgress?: (progress: number, message: string) => void,
-		abortSignal?: AbortSignal
+		abortSignal?: AbortSignal,
+		options?: WavExportOptions
 	): Promise<void> {
+		const { onOutput, resourceLoader, getChip } = options ?? {};
 		onProgress?.(0, 'Preparing export...');
 
 		if (abortSignal?.aborted) {
@@ -355,7 +377,9 @@ class WavExportService {
 						totalSongs,
 						settings.loops,
 						onProgress,
-						true
+						true,
+						resourceLoader,
+						getChip
 					);
 					renderedBySongIndex.set(i, channels);
 				} catch (error) {
@@ -374,7 +398,11 @@ class WavExportService {
 				throw new Error('No audio data to export');
 			}
 
-			const descriptors = this.buildSeparateChannels(project, renderedBySongIndex);
+			const descriptors = await this.buildSeparateChannels(
+				project,
+				renderedBySongIndex,
+				getChip
+			);
 			const allSamples = descriptors.map((d) => d.samples);
 			let samplesToEncode = allSamples;
 
@@ -410,8 +438,13 @@ class WavExportService {
 			}
 
 			onProgress?.(DOWNLOAD_PROGRESS, 'Downloading...');
-			const zipBlob = await zip.generateAsync({ type: 'blob' });
-			downloadFile(zipBlob, `${sanitizedBase}_channels.zip`);
+			const zipOutputType = onOutput ? 'arraybuffer' : 'blob';
+			const zipOutput = await zip.generateAsync({ type: zipOutputType });
+			if (onOutput) {
+				await onOutput(zipOutput as ArrayBuffer, `${sanitizedBase}_channels.zip`);
+			} else {
+				downloadFile(zipOutput as Blob, `${sanitizedBase}_channels.zip`);
+			}
 
 			onProgress?.(COMPLETE_PROGRESS, 'Complete!');
 			return;
@@ -429,7 +462,9 @@ class WavExportService {
 					totalSongs,
 					settings.loops,
 					onProgress,
-					false
+					false,
+					resourceLoader,
+					getChip
 				);
 				renderedSongs.push(channels);
 			} catch (error) {
@@ -470,16 +505,19 @@ class WavExportService {
 
 		onProgress?.(ENCODING_PROGRESS, 'Encoding WAV file...');
 		const wavBuffer = encodeWAV([mixedLeft, mixedRight], settings.sampleRate, settings);
-		const blob = new Blob([wavBuffer], { type: 'audio/wav' });
+		const filename = settings.title || project.name || 'export';
+		const sanitizedFilename = sanitizeFilename(filename);
 
 		if (abortSignal?.aborted) {
 			throw new Error('Export cancelled');
 		}
 
 		onProgress?.(DOWNLOAD_PROGRESS, 'Downloading...');
-		const filename = settings.title || project.name || 'export';
-		const sanitizedFilename = sanitizeFilename(filename);
-		downloadFile(blob, `${sanitizedFilename}.wav`);
+		if (onOutput) {
+			await onOutput(wavBuffer, `${sanitizedFilename}.wav`);
+		} else {
+			downloadFile(new Blob([wavBuffer], { type: 'audio/wav' }), `${sanitizedFilename}.wav`);
+		}
 
 		onProgress?.(COMPLETE_PROGRESS, 'Complete!');
 	}
@@ -491,10 +529,11 @@ export async function exportToWAV(
 	project: Project,
 	settings: WavExportSettings = defaultWavExportSettings,
 	onProgress?: (progress: number, message: string) => void,
-	abortSignal?: AbortSignal
+	abortSignal?: AbortSignal,
+	options?: WavExportOptions
 ): Promise<void> {
 	try {
-		await wavExportService.export(project, settings, onProgress, abortSignal);
+		await wavExportService.export(project, settings, onProgress, abortSignal, options);
 	} catch (error) {
 		if (error instanceof Error && error.message === 'Export cancelled') {
 			onProgress?.(0, 'Export cancelled');

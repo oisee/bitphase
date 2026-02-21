@@ -1,25 +1,15 @@
-import { AYProcessor } from './processor';
-import { AYConverter } from './adapter';
-import { AYFormatter } from './formatter';
-import { AYChipRenderer } from './renderer';
-import { AY_CHIP_SCHEMA } from './schema';
+import { AY_CHIP as AY_CHIP_CORE } from './core';
 import AYInstrumentEditor from './AYInstrumentEditor.svelte';
 import AYPreviewRow from './AYPreviewRow.svelte';
-import type { Chip } from '../types';
 
-export const AY_CHIP: Chip = {
-	type: 'ay',
-	name: 'AY-3-8910 / YM2149F',
-	wasmUrl: 'ayumi.wasm',
-	processorName: 'ayumi-processor',
-	processorMap: () => new AYProcessor(),
-	schema: AY_CHIP_SCHEMA,
-	createConverter: () => new AYConverter(),
-	createFormatter: () => new AYFormatter(),
-	createRenderer: () => new AYChipRenderer(),
+export const AY_CHIP = {
+	...AY_CHIP_CORE,
 	instrumentEditor: AYInstrumentEditor,
 	previewRow: AYPreviewRow
-};
+} as const;
 
-export { AYProcessor, AYConverter, AYFormatter, AYChipRenderer, AYInstrumentEditor, AYPreviewRow };
-
+export { AYProcessor } from './processor';
+export { AYConverter } from './adapter';
+export { AYFormatter } from './formatter';
+export { AYChipRenderer } from './renderer';
+export { AYInstrumentEditor, AYPreviewRow };

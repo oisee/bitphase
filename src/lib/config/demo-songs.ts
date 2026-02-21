@@ -62,5 +62,5 @@ export async function loadDemoProject(path: string): Promise<Project | null> {
 	if (!response.ok) return null;
 	const blob = await response.blob();
 	const text = await FileImportService.decompressData(blob);
-	return FileImportService.reconstructFromJson(text);
+	return FileImportService.reconstructFromJsonAsync(text);
 }

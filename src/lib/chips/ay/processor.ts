@@ -1,5 +1,5 @@
 import type { Chip } from '../types';
-import { AY_CHIP } from './index';
+import { AY_CHIP } from './core';
 import type { Pattern, Instrument } from '../../models/song';
 import type { Table } from '../../models/project';
 import type {

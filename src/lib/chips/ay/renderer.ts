@@ -1,7 +1,8 @@
 import type { Project } from '../../models/project';
-import { AY_CHIP } from './index';
 import type { Pattern } from '../../models/song';
 import type { ChipRenderer } from '../base/renderer';
+import type { ResourceLoader } from '../base/resource-loader';
+import { BrowserResourceLoader } from '../base/resource-loader';
 
 const SAMPLE_RATE = 44100;
 const DEFAULT_SPEED = 6;
@@ -16,12 +17,17 @@ type PanSetting = { channel: number; pan: number; isEqp: number };
 type GetPanSettingsForLayout = (layout: string) => PanSetting[];
 
 export class AYChipRenderer implements ChipRenderer {
+	private loader: ResourceLoader;
+
+	constructor(loader?: ResourceLoader) {
+		this.loader = loader ?? new BrowserResourceLoader();
+	}
+
 	private async loadWasmModule(
 		onProgress?: (progress: number, message: string) => void
 	): Promise<{ wasm: any; wasmBuffer: ArrayBuffer }> {
 		onProgress?.(0, 'Loading WASM module...');
-		const wasmResponse = await fetch(import.meta.env.BASE_URL + AY_CHIP.wasmUrl);
-		const wasmBuffer = await wasmResponse.arrayBuffer();
+		const wasmBuffer = await this.loader.loadWasm('ayumi.wasm');
 
 		onProgress?.(10, 'Instantiating WASM...');
 		const result = await WebAssembly.instantiate(wasmBuffer, {
@@ -64,18 +70,23 @@ export class AYChipRenderer implements ChipRenderer {
 		AYChipRegisterState: any;
 	}> {
 		onProgress?.(20, 'Loading processor modules...');
-		const baseUrl = import.meta.env.BASE_URL;
-		const { default: AyumiState } = await import(`${baseUrl}ayumi-state.js`);
+		const { default: AyumiState } = await this.loader.loadModule<{ default: new () => unknown }>(
+			'ayumi-state.js'
+		);
 		onProgress?.(30, 'Loading pattern processor...');
-		const { default: TrackerPatternProcessor } = await import(
-			`${baseUrl}tracker-pattern-processor.js`
-		);
+		const { default: TrackerPatternProcessor } =
+			await this.loader.loadModule<{ default: new (a: unknown, b: unknown, c: unknown) => unknown }>(
+				'tracker-pattern-processor.js'
+			);
 		onProgress?.(40, 'Loading audio driver...');
-		const { default: AYAudioDriver } = await import(`${baseUrl}ay-audio-driver.js`);
-		const { default: AyumiEngine } = await import(`${baseUrl}ayumi-engine.js`);
-		const { default: AYChipRegisterState } = await import(
-			`${baseUrl}ay-chip-register-state.js`
-		);
+		const { default: AYAudioDriver } =
+			await this.loader.loadModule<{ default: new () => unknown }>('ay-audio-driver.js');
+		const { default: AyumiEngine } =
+			await this.loader.loadModule<{ default: new (a: unknown, b: unknown) => unknown }>(
+				'ayumi-engine.js'
+			);
+		const { default: AYChipRegisterState } =
+			await this.loader.loadModule<{ default: new () => unknown }>('ay-chip-register-state.js');
 
 		return {
 			AyumiState,
@@ -273,9 +284,10 @@ export class AYChipRenderer implements ChipRenderer {
 		const separateChannels = options?.separateChannels ?? false;
 
 		const { wasm, wasmBuffer } = await this.loadWasmModule(onProgress);
-		const { getPanSettingsForLayout } = await import(
-			/* @vite-ignore */ import.meta.env.BASE_URL + 'ayumi-constants.js'
-		);
+		const { getPanSettingsForLayout } =
+			await this.loader.loadModule<{ getPanSettingsForLayout: GetPanSettingsForLayout }>(
+				'ayumi-constants.js'
+			);
 		const ayumiPtr = this.initializeAyumi(wasm, song, getPanSettingsForLayout);
 		const {
 			AyumiState,

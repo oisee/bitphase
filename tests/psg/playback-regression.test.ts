@@ -19,18 +19,18 @@ const psgProcessorModules = {
 	AYChipRegisterState
 };
 
-function loadDemoProject(btpFilename: string) {
+async function loadDemoProject(btpFilename: string) {
 	const btpPath = path.resolve(__dirname, '../../src/demo', btpFilename);
 	const gzipped = fs.readFileSync(btpPath);
 	const text = gunzipSync(gzipped).toString('utf-8');
-	return FileImportService.reconstructFromJson(text);
+	return FileImportService.reconstructFromJsonAsync(text);
 }
 
 async function assertPSGMatchesReference(
 	btpFilename: string,
 	psgFilename: string
 ): Promise<void> {
-	const project = loadDemoProject(btpFilename);
+	const project = await loadDemoProject(btpFilename);
 	const generated = await generatePSGBuffer(project, 0, {
 		modules: psgProcessorModules
 	});

@@ -1,3 +1,4 @@
+import type { Chip } from '../../chips/types';
 import { loadVT2File } from './vt-converter';
 import { Project, Table } from '../../models/project';
 import {
@@ -12,11 +13,10 @@ import {
 	Instrument,
 	InstrumentRow
 } from '../../models/song';
-import { getChipByType } from '../../chips/registry';
 import type { ChipSchema } from '../../chips/base/schema';
 
-function reconstructProject(data: any): Project {
-	const songs = data.songs?.map((songData: any) => reconstructSong(songData)) || [];
+function reconstructProject(data: any, getChip: (chipType: string) => Chip | null): Project {
+	const songs = data.songs?.map((songData: any) => reconstructSong(songData, getChip)) || [];
 	const tables = data.tables?.map((tableData: any) => reconstructTable(tableData)) || [];
 
 	const patternOrderColors =
@@ -62,8 +62,8 @@ function reconstructTable(data: any): Table {
 	);
 }
 
-function reconstructSong(data: any): Song {
-	const chip = data.chipType ? getChipByType(data.chipType) : null;
+function reconstructSong(data: any, getChip: (chipType: string) => Chip | null): Song {
+	const chip = data.chipType ? getChip(data.chipType) : null;
 	const schema = chip?.schema;
 	const song = new Song(schema);
 	song.patterns = data.patterns?.map((patternData: any) =>
@@ -198,9 +198,24 @@ function reconstructInstrumentRow(data: any): InstrumentRow {
 }
 
 export class FileImportService {
-	static reconstructFromJson(json: string): Project {
+	static reconstructFromJson(
+		json: string,
+		getChip?: (chipType: string) => Chip | null
+	): Project {
 		const data = JSON.parse(json);
-		return reconstructProject(data);
+		const resolveChip =
+			getChip ??
+			((type: string) => {
+				throw new Error(
+					'getChip is required when using FileImportService outside browser context. Use reconstructFromJsonWithChip or pass getChip.'
+				);
+			});
+		return reconstructProject(data, resolveChip);
+	}
+
+	static async reconstructFromJsonAsync(json: string): Promise<Project> {
+		const { getChipByType } = await import('../../chips/registry');
+		return this.reconstructFromJson(json, getChipByType);
 	}
 
 	static async decompressData(blob: Blob): Promise<string> {
@@ -290,8 +305,7 @@ export class FileImportService {
 
 					try {
 						const text = await this.decompressData(file);
-						const data = JSON.parse(text);
-						const project = reconstructProject(data);
+						const project = await this.reconstructFromJsonAsync(text);
 						resolve(project);
 					} catch (error) {
 						console.error('Error loading BTP file:', error);

@@ -1,4 +1,5 @@
 import type { Chip } from './types';
+import type { ResourceLoader } from './base/resource-loader';
 import { AY_CHIP } from './ay';
 
 const chips: Map<string, Chip> = new Map();
@@ -33,7 +34,7 @@ export function getFormatter(chip: Chip) {
 	return chip.createFormatter();
 }
 
-export function createRenderer(chip: Chip) {
-	return chip.createRenderer();
+export function createRenderer(chip: Chip, loader?: ResourceLoader) {
+	return chip.createRenderer(loader);
 }
 
