@@ -460,7 +460,7 @@
 			</div>
 
 			<div class="flex-1 overflow-auto p-4">
-				{#if InstrumentEditor && instruments && instruments[selectedInstrumentIndex]}
+				{#if instruments && instruments[selectedInstrumentIndex]}
 					{#key instruments[selectedInstrumentIndex].id}
 						<InstrumentEditor
 							bind:this={instrumentEditorRef}

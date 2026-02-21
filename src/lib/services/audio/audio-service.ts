@@ -265,7 +265,7 @@ export class AudioService {
 			throw new Error(`Unsupported chip: ${chip}`);
 		}
 
-		return createProcessor();
+		return createProcessor(chip);
 	}
 
 	private hasSettingsSubscription(

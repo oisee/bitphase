@@ -3,6 +3,7 @@ node_modules
 .pnpm-store
 /build
 /dist
+/dist-cli
 /.svelte-kit
 /package
 .env

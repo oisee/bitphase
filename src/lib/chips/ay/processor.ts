@@ -1,5 +1,4 @@
 import type { Chip } from '../types';
-import { AY_CHIP } from './core';
 import type { Pattern, Instrument } from '../../models/song';
 import type { Table } from '../../models/project';
 import type {
@@ -93,8 +92,8 @@ export class AYProcessor
 	private commandQueue: WorkletCommand[] = [];
 	private settingsUnsubscribers: (() => void)[] = [];
 
-	constructor() {
-		this.chip = AY_CHIP;
+	constructor(chip: Chip) {
+		this.chip = chip;
 	}
 
 	subscribeToSettings(chipSettings: ChipSettings): void {

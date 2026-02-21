@@ -10,7 +10,7 @@ export const AY_CHIP: Chip = {
 	name: 'AY-3-8910 / YM2149F',
 	wasmUrl: 'ayumi.wasm',
 	processorName: 'ayumi-processor',
-	processorMap: () => new AYProcessor(),
+	processorMap: (chip) => new AYProcessor(chip),
 	schema: AY_CHIP_SCHEMA,
 	createConverter: () => new AYConverter(),
 	createFormatter: () => new AYFormatter(),

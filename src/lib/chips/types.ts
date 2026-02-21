@@ -11,7 +11,7 @@ export interface Chip {
 	name: string;
 	wasmUrl: string;
 	processorName: string;
-	processorMap: () => ChipProcessor;
+	processorMap: (chip: Chip) => ChipProcessor;
 	schema: ChipSchema;
 	createConverter: () => PatternConverter;
 	createFormatter: () => PatternFormatter;
