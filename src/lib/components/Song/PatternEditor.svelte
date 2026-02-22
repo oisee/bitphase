@@ -251,6 +251,7 @@
 	let textParser: PatternEditorTextParser | null = $state(null);
 	let renderer: PatternEditorRenderer | null = $state(null);
 	let lastVisibleRowsCache: VisibleRowsCache | null = null;
+	let fontReady = $state(false);
 
 	let currentPattern = $derived.by(() => {
 		const patternId = patternOrder[currentPatternOrderIndex];
@@ -863,8 +864,8 @@
 		return rows;
 	}
 
-	function setupCanvas() {
-		if (!canvas) return;
+	function setupCanvas(): boolean {
+		if (!canvas) return false;
 
 		ctx = canvas.getContext('2d')!;
 
@@ -892,27 +893,6 @@
 
 			ctx.font = fontString;
 
-			if (fontFamily && fontFamily !== 'monospace') {
-				const fontSpec = `${fontSize}px "${fontFamily}"`;
-				const isFontLoaded = document.fonts.check(fontSpec);
-
-				if (!isFontLoaded) {
-					document.fonts
-						.load(fontSpec)
-						.then(() => {
-							if (ctx && canvas) {
-								ctx.font = fontString;
-								clearAllCaches();
-								updateSize();
-								draw();
-							}
-						})
-						.catch((e) => {
-							console.warn(`Failed to load font: ${fontFamily}`, e);
-						});
-				}
-			}
-
 			textParser = new PatternEditorTextParser(
 				schema,
 				formatter,
@@ -930,8 +910,39 @@
 				schema,
 				channelSeparatorWidth
 			});
+
+			if (fontFamily && fontFamily !== 'monospace') {
+				const fontSpec = `${fontSize}px "${fontFamily}"`;
+				const isFontLoaded = document.fonts.check(fontSpec);
+
+				if (!isFontLoaded) {
+					fontReady = false;
+					document.fonts
+						.load(fontSpec)
+						.then(() => {
+							if (ctx && canvas) {
+								ctx.font = fontString;
+								clearAllCaches();
+								updateSize();
+								draw();
+								fontReady = true;
+							}
+						})
+						.catch((e) => {
+							console.warn(`Failed to load font: ${fontFamily}`, e);
+							if (ctx && canvas) draw();
+							fontReady = true;
+						});
+					return false;
+				}
+			}
+
+			fontReady = true;
+			return true;
 		} catch (error) {
 			console.error('Error during canvas setup:', error);
+			fontReady = true;
+			return true;
 		}
 	}
 
@@ -2240,9 +2251,9 @@
 
 		if (needsSetup || !ctx) {
 			ctx = canvas.getContext('2d')!;
-			setupCanvas();
+			const ready = setupCanvas();
 			needsSetup = false;
-			if (!document.hidden) draw();
+			if (ready && !document.hidden) draw();
 			lastDrawnRow = selectedRow;
 			lastDrawnOrderIndex = currentPatternOrderIndex;
 			lastPatternOrderLength = patternOrder.length;
@@ -2256,8 +2267,8 @@
 			requestAnimationFrame(() => {
 				if (ctx && canvas && !document.hidden) {
 					updateSize();
-					setupCanvas();
-					draw();
+					const ready = setupCanvas();
+					if (ready) draw();
 				}
 			});
 			return;
@@ -2265,8 +2276,8 @@
 
 		if (fontSizeChanged || fontFamilyChanged || channelSeparatorWidthChanged) {
 			clearAllCaches();
-			setupCanvas();
-			if (!document.hidden) draw();
+			const ready = setupCanvas();
+			if (ready && !document.hidden) draw();
 			lastFontSize = fontSize;
 			lastFontFamily = fontFamily;
 			lastChannelSeparatorWidth = channelSeparatorWidth;
@@ -2292,7 +2303,7 @@
 		}
 
 		if (rowChanged || orderChanged || patternChanged || patternLengthChanged || sizeChanged) {
-			if (!document.hidden) draw();
+			if (fontReady && !document.hidden) draw();
 			lastDrawnRow = selectedRow;
 			lastDrawnOrderIndex = currentPatternOrderIndex;
 			lastPatternOrderLength = patternOrder.length;
@@ -2305,15 +2316,13 @@
 		const handleResize = () => {
 			if (document.hidden) return;
 			updateSize();
-			setupCanvas();
-			draw();
+			if (setupCanvas()) draw();
 		};
 
 		const handleVisibilityChange = () => {
 			if (!document.hidden) {
 				updateSize();
-				setupCanvas();
-				draw();
+				if (setupCanvas()) draw();
 			}
 		};
 
@@ -2337,8 +2346,7 @@
 				rafId = null;
 				if (!document.hidden) {
 					updateSize();
-					setupCanvas();
-					draw();
+					if (setupCanvas()) draw();
 				}
 			});
 		});
@@ -2521,7 +2529,11 @@
 </script>
 
 <div bind:this={containerDiv} class="flex h-full flex-col gap-2">
-	<div class="relative flex" style="max-height: {canvasHeight}px">
+	<div
+		class="relative flex transition-opacity duration-150"
+		class:opacity-0={!fontReady}
+		class:pointer-events-none={!fontReady}
+		style="max-height: {canvasHeight}px">
 		<canvas
 			bind:this={canvas}
 			tabindex="0"

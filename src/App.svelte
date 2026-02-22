@@ -105,7 +105,6 @@
 		(async () => {
 			const newProject = await projectService.resetProject(AY_CHIP);
 			projectStore.applyProject(newProject);
-			projectStore.initialized = true;
 
 			const backup = await autobackupService.getAutobackup();
 			if (backup) {
@@ -116,6 +115,7 @@
 				ProjectService.ensureChipSettingsConsistency(backup.songs);
 				projectStore.applyProject(backup);
 			}
+			projectStore.initialized = true;
 		})();
 	});
 
