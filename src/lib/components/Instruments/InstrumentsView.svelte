@@ -212,7 +212,6 @@
 		const inst = instruments[selectedInstrumentIndex];
 		if (!inst) return;
 		downloadJson(`instrument-${inst.id}.json`, {
-			id: inst.id,
 			name: inst.name,
 			loop: inst.loop,
 			rows: inst.rows.map((r) => ({ ...r }))

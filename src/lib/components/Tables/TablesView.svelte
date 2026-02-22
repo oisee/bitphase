@@ -175,7 +175,6 @@
 		const table = tables[selectedTableIndex];
 		if (!table) return;
 		downloadJson(`table-${tableIdToDisplayChar(table.id)}.json`, {
-			id: table.id,
 			name: table.name,
 			loop: table.loop,
 			rows: table.rows
