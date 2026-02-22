@@ -322,7 +322,7 @@
 		<div class="relative flex min-w-0 flex-1">
 			<div class="h-full shrink-0 transition-all duration-300 {blurredContentClass}">
 				<Card
-					title="Patterns Order"
+					title="Order"
 					fullHeight={true}
 					icon={IconCarbonListBoxes}
 					class="overflow-hidden p-0">
