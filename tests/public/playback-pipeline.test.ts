@@ -17,10 +17,10 @@ function runOneTick(
 	}
 	processor.processTables();
 	processor.processEffectTables();
-	processor.processSlides();
 	processor.processArpeggio();
-	processor.processVibrato();
 	driver.processInstruments(state, registerState);
+	processor.processVibrato();
+	processor.processSlides();
 	state.advancePosition();
 }
 

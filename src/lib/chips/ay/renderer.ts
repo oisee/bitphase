@@ -214,10 +214,11 @@ export class AYChipRenderer implements ChipRenderer {
 				}
 
 				patternProcessor.processTables();
-				patternProcessor.processEffectTables();
-				patternProcessor.processSlides();
 				patternProcessor.processArpeggio();
+				patternProcessor.processEffectTables();
 				audioDriver.processInstruments(state, registerState);
+				patternProcessor.processVibrato();
+				patternProcessor.processSlides();
 				ayumiEngine.applyRegisterState(registerState);
 
 				const isLastPattern =

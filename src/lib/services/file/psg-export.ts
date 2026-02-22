@@ -176,10 +176,11 @@ class PsgExportService {
 			}
 
 			patternProcessor.processTables();
-			patternProcessor.processEffectTables();
-			patternProcessor.processSlides();
 			patternProcessor.processArpeggio();
+			patternProcessor.processEffectTables();
 			audioDriver.processInstruments(state, registerState);
+			patternProcessor.processVibrato();
+			patternProcessor.processSlides();
 
 			const ayRegisters = convertRegisterStateToAYRegisters(registerState);
 			registerFrames.push([...ayRegisters]);
