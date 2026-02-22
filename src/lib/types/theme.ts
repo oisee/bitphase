@@ -18,6 +18,8 @@ export interface Theme {
 }
 
 export interface ThemeExportFormat {
-	version: string;
-	theme: Theme;
+	theme: {
+		name: string;
+		colors: ThemeColors;
+	};
 }

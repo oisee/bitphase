@@ -101,8 +101,7 @@ class ThemeStore {
 		if (!theme) return null;
 
 		const exportData: ThemeExportFormat = {
-			version: '1.0',
-			theme
+			theme: { name: theme.name, colors: theme.colors }
 		};
 
 		return JSON.stringify(exportData, null, 2);
@@ -112,16 +111,14 @@ class ThemeStore {
 		try {
 			const data = JSON.parse(json) as ThemeExportFormat;
 
-			if (!data.version || !data.theme) {
-				throw new Error('Invalid theme format');
-			}
-
-			if (!data.theme.id || !data.theme.name || !data.theme.colors) {
+			if (!data.theme?.name || !data.theme?.colors) {
 				throw new Error('Invalid theme structure');
 			}
 
 			return {
-				...data.theme,
+				id: `custom-${Date.now()}`,
+				name: data.theme.name,
+				colors: data.theme.colors,
 				isCustom: true
 			};
 		} catch {
