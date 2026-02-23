@@ -63,6 +63,20 @@
 	});
 
 	$effect(() => {
+		if (!isRightPanelExpanded) return;
+		function handleKeyDown(e: KeyboardEvent) {
+			if (e.key !== 'Escape') return;
+			isRightPanelExpanded = false;
+			tick().then(() => {
+				patternEditor?.focusCanvas?.();
+			});
+			e.preventDefault();
+		}
+		window.addEventListener('keydown', handleKeyDown, { capture: true });
+		return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
+	});
+
+	$effect(() => {
 		const activeEditor = patternEditors[activeEditorIndex];
 		if (activeEditor) {
 			patternEditor = activeEditor;

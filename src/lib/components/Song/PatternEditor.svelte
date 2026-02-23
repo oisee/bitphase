@@ -447,6 +447,10 @@
 		}
 	}
 
+	export function focusCanvas(): void {
+		canvas?.focus();
+	}
+
 	export function getSelectedFieldKey(): string | null {
 		if (patternOrder.length === 0) return null;
 		const pattern = currentPattern;
