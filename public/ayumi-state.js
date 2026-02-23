@@ -117,6 +117,7 @@ class AyumiState extends TrackerState {
 		super.reset();
 
 		for (const [name, defaultVal] of AY_CHANNEL_ARRAY_SPECS) {
+			if (name === 'channelMuted') continue;
 			this[name].fill(defaultVal);
 		}
 
