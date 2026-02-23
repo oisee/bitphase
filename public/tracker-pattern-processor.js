@@ -531,6 +531,9 @@ class TrackerPatternProcessor {
 					this.port.postMessage({ type: 'speed_update', speed: param });
 				}
 				break;
+			case EffectAlgorithms.DETUNE:
+				this.state.channelDetune[channelIndex] = (param & 0xff) - 0x80;
+				break;
 		}
 	}
 

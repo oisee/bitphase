@@ -102,8 +102,11 @@ export class PatternEffectHandling {
 			type === 'D'.charCodeAt(0) || type === 'S'.charCodeAt(0) || type === 4 || type === 5;
 		const effectiveDelay = noDelay ? 0 : delay;
 		if (!noTableSyntax && (char2 === 'T' || char2 === 't')) {
-			const tableChar = value[3] || '0';
-			const tableIndex = this.charToTableIndex(tableChar);
+			const tableChar = value[3] || '.';
+			let tableIndex = this.charToTableIndex(tableChar);
+			if (tableIndex < 0) {
+				tableIndex = 0;
+			}
 			const result = { effect: type, delay: effectiveDelay, parameter: 0, tableIndex };
 			return this.isEmptyEffect(result) ? null : result;
 		}

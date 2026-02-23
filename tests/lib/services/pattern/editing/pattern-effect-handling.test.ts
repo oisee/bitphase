@@ -82,5 +82,33 @@ describe('PatternEffectHandling', () => {
 			expect(result.parameter).toBe(0x50);
 			expect(result.tableIndex).toBeUndefined();
 		});
+
+		it('Speed with table S.T4 parses and roundtrips', () => {
+			const parsed = PatternEffectHandling.parseEffectFromString('S.T4');
+			expect(parsed).not.toBeNull();
+			expect(parsed!.effect).toBe('S'.charCodeAt(0));
+			expect(parsed!.tableIndex).toBe(3);
+			expect(parsed!.delay).toBe(0);
+			const formatted = PatternEffectHandling.formatEffectAsString(parsed!);
+			expect(formatted).toBe('S.T4');
+		});
+
+		it('Speed with table S.T. preserves T when table char is placeholder', () => {
+			const parsed = PatternEffectHandling.parseEffectFromString('S.T.');
+			expect(parsed).not.toBeNull();
+			expect(parsed!.effect).toBe('S'.charCodeAt(0));
+			expect(parsed!.tableIndex).toBe(0);
+			const formatted = PatternEffectHandling.formatEffectAsString(parsed!);
+			expect(formatted).toBe('S.T1');
+		});
+
+		it('Detune with table D.TG parses table 16 (G)', () => {
+			const parsed = PatternEffectHandling.parseEffectFromString('D.TG');
+			expect(parsed).not.toBeNull();
+			expect(parsed!.effect).toBe('D'.charCodeAt(0));
+			expect(parsed!.tableIndex).toBe(15);
+			const formatted = PatternEffectHandling.formatEffectAsString(parsed!);
+			expect(formatted).toBe('D.TG');
+		});
 	});
 });
