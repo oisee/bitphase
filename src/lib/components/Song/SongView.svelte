@@ -85,7 +85,7 @@
 	let patternLengthValue = $state('');
 
 	const blurredContentClass = $derived(
-		isRightPanelExpanded ? 'pointer-events-none opacity-50 blur-sm' : ''
+		isRightPanelExpanded ? 'pointer-events-none opacity-50' : ''
 	);
 
 	const services: { audioService: AudioService } = getContext('container');
