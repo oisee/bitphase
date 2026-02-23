@@ -57,6 +57,17 @@ class EditorStateStore {
 	setCurrentInstrument(instrument: string): void {
 		this.currentInstrument = instrument;
 	}
+
+	selectInstrumentRequest = $state<string | null>(null);
+
+	requestSelectInstrument(instrumentId: string): void {
+		this.currentInstrument = instrumentId;
+		this.selectInstrumentRequest = instrumentId;
+	}
+
+	clearSelectInstrumentRequest(): void {
+		this.selectInstrumentRequest = null;
+	}
 }
 
 export const editorStateStore = new EditorStateStore();

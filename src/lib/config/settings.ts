@@ -112,7 +112,8 @@ export const settingsItems: SettingsItem[] = [
 	},
 	{
 		label: 'Selection Style',
-		description: 'Inverted uses a negative filter for high visibility; Filled uses a semi-transparent overlay',
+		description:
+			'Inverted uses a negative filter for high visibility; Filled uses a semi-transparent overlay',
 		type: 'select',
 		defaultValue: 'inverted',
 		setting: 'selectionStyle',

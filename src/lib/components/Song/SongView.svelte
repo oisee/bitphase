@@ -94,6 +94,13 @@
 		patternEditors.forEach((editor) => editor?.requestRedraw?.());
 	});
 
+	$effect(() => {
+		if (editorStateStore.selectInstrumentRequest) {
+			rightPanelActiveTabId = 'instruments';
+			editorStateStore.clearSelectInstrumentRequest();
+		}
+	});
+
 	const SPEED_EFFECT_TYPE = 'S'.charCodeAt(0);
 
 	function handleMakeUnique(index: number): void {

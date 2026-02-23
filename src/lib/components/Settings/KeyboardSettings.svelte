@@ -64,27 +64,44 @@
 	function startRecording(actionId: string) {
 		removeRecordingListener?.();
 		recordingActionId = actionId;
-		const handler = (event: KeyboardEvent) => {
-			event.preventDefault();
-			event.stopPropagation();
-			if (event.key === 'Escape') {
-				recordingActionId = null;
-				removeRecordingListener?.();
-				removeRecordingListener = null;
-				return;
-			}
-			if (event.key === 'Shift' || event.key === 'Control' || event.key === 'Meta' || event.key === 'Alt') {
-				return;
-			}
-			const shortcut = ShortcutString.fromEvent(event);
-			keybindingsStore.setShortcut(actionId, shortcut);
+		const cleanup = () => {
 			recordingActionId = null;
 			removeRecordingListener?.();
 			removeRecordingListener = null;
 		};
-		window.addEventListener('keydown', handler, true);
+		const keyHandler = (event: KeyboardEvent) => {
+			event.preventDefault();
+			event.stopPropagation();
+			if (event.key === 'Escape') {
+				cleanup();
+				return;
+			}
+			if (
+				event.key === 'Shift' ||
+				event.key === 'Control' ||
+				event.key === 'Meta' ||
+				event.key === 'Alt'
+			) {
+				return;
+			}
+			const shortcut = ShortcutString.fromEvent(event);
+			keybindingsStore.setShortcut(actionId, shortcut);
+			cleanup();
+		};
+		const mouseHandler = (event: MouseEvent) => {
+			event.preventDefault();
+			event.stopPropagation();
+			const shortcut = ShortcutString.fromMouseEvent(event);
+			if (shortcut) {
+				keybindingsStore.setShortcut(actionId, shortcut);
+				cleanup();
+			}
+		};
+		window.addEventListener('keydown', keyHandler, true);
+		window.addEventListener('mousedown', mouseHandler, true);
 		removeRecordingListener = () => {
-			window.removeEventListener('keydown', handler, true);
+			window.removeEventListener('keydown', keyHandler, true);
+			window.removeEventListener('mousedown', mouseHandler, true);
 		};
 	}
 

@@ -26,6 +26,7 @@ export const ACTION_HOME = 'home';
 export const ACTION_HOME_COLUMN = 'home-column';
 export const ACTION_END = 'end';
 export const ACTION_END_COLUMN = 'end-column';
+export const ACTION_SELECT_INSTRUMENT_IN_EDITOR = 'select-instrument-in-editor';
 
 export interface BindableAction {
 	id: string;
@@ -81,6 +82,11 @@ export const BINDABLE_ACTIONS: BindableAction[] = [
 		id: ACTION_END_COLUMN,
 		label: 'End (last column)',
 		defaultShortcut: 'Mod+End'
+	},
+	{
+		id: ACTION_SELECT_INSTRUMENT_IN_EDITOR,
+		label: 'Select instrument in editor',
+		defaultShortcut: 'Mod+LMB'
 	}
 ];
 

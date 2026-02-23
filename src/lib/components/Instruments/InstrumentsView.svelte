@@ -60,6 +60,25 @@
 		}
 	});
 
+	$effect(() => {
+		const targetId = editorStateStore.currentInstrument;
+		const idx = instruments.findIndex((inst) => inst.id === targetId);
+		if (idx >= 0 && idx !== selectedInstrumentIndex) {
+			selectedInstrumentIndex = idx;
+		}
+	});
+
+	$effect(() => {
+		const index = selectedInstrumentIndex;
+		if (!instrumentListScrollRef || index < 0) return;
+		tick().then(() => {
+			const el = instrumentListScrollRef?.querySelector(
+				`[data-instrument-index="${index}"]`
+			) as HTMLElement | null;
+			el?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+		});
+	});
+
 	const InstrumentEditor = $derived(chip.instrumentEditor);
 
 	const hexIcon = $derived(asHex ? IconCarbonHexagonSolid : IconCarbonHexagonOutline);

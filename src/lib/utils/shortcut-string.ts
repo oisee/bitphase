@@ -16,6 +16,12 @@ function keyFromEvent(event: KeyboardEvent): string {
 	return key;
 }
 
+const MOUSE_BUTTON_NAMES: Record<number, string> = {
+	0: 'LMB',
+	1: 'MMB',
+	2: 'RMB'
+};
+
 export class ShortcutString {
 	static fromEvent(event: KeyboardEvent): string {
 		const parts: string[] = [];
@@ -32,8 +38,37 @@ export class ShortcutString {
 		return parts.join('+');
 	}
 
+	static fromMouseEvent(event: MouseEvent): string {
+		const parts: string[] = [];
+		if (event.ctrlKey || event.metaKey) {
+			parts.push('Mod');
+		}
+		if (event.altKey) {
+			parts.push('Alt');
+		}
+		if (event.shiftKey) {
+			parts.push('Shift');
+		}
+		const buttonName = MOUSE_BUTTON_NAMES[event.button];
+		if (buttonName) {
+			parts.push(buttonName);
+		}
+		return parts.join('+');
+	}
+
+	static matchesMouseEvent(shortcut: string, event: MouseEvent): boolean {
+		const normalized = ShortcutString.normalizeForComparison(shortcut);
+		const fromEvent = ShortcutString.normalizeForComparison(
+			ShortcutString.fromMouseEvent(event)
+		);
+		return normalized === fromEvent;
+	}
+
 	private static readonly KEY_DISPLAY_NAMES: Record<string, string> = {
-		' ': 'Space'
+		' ': 'Space',
+		LMB: 'LMB',
+		MMB: 'MMB',
+		RMB: 'RMB'
 	};
 
 	static toDisplay(shortcut: string): string {
@@ -58,6 +93,9 @@ export class ShortcutString {
 		const keyPart = segments[segments.length - 1];
 		if (keyPart.length === 1 && keyPart >= 'A' && keyPart <= 'Z') {
 			segments[segments.length - 1] = keyPart.toLowerCase();
+		}
+		if (['LMB', 'MMB', 'RMB'].includes(keyPart.toUpperCase())) {
+			segments[segments.length - 1] = keyPart.toUpperCase();
 		}
 		return segments.join('+');
 	}

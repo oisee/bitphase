@@ -12,6 +12,7 @@
 	import { getFonts } from '../../utils/fonts';
 	import { setupCanvas as setupCanvasUtil } from '../../utils/canvas-utils';
 	import { getContext, untrack } from 'svelte';
+	import { normalizeInstrumentId, isValidInstrumentId } from '../../utils/instrument-id';
 	import { PATTERN_EDITOR_CONSTANTS } from './types';
 	import { playbackStore } from '../../stores/playback.svelte';
 	import { getFormatter, getConverter } from '../../chips/registry';
@@ -77,7 +78,10 @@
 	import { PatternTemplateParser } from '../../services/pattern/editing/pattern-template-parsing';
 	import { ContextMenu } from '../Menu';
 	import { editMenuItems } from '../../config/app-menu';
-	import { ACTION_PLAY_FROM_ROW } from '../../config/keybindings';
+	import {
+		ACTION_PLAY_FROM_ROW,
+		ACTION_SELECT_INSTRUMENT_IN_EDITOR
+	} from '../../config/keybindings';
 	import { keybindingsStore } from '../../stores/keybindings.svelte';
 	import { ShortcutString } from '../../utils/shortcut-string';
 	import { projectStore } from '../../stores/project.svelte';
@@ -1674,6 +1678,39 @@
 			mouseDownCell = null;
 			draw();
 			return;
+		}
+
+		const selectInstrumentShortcut = keybindingsStore.getShortcut(
+			ACTION_SELECT_INSTRUMENT_IN_EDITOR
+		);
+		if (
+			selectInstrumentShortcut &&
+			ShortcutString.matchesMouseEvent(selectInstrumentShortcut, event) &&
+			schema.fields?.instrument
+		) {
+			const rowString = getPatternRowData(patternToRender, cell.row);
+			const cellPositions = getCellPositions(rowString, cell.row);
+			const cellAtColumn = cellPositions[cell.column];
+			if (cellAtColumn?.fieldKey === 'instrument') {
+				const segments = textParser.parseRowString(rowString, cell.row);
+				const segment = segments?.find(
+					(s) =>
+						s.fieldKey === 'instrument' &&
+						cellAtColumn.charIndex >= s.start &&
+						cellAtColumn.charIndex < s.end
+				);
+				const instrumentValue = segment
+					? rowString.substring(segment.start, segment.end)
+					: '';
+				const instrumentId = normalizeInstrumentId(instrumentValue);
+				if (isValidInstrumentId(instrumentId)) {
+					editorStateStore.requestSelectInstrument(instrumentId);
+					event.preventDefault();
+					canvas.focus();
+					draw();
+					return;
+				}
+			}
 		}
 
 		if (playbackStore.isPlaying) {
