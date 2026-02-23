@@ -10,6 +10,7 @@ export interface PatternEditorRenderOptions extends Omit<BaseRenderOptions, 'col
 	lineHeight: number;
 	schema: Chip['schema'];
 	channelSeparatorWidth: number;
+	selectionStyle: 'inverted' | 'filled';
 }
 
 export interface RowRenderData {
@@ -37,6 +38,7 @@ export class PatternEditorRenderer extends BaseCanvasRenderer {
 	private schema: Chip['schema'];
 	private patternColors: ReturnType<typeof getColors>;
 	private channelSeparatorWidth: number;
+	private selectionStyle: 'inverted' | 'filled';
 
 	constructor(options: PatternEditorRenderOptions) {
 		super(options);
@@ -44,11 +46,13 @@ export class PatternEditorRenderer extends BaseCanvasRenderer {
 		this.schema = options.schema;
 		this.patternColors = options.colors;
 		this.channelSeparatorWidth = options.channelSeparatorWidth;
+		this.selectionStyle = options.selectionStyle;
 	}
 
 	drawRow(data: RowRenderData): void {
 		this.drawRowBackground(data);
 		this.drawRowText(data);
+		this.drawInvertedSelectionOverlay(data);
 	}
 
 	drawChannelLabels(data: ChannelLabelData): void {
@@ -81,7 +85,8 @@ export class PatternEditorRenderer extends BaseCanvasRenderer {
 
 		const separatorMargin = 4;
 		const hasVirtualGroups =
-			data.virtualChannelGroups && data.virtualChannelGroups.some((g) => g.virtualChannelIndices.length > 1);
+			data.virtualChannelGroups &&
+			data.virtualChannelGroups.some((g) => g.virtualChannelIndices.length > 1);
 
 		if (hasVirtualGroups && data.virtualChannelGroups) {
 			this.drawVirtualChannelGroupLabels(
@@ -193,14 +198,10 @@ export class PatternEditorRenderer extends BaseCanvasRenderer {
 	): void {
 		const channelStart = channelPositions[index];
 		const channelEnd =
-			index < channelPositions.length - 1
-				? channelPositions[index + 1]
-				: this.canvasWidth;
+			index < channelPositions.length - 1 ? channelPositions[index + 1] : this.canvasWidth;
 		const buttonX = Math.max(0, channelStart - separatorMargin);
 		const buttonEnd =
-			index < channelPositions.length - 1
-				? channelEnd - separatorMargin
-				: this.canvasWidth;
+			index < channelPositions.length - 1 ? channelEnd - separatorMargin : this.canvasWidth;
 		const buttonWidth = buttonEnd - buttonX;
 		const buttonHeight = this.lineHeight - 4;
 		const buttonY = (this.lineHeight - buttonHeight) / 2;
@@ -245,7 +246,8 @@ export class PatternEditorRenderer extends BaseCanvasRenderer {
 		}
 
 		const hasVirtualGroups =
-			virtualChannelGroups && virtualChannelGroups.some((g) => g.virtualChannelIndices.length > 1);
+			virtualChannelGroups &&
+			virtualChannelGroups.some((g) => g.virtualChannelIndices.length > 1);
 
 		this.save();
 
@@ -423,14 +425,16 @@ export class PatternEditorRenderer extends BaseCanvasRenderer {
 				const selectionX = Math.floor(firstCell.x);
 				const selectionWidth = Math.ceil(lastCell.x + lastCell.width) - selectionX;
 
-				this.fillRectWithAlpha(
-					selectionX,
-					data.y,
-					selectionWidth,
-					this.lineHeight,
-					this.patternColors.patternCellSelected,
-					0.25
-				);
+				if (this.selectionStyle === 'filled') {
+					this.fillRectWithAlpha(
+						selectionX,
+						data.y,
+						selectionWidth,
+						this.lineHeight,
+						this.patternColors.patternCellSelected,
+						0.25
+					);
+				}
 			}
 		} else if (data.isSelected) {
 			this.fillRect(
@@ -456,6 +460,31 @@ export class PatternEditorRenderer extends BaseCanvasRenderer {
 				this.patternColors.patternCellSelected
 			);
 		}
+	}
+
+	private drawInvertedSelectionOverlay(data: RowRenderData): void {
+		if (this.selectionStyle !== 'inverted') return;
+		if (
+			data.selectionStartCol === null ||
+			data.selectionStartCol === undefined ||
+			data.selectionEndCol === null ||
+			data.selectionEndCol === undefined
+		)
+			return;
+
+		const startCol = Math.min(data.selectionStartCol, data.selectionEndCol);
+		const endCol = Math.max(data.selectionStartCol, data.selectionEndCol);
+		if (startCol >= data.cellPositions.length || endCol >= data.cellPositions.length) return;
+
+		const firstCell = data.cellPositions[startCol];
+		const lastCell = data.cellPositions[endCol];
+		const selectionX = Math.floor(firstCell.x);
+		const selectionWidth = Math.ceil(lastCell.x + lastCell.width) - selectionX;
+
+		this.save();
+		this.ctx.globalCompositeOperation = 'difference';
+		this.fillRect(selectionX, data.y, selectionWidth, this.lineHeight, '#ffffff');
+		this.restore();
 	}
 
 	private drawRowText(data: RowRenderData): void {

@@ -1,9 +1,5 @@
 <script lang="ts">
-	import {
-		settingsItems,
-		generalSettings,
-		ayYmSettings
-	} from '../../config/settings';
+	import { settingsItems, generalSettings, ayYmSettings } from '../../config/settings';
 	import { settingsStore } from '../../stores/settings.svelte';
 	import type { Settings, SettingsTabState } from './types';
 	import Button from '../Button/Button.svelte';
@@ -32,14 +28,17 @@
 		decimalRowNumbers: settingsStore.decimalRowNumbers,
 		showOscilloscopes: settingsStore.showOscilloscopes,
 		showInstrumentPreview: settingsStore.showInstrumentPreview,
-		debugMode: settingsStore.debugMode
+		debugMode: settingsStore.debugMode,
+		selectionStyle: settingsStore.selectionStyle
 	};
 	let tempSettings = $state<Settings>({ ...currentSettings });
 	let activeTabId = $state(initialTabId || 'general');
 	let keyboardTabState = $state<SettingsTabState | null>(null);
 
 	const hasUnsavedChanges = $derived(
-		settingsItems.some((item) => tempSettings[item.setting] !== currentSettings[item.setting]) ||
+		settingsItems.some(
+			(item) => tempSettings[item.setting] !== currentSettings[item.setting]
+		) ||
 			(keyboardTabState?.hasUnsavedValue ?? false)
 	);
 
@@ -112,8 +111,6 @@
 	<div
 		class="flex shrink-0 justify-end gap-2 border-t border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-4 py-3">
 		<Button variant="secondary" onclick={handleDismiss}>Dismiss</Button>
-		<Button variant="primary" onclick={handleSave} disabled={hasTabConflicts}>
-			Save
-		</Button>
+		<Button variant="primary" onclick={handleSave} disabled={hasTabConflicts}>Save</Button>
 	</div>
 </div>

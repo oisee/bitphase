@@ -237,6 +237,7 @@
 	let fontSize = $derived(settingsStore.patternEditorFontSize);
 	let fontFamily = $derived(settingsStore.patternEditorFontFamily);
 	let channelSeparatorWidth = $derived(settingsStore.channelSeparatorWidth);
+	let selectionStyle = $derived(settingsStore.selectionStyle);
 	let canvasWidth = $state(PATTERN_EDITOR_CONSTANTS.DEFAULT_CANVAS_WIDTH);
 	let canvasHeight = $state(PATTERN_EDITOR_CONSTANTS.DEFAULT_CANVAS_HEIGHT);
 	let lineHeight = $derived(fontSize * PATTERN_EDITOR_CONSTANTS.LINE_HEIGHT_MULTIPLIER);
@@ -951,7 +952,8 @@
 				canvasWidth,
 				lineHeight,
 				schema,
-				channelSeparatorWidth
+				channelSeparatorWidth,
+				selectionStyle
 			});
 
 			if (fontFamily && fontFamily !== 'monospace') {
@@ -1010,7 +1012,8 @@
 						canvasWidth,
 						lineHeight,
 						schema,
-						channelSeparatorWidth
+						channelSeparatorWidth,
+						selectionStyle
 					});
 					draw();
 				}
@@ -1144,10 +1147,12 @@
 				const rowString = getPatternRowData(patternToDraw, rowToUse);
 
 				const song = projectStore.songs[songIndex];
-				const vcGroups = song ? getVirtualChannelGroups(
-					schema.channelLabels ?? ['A', 'B', 'C'],
-					song.virtualChannelMap ?? {}
-				) : undefined;
+				const vcGroups = song
+					? getVirtualChannelGroups(
+							schema.channelLabels ?? ['A', 'B', 'C'],
+							song.virtualChannelMap ?? {}
+						)
+					: undefined;
 
 				renderer.drawChannelSeparators(rowString, canvasHeight, vcGroups);
 
@@ -1254,8 +1259,12 @@
 			currentPatternOrderIndex,
 			pattern,
 			hasSelection,
-			onUndo: () => { if (!playbackStore.isPlaying) undoRedoStore.undo(); },
-			onRedo: () => { if (!playbackStore.isPlaying) undoRedoStore.redo(); },
+			onUndo: () => {
+				if (!playbackStore.isPlaying) undoRedoStore.undo();
+			},
+			onRedo: () => {
+				if (!playbackStore.isPlaying) undoRedoStore.redo();
+			},
 			onCopy: copySelection,
 			onCut: cutSelection,
 			onPaste: pasteSelection,
@@ -1760,7 +1769,11 @@
 			const patternToRender = findOrCreatePattern(currentPattern.id);
 			const visibleRows = getVisibleRows(currentPattern);
 			const firstVisibleRow = visibleRows.find((r) => !r.isEmpty);
-			if (firstVisibleRow && firstVisibleRow.rowIndex >= 0 && firstVisibleRow.rowIndex < patternToRender.length) {
+			if (
+				firstVisibleRow &&
+				firstVisibleRow.rowIndex >= 0 &&
+				firstVisibleRow.rowIndex < patternToRender.length
+			) {
 				const rowString = getPatternRowData(patternToRender, firstVisibleRow.rowIndex);
 				const channelPositions = renderer.calculateChannelPositions(rowString);
 				const song = projectStore.songs[songIndex];
@@ -1801,9 +1814,10 @@
 		onaction?.(data);
 	}
 
-	function applyVirtualChannelChange(
-		result: { updatedMap: Record<number, number>; updatedPatterns: Pattern[] }
-	): void {
+	function applyVirtualChannelChange(result: {
+		updatedMap: Record<number, number>;
+		updatedPatterns: Pattern[];
+	}): void {
 		const song = projectStore.songs[songIndex]!;
 		const oldMap = { ...song.virtualChannelMap };
 		const oldPatterns = patterns;
@@ -1838,7 +1852,10 @@
 			);
 		} else if (data.action === 'remove_virtual_channel') {
 			const result = VirtualChannelService.removeVirtualChannel(
-				song, hwIndex, patterns, channelContextMenuVirtualIndex
+				song,
+				hwIndex,
+				patterns,
+				channelContextMenuVirtualIndex
 			);
 			if (result) {
 				applyVirtualChannelChange(result);
@@ -1852,7 +1869,10 @@
 		const hwIndex = channelContextMenuHwIndex;
 		const currentCount = song?.virtualChannelMap?.[hwIndex] ?? 1;
 		const hwLabel = hwLabels[hwIndex] ?? '?';
-		const effectiveLabels = computeEffectiveChannelLabels(hwLabels, song?.virtualChannelMap ?? {});
+		const effectiveLabels = computeEffectiveChannelLabels(
+			hwLabels,
+			song?.virtualChannelMap ?? {}
+		);
 		const clickedLabel = effectiveLabels[channelContextMenuVirtualIndex] ?? hwLabel;
 		const isPlaying = playbackStore.isPlaying;
 
@@ -2396,6 +2416,7 @@
 	let lastFontSize = -1;
 	let lastFontFamily = '';
 	let lastChannelSeparatorWidth = -1;
+	let lastSelectionStyle: 'inverted' | 'filled' = 'inverted';
 	let lastChannelCount = -1;
 	let needsSetup = true;
 
@@ -2407,6 +2428,7 @@
 		const fontSizeChanged = fontSize !== lastFontSize;
 		const fontFamilyChanged = fontFamily !== lastFontFamily;
 		const channelSeparatorWidthChanged = channelSeparatorWidth !== lastChannelSeparatorWidth;
+		const selectionStyleChanged = selectionStyle !== lastSelectionStyle;
 
 		if (needsSetup || !ctx) {
 			ctx = canvas.getContext('2d')!;
@@ -2423,6 +2445,7 @@
 			lastFontSize = fontSize;
 			lastFontFamily = fontFamily;
 			lastChannelSeparatorWidth = channelSeparatorWidth;
+			lastSelectionStyle = selectionStyle;
 			lastChannelCount = currentChannelCount;
 			requestAnimationFrame(() => {
 				if (ctx && canvas && !document.hidden) {
@@ -2434,13 +2457,19 @@
 			return;
 		}
 
-		if (fontSizeChanged || fontFamilyChanged || channelSeparatorWidthChanged) {
+		if (
+			fontSizeChanged ||
+			fontFamilyChanged ||
+			channelSeparatorWidthChanged ||
+			selectionStyleChanged
+		) {
 			clearAllCaches();
 			const ready = setupCanvas();
 			if (ready && !document.hidden) draw();
 			lastFontSize = fontSize;
 			lastFontFamily = fontFamily;
 			lastChannelSeparatorWidth = channelSeparatorWidth;
+			lastSelectionStyle = selectionStyle;
 			lastCanvasWidth = canvasWidth;
 			lastCanvasHeight = canvasHeight;
 			return;
@@ -2468,7 +2497,14 @@
 			}
 		}
 
-		if (rowChanged || orderChanged || patternChanged || patternLengthChanged || sizeChanged || channelCountChanged) {
+		if (
+			rowChanged ||
+			orderChanged ||
+			patternChanged ||
+			patternLengthChanged ||
+			sizeChanged ||
+			channelCountChanged
+		) {
 			if (fontReady && !document.hidden) draw();
 			lastDrawnRow = selectedRow;
 			lastDrawnOrderIndex = currentPatternOrderIndex;

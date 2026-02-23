@@ -15,6 +15,7 @@ class SettingsStore {
 	showOscilloscopes = $state(true);
 	showInstrumentPreview = $state(true);
 	debugMode = $state(false);
+	selectionStyle = $state<'inverted' | 'filled'>('inverted');
 
 	init(): void {
 		const stored = localStorage.getItem(STORAGE_KEY);

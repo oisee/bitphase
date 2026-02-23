@@ -10,6 +10,7 @@ export interface Settings {
 	showOscilloscopes: boolean;
 	showInstrumentPreview: boolean;
 	debugMode: boolean;
+	selectionStyle: 'inverted' | 'filled';
 }
 
 export interface SettingsItem {

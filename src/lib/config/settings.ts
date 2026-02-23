@@ -109,6 +109,18 @@ export const settingsItems: SettingsItem[] = [
 		defaultValue: true,
 		setting: 'showOscilloscopes',
 		category: 'appearance'
+	},
+	{
+		label: 'Selection Style',
+		description: 'Inverted uses a negative filter for high visibility; Filled uses a semi-transparent overlay',
+		type: 'select',
+		defaultValue: 'inverted',
+		setting: 'selectionStyle',
+		category: 'appearance',
+		options: [
+			{ value: 'inverted', label: 'Inverted' },
+			{ value: 'filled', label: 'Filled' }
+		]
 	}
 ];
 
