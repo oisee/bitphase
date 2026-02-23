@@ -97,7 +97,12 @@
 	$effect(() => {
 		if (editorStateStore.selectInstrumentRequest) {
 			rightPanelActiveTabId = 'instruments';
-			editorStateStore.clearSelectInstrumentRequest();
+		}
+	});
+
+	$effect(() => {
+		if (editorStateStore.selectTableRequest !== null) {
+			rightPanelActiveTabId = 'tables';
 		}
 	});
 

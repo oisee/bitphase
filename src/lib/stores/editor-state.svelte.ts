@@ -68,6 +68,23 @@ class EditorStateStore {
 	clearSelectInstrumentRequest(): void {
 		this.selectInstrumentRequest = null;
 	}
+
+	currentTable = $state(0);
+
+	setCurrentTable(tableId: number): void {
+		this.currentTable = tableId;
+	}
+
+	selectTableRequest = $state<number | null>(null);
+
+	requestSelectTable(tableId: number): void {
+		this.currentTable = tableId;
+		this.selectTableRequest = tableId;
+	}
+
+	clearSelectTableRequest(): void {
+		this.selectTableRequest = null;
+	}
 }
 
 export const editorStateStore = new EditorStateStore();

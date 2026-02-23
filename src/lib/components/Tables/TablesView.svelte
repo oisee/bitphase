@@ -12,6 +12,7 @@
 	import IconCarbonMinimize from '~icons/carbon/minimize';
 	import IconCarbonSave from '~icons/carbon/save';
 	import IconCarbonDocumentImport from '~icons/carbon/document-import';
+	import IconCarbonArrowsVertical from '~icons/carbon/arrows-vertical';
 	import TableEditor from './TableEditor.svelte';
 	import Card from '../Card/Card.svelte';
 	import { downloadJson, pickFileAsText } from '../../utils/file-download';
@@ -26,6 +27,15 @@
 		isValidTableDisplayChar
 	} from '../../utils/table-id';
 	import { projectStore } from '../../stores/project.svelte';
+	import { editorStateStore } from '../../stores/editor-state.svelte';
+	import { computeGridRows } from '../../utils/compute-grid-rows';
+	import {
+		ITEM_ROW_HEIGHT,
+		ITEM_BUTTON_BAR_HEIGHT,
+		DEFAULT_ITEM_LIST_HEIGHT,
+		MIN_ITEM_LIST_HEIGHT,
+		MAX_ITEM_LIST_HEIGHT
+	} from '../../config/item-grid';
 
 	const services: { audioService: AudioService } = getContext('container');
 	const requestPatternRedraw = getContext<() => void>('requestPatternRedraw');
@@ -38,6 +48,68 @@
 
 	let tables = $derived(projectStore.tables);
 	const songs = $derived(projectStore.songs);
+
+	const tableGridRows = $derived.by(() =>
+		computeGridRows(
+			tables?.length ?? 0,
+			tableListHeight,
+			ITEM_ROW_HEIGHT,
+			ITEM_BUTTON_BAR_HEIGHT
+		)
+	);
+
+	const TABLE_LIST_HEIGHT_KEY = 'tableListHeight';
+
+	let tableListHeight = $state(
+		Math.min(
+			MAX_ITEM_LIST_HEIGHT,
+			Math.max(
+				MIN_ITEM_LIST_HEIGHT,
+				parseInt(localStorage.getItem(TABLE_LIST_HEIGHT_KEY) ?? '', 10) ||
+					DEFAULT_ITEM_LIST_HEIGHT
+			)
+		)
+	);
+
+	let isResizingTableList = $state(false);
+	let resizeStartY = $state(0);
+	let resizeStartHeight = $state(0);
+
+	function beginTableListResize(e: MouseEvent) {
+		e.preventDefault();
+		isResizingTableList = true;
+		resizeStartY = e.clientY;
+		resizeStartHeight = tableListHeight;
+	}
+
+	function handleTableListResizeMove(e: MouseEvent) {
+		if (!isResizingTableList) return;
+		const deltaY = e.clientY - resizeStartY;
+		const newHeight = Math.max(
+			MIN_ITEM_LIST_HEIGHT,
+			Math.min(MAX_ITEM_LIST_HEIGHT, resizeStartHeight + deltaY)
+		);
+		tableListHeight = newHeight;
+		localStorage.setItem(TABLE_LIST_HEIGHT_KEY, String(newHeight));
+	}
+
+	function endTableListResize() {
+		isResizingTableList = false;
+	}
+
+	$effect(() => {
+		if (!isResizingTableList) return;
+		document.body.style.cursor = 'ns-resize';
+		document.body.style.userSelect = 'none';
+		window.addEventListener('mousemove', handleTableListResizeMove);
+		window.addEventListener('mouseup', endTableListResize);
+		return () => {
+			document.body.style.cursor = '';
+			document.body.style.userSelect = '';
+			window.removeEventListener('mousemove', handleTableListResizeMove);
+			window.removeEventListener('mouseup', endTableListResize);
+		};
+	});
 
 	let asHex = $state(false);
 	let selectedTableIndex = $state(0);
@@ -87,7 +159,7 @@
 		requestPatternRedraw?.();
 	}
 
-	function addTable(): void {
+	async function addTable(): Promise<void> {
 		const existingIds = tables.map((t) => t.id);
 		const newId = getNextAvailableTableId(existingIds);
 		if (newId < 0) return;
@@ -100,6 +172,10 @@
 		projectStore.tables = [...tables, newTable];
 		sortTablesAndSyncSelection(newId);
 		services.audioService.updateTables(projectStore.tables);
+		await tick();
+		tableListScrollRef
+			?.querySelector(`[data-table-index="${selectedTableIndex}"]`)
+			?.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
 	}
 
 	function removeTable(index: number): void {
@@ -126,6 +202,28 @@
 			?.querySelector(`[data-table-index="${selectedTableIndex}"]`)
 			?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
 	}
+
+	$effect(() => {
+		const targetId = editorStateStore.currentTable;
+		const idx = tables.findIndex((t) => t.id === targetId);
+		if (idx >= 0 && idx !== selectedTableIndex) {
+			selectedTableIndex = idx;
+		}
+		if (editorStateStore.selectTableRequest !== null) {
+			editorStateStore.clearSelectTableRequest();
+		}
+	});
+
+	$effect(() => {
+		const index = selectedTableIndex;
+		if (!tableListScrollRef || index < 0) return;
+		tick().then(() => {
+			const el = tableListScrollRef?.querySelector(
+				`[data-table-index="${index}"]`
+			) as HTMLElement | null;
+			el?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+		});
+	});
 
 	$effect(() => {
 		if (selectedTableIndex >= tables.length) selectedTableIndex = 0;
@@ -244,102 +342,114 @@
 		class="flex flex-col">
 		{#snippet children()}
 			<div
-				class="border-b border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)]">
-				<div class="flex items-center overflow-x-auto" bind:this={tableListScrollRef}>
-					{#each tables as table, index}
-						{@const isUsed = isTableUsed(table)}
-						{@const isSelected = selectedTableIndex === index}
-						{@const isEditing = editingTableId === index}
-						{#if isEditing}
-							<div
-								data-table-index={index}
-								class="group relative flex min-w-[6rem] shrink-0 flex-col items-center justify-center border-r border-[var(--color-app-border)] p-3 {isSelected
-									? 'bg-[var(--color-app-primary)]'
-									: isUsed
-										? 'bg-[var(--color-app-surface-secondary)]/40 hover:bg-[var(--color-app-surface-secondary)]/70'
-										: 'bg-[var(--color-app-background)]/60 hover:bg-[var(--color-app-background)]/80'}">
-								<EditableIdField
-									bind:value={editingTableIdValue}
-									error={editingTableIdValue
-										? getTableIdError(index, editingTableIdValue)
-										: null}
-									onCommit={finishEditingTableId}
-									onCancel={cancelEditingTableId}
-									maxLength={1}
-									inputFilter={(v) =>
-										v
-											.toUpperCase()
-											.slice(0, 1)
-											.replace(/[^1-9A-Z]/g, '')} />
-							</div>
-						{:else}
-							<div
-								data-table-index={index}
-								class="group relative flex min-w-[6rem] shrink-0 flex-col items-center border-r border-[var(--color-app-border)]">
-								<button
-									class="flex w-full shrink-0 cursor-pointer flex-col items-center p-3 {isSelected
-										? 'bg-[var(--color-app-primary)]'
-										: isUsed
-											? 'bg-[var(--color-app-surface-secondary)]/40 hover:bg-[var(--color-app-surface-secondary)]/70'
-											: 'bg-[var(--color-app-background)]/60 hover:bg-[var(--color-app-background)]/80'}"
-									onclick={() => (selectedTableIndex = index)}
-									ondblclick={() => startEditingTableId(index)}>
-									<span
-										class="font-mono text-xs font-semibold {isSelected
-											? 'text-[var(--color-app-text-secondary)]'
-											: isUsed
-												? 'text-[var(--color-app-text-tertiary)] group-hover:text-[var(--color-app-text-primary)]'
-												: 'text-[var(--color-app-text-muted)] group-hover:text-[var(--color-app-text-tertiary)]'}">
-										{tableIdToDisplayChar(table.id)}
-									</span>
-									<span
-										class="text-xs {isSelected
-											? 'text-[var(--color-app-text-secondary)]'
-											: isUsed
-												? 'text-[var(--color-app-text-muted)] group-hover:text-[var(--color-app-text-tertiary)]'
-												: 'text-[var(--color-app-text-muted)] group-hover:text-[var(--color-app-text-muted)]'}">
-										{table.name}
-									</span>
-								</button>
-								<div
-									class="absolute top-1 right-1 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-									<button
-										class="cursor-pointer rounded p-0.5 text-[var(--color-app-text-muted)] hover:text-[var(--color-app-text-primary)]"
-										onclick={(e) => {
-											e.stopPropagation();
-											copyTable(index);
-										}}
-										title="Copy table">
-										<IconCarbonCopy class="h-3 w-3" />
-									</button>
-									{#if tables.length > 1}
-										<button
-											class="cursor-pointer rounded p-0.5 text-[var(--color-app-text-muted)] hover:text-red-400"
-											onclick={(e) => {
-												e.stopPropagation();
-												removeTable(index);
-											}}
-											title="Remove table">
-											<IconCarbonTrashCan class="h-3 w-3" />
-										</button>
+				class="flex shrink-0 flex-col border-b border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)]"
+				style="height: {tableListHeight}px">
+				<div
+					class="flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-hidden"
+					bind:this={tableListScrollRef}>
+					{#each tableGridRows as rowIndices}
+						<div
+							class="flex min-w-max shrink-0 items-stretch border-b border-[var(--color-app-border)]"
+							style="height: {ITEM_ROW_HEIGHT}px">
+							{#each rowIndices as index}
+								{@const table = tables[index]}
+								{#if table}
+									{@const isUsed = isTableUsed(table)}
+									{@const isSelected = selectedTableIndex === index}
+									{@const isEditing = editingTableId === index}
+									{#if isEditing}
+										<div
+											data-table-index={index}
+											class="group relative flex min-w-[6rem] shrink-0 flex-col items-center justify-center border-r border-[var(--color-app-border)] p-3 {isSelected
+												? 'bg-[var(--color-app-primary)]'
+												: isUsed
+													? 'bg-[var(--color-app-surface-secondary)]/40 hover:bg-[var(--color-app-surface-secondary)]/70'
+													: 'bg-[var(--color-app-background)]/60 hover:bg-[var(--color-app-background)]/80'}">
+											<EditableIdField
+												bind:value={editingTableIdValue}
+												error={editingTableIdValue
+													? getTableIdError(index, editingTableIdValue)
+													: null}
+												onCommit={finishEditingTableId}
+												onCancel={cancelEditingTableId}
+												maxLength={1}
+												inputFilter={(v) =>
+													v
+														.toUpperCase()
+														.slice(0, 1)
+														.replace(/[^1-9A-Z]/g, '')} />
+										</div>
+									{:else}
+										<div
+											data-table-index={index}
+											class="group relative flex min-w-[6rem] shrink-0 flex-col items-center border-r border-[var(--color-app-border)]">
+											<button
+												class="flex h-full w-full shrink-0 cursor-pointer flex-col items-center justify-center p-3 {isSelected
+													? 'bg-[var(--color-app-primary)]'
+													: isUsed
+														? 'bg-[var(--color-app-surface-secondary)]/40 hover:bg-[var(--color-app-surface-secondary)]/70'
+														: 'bg-[var(--color-app-background)]/60 hover:bg-[var(--color-app-background)]/80'}"
+												onclick={() => (selectedTableIndex = index)}
+												ondblclick={() => startEditingTableId(index)}>
+												<span
+													class="font-mono text-xs font-semibold {isSelected
+														? 'text-[var(--color-app-text-secondary)]'
+														: isUsed
+															? 'text-[var(--color-app-text-tertiary)] group-hover:text-[var(--color-app-text-primary)]'
+															: 'text-[var(--color-app-text-muted)] group-hover:text-[var(--color-app-text-tertiary)]'}">
+													{tableIdToDisplayChar(table.id)}
+												</span>
+												<span
+													class="text-xs {isSelected
+														? 'text-[var(--color-app-text-secondary)]'
+														: isUsed
+															? 'text-[var(--color-app-text-muted)] group-hover:text-[var(--color-app-text-tertiary)]'
+															: 'text-[var(--color-app-text-muted)] group-hover:text-[var(--color-app-text-muted)]'}">
+													{table.name}
+												</span>
+											</button>
+											<div
+												class="absolute top-1 right-1 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+												<button
+													class="cursor-pointer rounded p-0.5 text-[var(--color-app-text-muted)] hover:text-[var(--color-app-text-primary)]"
+													onclick={(e) => {
+														e.stopPropagation();
+														copyTable(index);
+													}}
+													title="Copy table">
+													<IconCarbonCopy class="h-3 w-3" />
+												</button>
+												{#if tables.length > 1}
+													<button
+														class="cursor-pointer rounded p-0.5 text-[var(--color-app-text-muted)] hover:text-red-400"
+														onclick={(e) => {
+															e.stopPropagation();
+															removeTable(index);
+														}}
+														title="Remove table">
+														<IconCarbonTrashCan class="h-3 w-3" />
+													</button>
+												{/if}
+											</div>
+										</div>
 									{/if}
-								</div>
-							</div>
-						{/if}
+								{/if}
+							{/each}
+						</div>
 					{/each}
+				</div>
+				<div
+					class="flex shrink-0 items-center gap-2 border-t border-[var(--color-app-border)] px-2 py-1.5">
 					<button
-						class="ml-2 flex shrink-0 cursor-pointer items-center gap-1 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] px-3 py-2 text-xs text-[var(--color-app-text-tertiary)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-[var(--color-app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+						class="flex cursor-pointer items-center gap-1.5 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] px-2 py-1.5 text-xs text-[var(--color-app-text-tertiary)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-[var(--color-app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
 						onclick={addTable}
 						disabled={tables.length > MAX_TABLE_ID}
 						title={tables.length > MAX_TABLE_ID
 							? 'Maximum 35 tables'
 							: 'Add new table'}>
-						<IconCarbonAdd class="h-4 w-4" />
+						<IconCarbonAdd class="h-3.5 w-3.5" />
 						<span>Add</span>
 					</button>
-				</div>
-				<div
-					class="flex items-center gap-2 border-t border-[var(--color-app-border)] px-2 py-1.5">
 					<button
 						class="flex cursor-pointer items-center gap-1.5 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] px-2 py-1.5 text-xs text-[var(--color-app-text-tertiary)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-[var(--color-app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
 						onclick={saveTable}
@@ -359,7 +469,19 @@
 				</div>
 			</div>
 
-			<div class="flex-1 overflow-auto p-4">
+			<div
+				class="flex shrink-0 cursor-ns-resize items-center justify-center border-y border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] py-1 text-[var(--color-app-text-muted)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-[var(--color-app-text-secondary)] {isResizingTableList
+					? 'bg-[var(--color-app-surface-hover)]'
+					: ''}"
+				role="button"
+				tabindex="0"
+				aria-label="Drag to resize table list"
+				title="Drag to resize table list"
+				onmousedown={beginTableListResize}>
+				<IconCarbonArrowsVertical class="h-3 w-3" />
+			</div>
+
+			<div class="min-h-0 flex-1 overflow-auto p-4">
 				{#if tables[selectedTableIndex]}
 					{#key tables[selectedTableIndex].id}
 						<TableEditor

@@ -80,8 +80,10 @@
 	import { editMenuItems } from '../../config/app-menu';
 	import {
 		ACTION_PLAY_FROM_ROW,
-		ACTION_SELECT_INSTRUMENT_IN_EDITOR
+		ACTION_SELECT_INSTRUMENT_IN_EDITOR,
+		ACTION_SELECT_TABLE_IN_EDITOR
 	} from '../../config/keybindings';
+	import { tableDisplayCharToId } from '../../utils/table-id';
 	import { keybindingsStore } from '../../stores/keybindings.svelte';
 	import { ShortcutString } from '../../utils/shortcut-string';
 	import { projectStore } from '../../stores/project.svelte';
@@ -1683,33 +1685,62 @@
 		const selectInstrumentShortcut = keybindingsStore.getShortcut(
 			ACTION_SELECT_INSTRUMENT_IN_EDITOR
 		);
+		const selectTableShortcut = keybindingsStore.getShortcut(
+			ACTION_SELECT_TABLE_IN_EDITOR
+		);
+		const rowString = getPatternRowData(patternToRender, cell.row);
+		const cellPositions = getCellPositions(rowString, cell.row);
+		const cellAtColumn = cellPositions[cell.column];
+
 		if (
 			selectInstrumentShortcut &&
 			ShortcutString.matchesMouseEvent(selectInstrumentShortcut, event) &&
-			schema.fields?.instrument
+			schema.fields?.instrument &&
+			cellAtColumn?.fieldKey === 'instrument'
 		) {
-			const rowString = getPatternRowData(patternToRender, cell.row);
-			const cellPositions = getCellPositions(rowString, cell.row);
-			const cellAtColumn = cellPositions[cell.column];
-			if (cellAtColumn?.fieldKey === 'instrument') {
-				const segments = textParser.parseRowString(rowString, cell.row);
-				const segment = segments?.find(
-					(s) =>
-						s.fieldKey === 'instrument' &&
-						cellAtColumn.charIndex >= s.start &&
-						cellAtColumn.charIndex < s.end
-				);
-				const instrumentValue = segment
-					? rowString.substring(segment.start, segment.end)
-					: '';
-				const instrumentId = normalizeInstrumentId(instrumentValue);
-				if (isValidInstrumentId(instrumentId)) {
-					editorStateStore.requestSelectInstrument(instrumentId);
-					event.preventDefault();
-					canvas.focus();
-					draw();
-					return;
-				}
+			const segments = textParser.parseRowString(rowString, cell.row);
+			const segment = segments?.find(
+				(s) =>
+					s.fieldKey === 'instrument' &&
+					cellAtColumn.charIndex >= s.start &&
+					cellAtColumn.charIndex < s.end
+			);
+			const instrumentValue = segment
+				? rowString.substring(segment.start, segment.end)
+				: '';
+			const instrumentId = normalizeInstrumentId(instrumentValue);
+			if (isValidInstrumentId(instrumentId)) {
+				editorStateStore.requestSelectInstrument(instrumentId);
+				event.preventDefault();
+				canvas.focus();
+				draw();
+				return;
+			}
+		}
+
+		if (
+			selectTableShortcut &&
+			ShortcutString.matchesMouseEvent(selectTableShortcut, event) &&
+			schema.fields?.table &&
+			cellAtColumn?.fieldKey === 'table'
+		) {
+			const segments = textParser.parseRowString(rowString, cell.row);
+			const segment = segments?.find(
+				(s) =>
+					s.fieldKey === 'table' &&
+					cellAtColumn.charIndex >= s.start &&
+					cellAtColumn.charIndex < s.end
+			);
+			const tableValue = segment
+				? rowString.substring(segment.start, segment.end).trim().slice(-1)
+				: '';
+			const tableId = tableDisplayCharToId(tableValue);
+			if (tableId >= 0) {
+				editorStateStore.requestSelectTable(tableId);
+				event.preventDefault();
+				canvas.focus();
+				draw();
+				return;
 			}
 		}
 

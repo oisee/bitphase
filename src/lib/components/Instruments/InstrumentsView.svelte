@@ -13,6 +13,7 @@
 	import IconCarbonSave from '~icons/carbon/save';
 	import IconCarbonDocumentImport from '~icons/carbon/document-import';
 	import IconCarbonFolder from '~icons/carbon/folder';
+	import IconCarbonArrowsVertical from '~icons/carbon/arrows-vertical';
 	import Card from '../Card/Card.svelte';
 	import PresetsModal from '../Modal/PresetsModal.svelte';
 	import { open } from '../../services/modal/modal-service';
@@ -31,6 +32,14 @@
 	import { migrateInstrumentIdInSong } from '../../services/project/id-migration';
 	import { editorStateStore } from '../../stores/editor-state.svelte';
 	import { projectStore } from '../../stores/project.svelte';
+	import { computeGridRows } from '../../utils/compute-grid-rows';
+	import {
+		ITEM_ROW_HEIGHT,
+		ITEM_BUTTON_BAR_HEIGHT,
+		DEFAULT_ITEM_LIST_HEIGHT,
+		MIN_ITEM_LIST_HEIGHT,
+		MAX_ITEM_LIST_HEIGHT
+	} from '../../config/item-grid';
 
 	const services: { audioService: AudioService } = getContext('container');
 	const requestPatternRedraw = getContext<() => void>('requestPatternRedraw');
@@ -46,12 +55,76 @@
 	let instruments = $derived(projectStore.instruments);
 	const songs = $derived(projectStore.songs);
 
+	const instrumentGridRows = $derived.by(() =>
+		computeGridRows(
+			instruments?.length ?? 0,
+			instrumentListHeight,
+			ITEM_ROW_HEIGHT,
+			ITEM_BUTTON_BAR_HEIGHT
+		)
+	);
+
 	let asHex = $state(false);
 	let selectedInstrumentIndex = $state(0);
 	let instrumentEditorRef: any = $state(null);
 	let instrumentListScrollRef: HTMLDivElement | null = $state(null);
+	let instrumentsContainerRef: HTMLDivElement | null = $state(null);
+
+	const INSTRUMENT_LIST_HEIGHT_KEY = 'instrumentListHeight';
+
+	let instrumentListHeight = $state(
+		Math.min(
+			MAX_ITEM_LIST_HEIGHT,
+			Math.max(
+				MIN_ITEM_LIST_HEIGHT,
+				parseInt(localStorage.getItem(INSTRUMENT_LIST_HEIGHT_KEY) ?? '', 10) ||
+					DEFAULT_ITEM_LIST_HEIGHT
+			)
+		)
+	);
+
+	let isResizingInstrumentList = $state(false);
+	let resizeStartY = $state(0);
+	let resizeStartHeight = $state(0);
+
+	function beginInstrumentListResize(e: MouseEvent) {
+		e.preventDefault();
+		isResizingInstrumentList = true;
+		resizeStartY = e.clientY;
+		resizeStartHeight = instrumentListHeight;
+	}
+
+	function handleInstrumentListResizeMove(e: MouseEvent) {
+		if (!isResizingInstrumentList) return;
+		const deltaY = e.clientY - resizeStartY;
+		const newHeight = Math.max(
+			MIN_ITEM_LIST_HEIGHT,
+			Math.min(MAX_ITEM_LIST_HEIGHT, resizeStartHeight + deltaY)
+		);
+		instrumentListHeight = newHeight;
+		localStorage.setItem(INSTRUMENT_LIST_HEIGHT_KEY, String(newHeight));
+	}
+
+	function endInstrumentListResize() {
+		isResizingInstrumentList = false;
+	}
 
 	$effect(() => {
+		if (!isResizingInstrumentList) return;
+		document.body.style.cursor = 'ns-resize';
+		document.body.style.userSelect = 'none';
+		window.addEventListener('mousemove', handleInstrumentListResizeMove);
+		window.addEventListener('mouseup', endInstrumentListResize);
+		return () => {
+			document.body.style.cursor = '';
+			document.body.style.userSelect = '';
+			window.removeEventListener('mousemove', handleInstrumentListResizeMove);
+			window.removeEventListener('mouseup', endInstrumentListResize);
+		};
+	});
+
+	$effect(() => {
+		if (editorStateStore.selectInstrumentRequest) return;
 		if (instruments.length > 0 && instruments[selectedInstrumentIndex]) {
 			const instrumentId = instruments[selectedInstrumentIndex].id;
 			untrack(() => {
@@ -65,6 +138,9 @@
 		const idx = instruments.findIndex((inst) => inst.id === targetId);
 		if (idx >= 0 && idx !== selectedInstrumentIndex) {
 			selectedInstrumentIndex = idx;
+		}
+		if (editorStateStore.selectInstrumentRequest) {
+			editorStateStore.clearSelectInstrumentRequest();
 		}
 	});
 
@@ -141,7 +217,7 @@
 		services.audioService.updateInstruments(projectStore.instruments);
 	}
 
-	function addInstrument(): void {
+	async function addInstrument(): Promise<void> {
 		const existingIds = instruments.map((inst) => inst.id);
 		const newId = getNextAvailableInstrumentId(existingIds);
 		if (!newId) return;
@@ -149,6 +225,10 @@
 		projectStore.instruments = [...instruments, newInstrument];
 		sortInstrumentsAndSyncSelection(newId);
 		services.audioService.updateInstruments(projectStore.instruments);
+		await tick();
+		instrumentListScrollRef
+			?.querySelector(`[data-instrument-index="${selectedInstrumentIndex}"]`)
+			?.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
 	}
 
 	function removeInstrument(index: number): void {
@@ -354,102 +434,115 @@
 		actions={cardActions}>
 		{#snippet children()}
 			<div
-				class="border-b border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)]">
-				<div class="flex items-center overflow-x-auto" bind:this={instrumentListScrollRef}>
-					{#each instruments || [] as instrument, index}
-						{@const isUsed = isInstrumentUsed(instrument)}
-						{@const isSelected = selectedInstrumentIndex === index}
-						{@const isEditing = editingInstrumentId === index}
-						{#if isEditing}
-							<div
-								data-instrument-index={index}
-								class="group relative flex min-w-[6rem] shrink-0 flex-col items-center border-r border-[var(--color-app-border)] p-3 {isSelected
-									? 'bg-[var(--color-app-primary)]'
-									: isUsed
-										? 'bg-[var(--color-app-surface-secondary)]/40 hover:bg-[var(--color-app-surface-secondary)]/70'
-										: 'bg-[var(--color-app-background)]/60 hover:bg-[var(--color-app-background)]/80'}">
-								<EditableIdField
-									bind:value={editingInstrumentIdValue}
-									error={editingInstrumentIdValue
-										? getInstrumentIdError(index, editingInstrumentIdValue)
-										: null}
-									onCommit={finishEditingInstrumentId}
-									onCancel={cancelEditingInstrumentId}
-									maxLength={2}
-									inputFilter={(v) =>
-										v
-											.toUpperCase()
-											.slice(0, 2)
-											.replace(/[^0-9A-Z]/g, '')} />
-							</div>
-						{:else}
-							<div
-								data-instrument-index={index}
-								class="group relative flex min-w-[6rem] shrink-0 flex-col items-center border-r border-[var(--color-app-border)]">
-								<button
-									class="flex w-full shrink-0 cursor-pointer flex-col items-center p-3 {isSelected
-										? 'bg-[var(--color-app-primary)]'
-										: isUsed
-											? 'bg-[var(--color-app-surface-secondary)]/40 hover:bg-[var(--color-app-surface-secondary)]/70'
-											: 'bg-[var(--color-app-background)]/60 hover:bg-[var(--color-app-background)]/80'}"
-									onclick={() => (selectedInstrumentIndex = index)}
-									ondblclick={() => startEditingInstrumentId(index)}>
-									<span
-										class="font-mono text-xs font-semibold {isSelected
-											? 'text-[var(--color-app-text-secondary)]'
-											: isUsed
-												? 'text-[var(--color-app-text-tertiary)] group-hover:text-[var(--color-app-text-primary)]'
-												: 'text-[var(--color-app-text-muted)] group-hover:text-[var(--color-app-text-tertiary)]'}">
-										{instrument.id}
-									</span>
-									<span
-										class="text-xs {isSelected
-											? 'text-[var(--color-app-text-secondary)]'
-											: isUsed
-												? 'text-[var(--color-app-text-muted)] group-hover:text-[var(--color-app-text-tertiary)]'
-												: 'text-[var(--color-app-text-muted)] group-hover:text-[var(--color-app-text-muted)]'}">
-										{instrument.name}
-									</span>
-								</button>
-								<div
-									class="absolute top-1 right-1 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-									<button
-										class="cursor-pointer rounded p-0.5 text-[var(--color-app-text-muted)] hover:text-[var(--color-app-text-primary)]"
-										onclick={(e) => {
-											e.stopPropagation();
-											copyInstrument(index);
-										}}
-										title="Copy instrument">
-										<IconCarbonCopy class="h-3 w-3" />
-									</button>
-									{#if instruments.length > 1}
-										<button
-											class="cursor-pointer rounded p-0.5 text-[var(--color-app-text-muted)] hover:text-red-400"
-											onclick={(e) => {
-												e.stopPropagation();
-												removeInstrument(index);
-											}}
-											title="Remove instrument">
-											<IconCarbonTrashCan class="h-3 w-3" />
-										</button>
+				class="flex shrink-0 flex-col border-b border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)]"
+				style="height: {instrumentListHeight}px"
+				bind:this={instrumentsContainerRef}>
+				<div
+					class="flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-hidden"
+					bind:this={instrumentListScrollRef}>
+					{#each instrumentGridRows as rowIndices}
+						<div
+							class="flex min-w-max shrink-0 items-stretch border-b border-[var(--color-app-border)]"
+							style="height: {ITEM_ROW_HEIGHT}px">
+							{#each rowIndices as index}
+								{@const instrument = instruments[index]}
+								{#if instrument}
+									{@const isUsed = isInstrumentUsed(instrument)}
+									{@const isSelected = selectedInstrumentIndex === index}
+									{@const isEditing = editingInstrumentId === index}
+									{#if isEditing}
+										<div
+											data-instrument-index={index}
+											class="group relative flex min-w-[6rem] shrink-0 flex-col items-center justify-center border-r border-[var(--color-app-border)] p-3 {isSelected
+												? 'bg-[var(--color-app-primary)]'
+												: isUsed
+													? 'bg-[var(--color-app-surface-secondary)]/40 hover:bg-[var(--color-app-surface-secondary)]/70'
+													: 'bg-[var(--color-app-background)]/60 hover:bg-[var(--color-app-background)]/80'}">
+											<EditableIdField
+												bind:value={editingInstrumentIdValue}
+												error={editingInstrumentIdValue
+													? getInstrumentIdError(index, editingInstrumentIdValue)
+													: null}
+												onCommit={finishEditingInstrumentId}
+												onCancel={cancelEditingInstrumentId}
+												maxLength={2}
+												inputFilter={(v) =>
+													v
+														.toUpperCase()
+														.slice(0, 2)
+														.replace(/[^0-9A-Z]/g, '')} />
+										</div>
+									{:else}
+										<div
+											data-instrument-index={index}
+											class="group relative flex min-w-[6rem] shrink-0 flex-col items-center border-r border-[var(--color-app-border)]">
+											<button
+												class="flex h-full w-full shrink-0 cursor-pointer flex-col items-center justify-center p-3 {isSelected
+													? 'bg-[var(--color-app-primary)]'
+													: isUsed
+														? 'bg-[var(--color-app-surface-secondary)]/40 hover:bg-[var(--color-app-surface-secondary)]/70'
+														: 'bg-[var(--color-app-background)]/60 hover:bg-[var(--color-app-background)]/80'}"
+												onclick={() => (selectedInstrumentIndex = index)}
+												ondblclick={() => startEditingInstrumentId(index)}>
+												<span
+													class="font-mono text-xs font-semibold {isSelected
+														? 'text-[var(--color-app-text-secondary)]'
+														: isUsed
+															? 'text-[var(--color-app-text-tertiary)] group-hover:text-[var(--color-app-text-primary)]'
+															: 'text-[var(--color-app-text-muted)] group-hover:text-[var(--color-app-text-tertiary)]'}">
+													{instrument.id}
+												</span>
+												<span
+													class="text-xs {isSelected
+														? 'text-[var(--color-app-text-secondary)]'
+														: isUsed
+															? 'text-[var(--color-app-text-muted)] group-hover:text-[var(--color-app-text-tertiary)]'
+															: 'text-[var(--color-app-text-muted)] group-hover:text-[var(--color-app-text-muted)]'}">
+													{instrument.name}
+												</span>
+											</button>
+											<div
+												class="absolute top-1 right-1 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+												<button
+													class="cursor-pointer rounded p-0.5 text-[var(--color-app-text-muted)] hover:text-[var(--color-app-text-primary)]"
+													onclick={(e) => {
+														e.stopPropagation();
+														copyInstrument(index);
+													}}
+													title="Copy instrument">
+													<IconCarbonCopy class="h-3 w-3" />
+												</button>
+												{#if instruments.length > 1}
+													<button
+														class="cursor-pointer rounded p-0.5 text-[var(--color-app-text-muted)] hover:text-red-400"
+														onclick={(e) => {
+															e.stopPropagation();
+															removeInstrument(index);
+														}}
+														title="Remove instrument">
+														<IconCarbonTrashCan class="h-3 w-3" />
+													</button>
+												{/if}
+											</div>
+										</div>
 									{/if}
-								</div>
-							</div>
-						{/if}
+								{/if}
+							{/each}
+						</div>
 					{/each}
+				</div>
+				<div
+					class="flex shrink-0 items-center gap-2 border-t border-[var(--color-app-border)] px-2 py-1.5">
 					<button
-						class="ml-2 flex shrink-0 cursor-pointer items-center gap-1 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] px-3 py-2 text-xs text-[var(--color-app-text-tertiary)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-[var(--color-app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+						class="flex cursor-pointer items-center gap-1.5 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] px-2 py-1.5 text-xs text-[var(--color-app-text-tertiary)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-[var(--color-app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
 						onclick={addInstrument}
 						disabled={instruments.length >= MAX_INSTRUMENT_ID_NUM}
 						title={instruments.length >= MAX_INSTRUMENT_ID_NUM
 							? 'Maximum 1295 instruments (01–ZZ)'
 							: 'Add new instrument'}>
-						<IconCarbonAdd class="h-4 w-4" />
+						<IconCarbonAdd class="h-3.5 w-3.5" />
 						<span>Add</span>
 					</button>
-				</div>
-				<div
-					class="flex items-center gap-2 border-t border-[var(--color-app-border)] px-2 py-1.5">
 					<button
 						class="flex cursor-pointer items-center gap-1.5 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] px-2 py-1.5 text-xs text-[var(--color-app-text-tertiary)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-[var(--color-app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
 						onclick={saveInstrument}
@@ -477,7 +570,19 @@
 				</div>
 			</div>
 
-			<div class="flex-1 overflow-auto p-4">
+			<div
+				class="flex shrink-0 cursor-ns-resize items-center justify-center border-y border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] py-1 text-[var(--color-app-text-muted)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-[var(--color-app-text-secondary)] {isResizingInstrumentList
+					? 'bg-[var(--color-app-surface-hover)]'
+					: ''}"
+				role="button"
+				tabindex="0"
+				aria-label="Drag to resize instrument list"
+				title="Drag to resize instrument list"
+				onmousedown={beginInstrumentListResize}>
+				<IconCarbonArrowsVertical class="h-3 w-3" />
+			</div>
+
+			<div class="min-h-0 flex-1 overflow-auto p-4">
 				{#if instruments && instruments[selectedInstrumentIndex]}
 					{#key instruments[selectedInstrumentIndex].id}
 						<InstrumentEditor
