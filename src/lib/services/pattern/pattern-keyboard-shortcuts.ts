@@ -198,7 +198,12 @@ export class PatternKeyboardShortcutsService {
 			}
 		}
 
-		if ((event.ctrlKey || event.metaKey) && !isModifier) {
+		const isHomeOrEnd = event.key === 'Home' || event.key === 'End';
+		if (
+			(event.ctrlKey || event.metaKey) &&
+			!isModifier &&
+			!isHomeOrEnd
+		) {
 			return { handled: false, shouldPreventDefault: false };
 		}
 
@@ -415,6 +420,13 @@ export class PatternKeyboardShortcutsService {
 				return { handled: true, shouldPreventDefault: true };
 			case 'Home':
 				if (event.ctrlKey || event.metaKey) {
+					if (event.shiftKey) {
+						shortcutsContext.onExtendSelection(shortcutsContext.selectedRow, 0);
+					} else {
+						shortcutsContext.onClearSelection();
+					}
+					shortcutsContext.onSetSelectedColumn(0);
+				} else {
 					if (!shortcutsContext.isPlaying) {
 						if (event.shiftKey) {
 							shortcutsContext.onExtendSelection(0, shortcutsContext.selectedColumn);
@@ -423,29 +435,10 @@ export class PatternKeyboardShortcutsService {
 						}
 						shortcutsContext.onSetSelectedRow(0);
 					}
-				} else {
-					if (event.shiftKey) {
-						shortcutsContext.onExtendSelection(shortcutsContext.selectedRow, 0);
-					} else {
-						shortcutsContext.onClearSelection();
-					}
-					shortcutsContext.onSetSelectedColumn(0);
 				}
 				return { handled: true, shouldPreventDefault: true };
 			case 'End':
 				if (event.ctrlKey || event.metaKey) {
-					if (!shortcutsContext.isPlaying) {
-						if (event.shiftKey) {
-							shortcutsContext.onExtendSelection(
-								shortcutsContext.pattern.length - 1,
-								shortcutsContext.selectedColumn
-							);
-						} else {
-							shortcutsContext.onClearSelection();
-						}
-						shortcutsContext.onSetSelectedRow(shortcutsContext.pattern.length - 1);
-					}
-				} else {
 					const navigationState = PatternNavigationService.moveToRowEnd(
 						{
 							selectedRow: shortcutsContext.selectedRow,
@@ -463,6 +456,18 @@ export class PatternKeyboardShortcutsService {
 						shortcutsContext.onClearSelection();
 					}
 					shortcutsContext.onSetSelectedColumn(navigationState.selectedColumn);
+				} else {
+					if (!shortcutsContext.isPlaying) {
+						if (event.shiftKey) {
+							shortcutsContext.onExtendSelection(
+								shortcutsContext.pattern.length - 1,
+								shortcutsContext.selectedColumn
+							);
+						} else {
+							shortcutsContext.onClearSelection();
+						}
+						shortcutsContext.onSetSelectedRow(shortcutsContext.pattern.length - 1);
+					}
 				}
 				return { handled: true, shouldPreventDefault: true };
 			case '+':
