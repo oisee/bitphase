@@ -19,6 +19,13 @@ export const ACTION_PLAY_FROM_ROW = 'play-from-row';
 export const ACTION_CYCLE_CHANNEL = 'cycle-channel';
 export const ACTION_SWAP_CHANNEL_LEFT = 'swap-channel-left';
 export const ACTION_SWAP_CHANNEL_RIGHT = 'swap-channel-right';
+export const ACTION_TOGGLE_AUTO_ENVELOPE = 'toggle-auto-envelope';
+export const ACTION_PAGE_UP = 'page-up';
+export const ACTION_PAGE_DOWN = 'page-down';
+export const ACTION_HOME = 'home';
+export const ACTION_HOME_COLUMN = 'home-column';
+export const ACTION_END = 'end';
+export const ACTION_END_COLUMN = 'end-column';
 
 export interface BindableAction {
 	id: string;
@@ -55,8 +62,33 @@ export const BINDABLE_ACTIONS: BindableAction[] = [
 		label: 'Swap channels right',
 		defaultShortcut: 'Mod+Alt+ArrowRight'
 	},
-	{ id: ACTION_APPLY_SCRIPT, label: 'Apply Script...', defaultShortcut: 'Mod+Shift+S' }
+	{ id: ACTION_APPLY_SCRIPT, label: 'Apply Script...', defaultShortcut: 'Mod+Shift+S' },
+	{
+		id: ACTION_TOGGLE_AUTO_ENVELOPE,
+		label: 'Toggle Auto Envelope',
+		defaultShortcut: 'Mod+E'
+	},
+	{ id: ACTION_PAGE_UP, label: 'Page Up', defaultShortcut: 'PageUp' },
+	{ id: ACTION_PAGE_DOWN, label: 'Page Down', defaultShortcut: 'PageDown' },
+	{ id: ACTION_HOME, label: 'Home (first row)', defaultShortcut: 'Home' },
+	{
+		id: ACTION_HOME_COLUMN,
+		label: 'Home (first column)',
+		defaultShortcut: 'Mod+Home'
+	},
+	{ id: ACTION_END, label: 'End (last row)', defaultShortcut: 'End' },
+	{
+		id: ACTION_END_COLUMN,
+		label: 'End (last column)',
+		defaultShortcut: 'Mod+End'
+	}
 ];
+
+export const GLOBAL_ACTION_IDS = new Set([
+	ACTION_APPLY_SCRIPT,
+	ACTION_TOGGLE_PLAYBACK,
+	ACTION_TOGGLE_AUTO_ENVELOPE
+]);
 
 export const PATTERN_EDITOR_ACTION_IDS = new Set(
 	BINDABLE_ACTIONS.filter(

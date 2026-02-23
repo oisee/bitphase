@@ -6,6 +6,7 @@ import { ShortcutString } from '../../utils/shortcut-string';
 import { keybindingsStore } from '../../stores/keybindings.svelte';
 import {
 	PATTERN_EDITOR_ACTION_IDS,
+	GLOBAL_ACTION_IDS,
 	ACTION_UNDO,
 	ACTION_REDO,
 	ACTION_COPY,
@@ -21,7 +22,13 @@ import {
 	ACTION_TOGGLE_PLAYBACK,
 	ACTION_CYCLE_CHANNEL,
 	ACTION_SWAP_CHANNEL_LEFT,
-	ACTION_SWAP_CHANNEL_RIGHT
+	ACTION_SWAP_CHANNEL_RIGHT,
+	ACTION_PAGE_UP,
+	ACTION_PAGE_DOWN,
+	ACTION_HOME,
+	ACTION_HOME_COLUMN,
+	ACTION_END,
+	ACTION_END_COLUMN
 } from '../../config/keybindings';
 
 export interface PatternKeyboardShortcutsContext {
@@ -171,6 +178,103 @@ function dispatchCommandAction(
 				ctx.onSwapChannelRight();
 			}
 			return true;
+		case ACTION_PAGE_UP:
+			if (!ctx.isPlaying) {
+				if (event?.shiftKey) {
+					if (!ctx.hasSelection()) {
+						ctx.onSetSelectionAnchor(ctx.selectedRow, ctx.selectedColumn);
+					}
+					const newState = PatternNavigationService.moveRow(
+						{
+							selectedRow: ctx.selectedRow,
+							currentPatternOrderIndex: ctx.currentPatternOrderIndex,
+							selectedColumn: ctx.selectedColumn
+						},
+						ctx.navigationContext,
+						-16
+					);
+					ctx.onExtendSelection(newState.selectedRow, newState.selectedColumn);
+					ctx.onSetSelectedRow(newState.selectedRow);
+					if (newState.currentPatternOrderIndex !== ctx.currentPatternOrderIndex) {
+						ctx.onSetCurrentPatternOrderIndex(newState.currentPatternOrderIndex);
+					}
+				} else {
+					ctx.onClearSelection();
+					ctx.onMoveRow(-16);
+				}
+			}
+			return true;
+		case ACTION_PAGE_DOWN:
+			if (!ctx.isPlaying) {
+				if (event?.shiftKey) {
+					if (!ctx.hasSelection()) {
+						ctx.onSetSelectionAnchor(ctx.selectedRow, ctx.selectedColumn);
+					}
+					const newState = PatternNavigationService.moveRow(
+						{
+							selectedRow: ctx.selectedRow,
+							currentPatternOrderIndex: ctx.currentPatternOrderIndex,
+							selectedColumn: ctx.selectedColumn
+						},
+						ctx.navigationContext,
+						16
+					);
+					ctx.onExtendSelection(newState.selectedRow, newState.selectedColumn);
+					ctx.onSetSelectedRow(newState.selectedRow);
+					if (newState.currentPatternOrderIndex !== ctx.currentPatternOrderIndex) {
+						ctx.onSetCurrentPatternOrderIndex(newState.currentPatternOrderIndex);
+					}
+				} else {
+					ctx.onClearSelection();
+					ctx.onMoveRow(16);
+				}
+			}
+			return true;
+		case ACTION_HOME:
+			if (!ctx.isPlaying) {
+				if (event?.shiftKey) {
+					ctx.onExtendSelection(0, ctx.selectedColumn);
+				} else {
+					ctx.onClearSelection();
+				}
+				ctx.onSetSelectedRow(0);
+			}
+			return true;
+		case ACTION_HOME_COLUMN:
+			if (event?.shiftKey) {
+				ctx.onExtendSelection(ctx.selectedRow, 0);
+			} else {
+				ctx.onClearSelection();
+			}
+			ctx.onSetSelectedColumn(0);
+			return true;
+		case ACTION_END:
+			if (!ctx.isPlaying) {
+				if (event?.shiftKey) {
+					ctx.onExtendSelection(ctx.pattern.length - 1, ctx.selectedColumn);
+				} else {
+					ctx.onClearSelection();
+				}
+				ctx.onSetSelectedRow(ctx.pattern.length - 1);
+			}
+			return true;
+		case ACTION_END_COLUMN: {
+			const navigationState = PatternNavigationService.moveToRowEnd(
+				{
+					selectedRow: ctx.selectedRow,
+					currentPatternOrderIndex: ctx.currentPatternOrderIndex,
+					selectedColumn: ctx.selectedColumn
+				},
+				ctx.navigationContext
+			);
+			if (event?.shiftKey) {
+				ctx.onExtendSelection(ctx.selectedRow, navigationState.selectedColumn);
+			} else {
+				ctx.onClearSelection();
+			}
+			ctx.onSetSelectedColumn(navigationState.selectedColumn);
+			return true;
+		}
 		default:
 			return false;
 	}
@@ -187,22 +291,22 @@ export class PatternKeyboardShortcutsService {
 		const shortcut = ShortcutString.fromEvent(event);
 		const action = keybindingsStore.getActionForShortcut(shortcut);
 		if (action !== null) {
-			if (action === ACTION_APPLY_SCRIPT) {
-				return { handled: false, shouldPreventDefault: false };
-			}
 			if (PATTERN_EDITOR_ACTION_IDS.has(action)) {
 				const result = dispatchCommandAction(action, shortcutsContext, event);
 				if (result) {
 					return { handled: true, shouldPreventDefault: true };
 				}
 			}
+			if (GLOBAL_ACTION_IDS.has(action)) {
+				return { handled: true, shouldPreventDefault: false };
+			}
 		}
 
-		const isHomeOrEnd = event.key === 'Home' || event.key === 'End';
 		if (
 			(event.ctrlKey || event.metaKey) &&
 			!isModifier &&
-			!isHomeOrEnd
+			event.key !== 'Home' &&
+			event.key !== 'End'
 		) {
 			return { handled: false, shouldPreventDefault: false };
 		}
@@ -342,132 +446,6 @@ export class PatternKeyboardShortcutsService {
 				} else {
 					shortcutsContext.onClearSelection();
 					shortcutsContext.onMoveColumn(1);
-				}
-				return { handled: true, shouldPreventDefault: true };
-			case 'PageUp':
-				if (!shortcutsContext.isPlaying) {
-					if (event.shiftKey) {
-						if (!shortcutsContext.hasSelection()) {
-							shortcutsContext.onSetSelectionAnchor(
-								shortcutsContext.selectedRow,
-								shortcutsContext.selectedColumn
-							);
-						}
-						const newState = PatternNavigationService.moveRow(
-							{
-								selectedRow: shortcutsContext.selectedRow,
-								currentPatternOrderIndex: shortcutsContext.currentPatternOrderIndex,
-								selectedColumn: shortcutsContext.selectedColumn
-							},
-							shortcutsContext.navigationContext,
-							-16
-						);
-						shortcutsContext.onExtendSelection(
-							newState.selectedRow,
-							newState.selectedColumn
-						);
-						shortcutsContext.onSetSelectedRow(newState.selectedRow);
-						if (
-							newState.currentPatternOrderIndex !==
-							shortcutsContext.currentPatternOrderIndex
-						) {
-							shortcutsContext.onSetCurrentPatternOrderIndex(
-								newState.currentPatternOrderIndex
-							);
-						}
-					} else {
-						shortcutsContext.onClearSelection();
-						shortcutsContext.onMoveRow(-16);
-					}
-				}
-				return { handled: true, shouldPreventDefault: true };
-			case 'PageDown':
-				if (!shortcutsContext.isPlaying) {
-					if (event.shiftKey) {
-						if (!shortcutsContext.hasSelection()) {
-							shortcutsContext.onSetSelectionAnchor(
-								shortcutsContext.selectedRow,
-								shortcutsContext.selectedColumn
-							);
-						}
-						const newState = PatternNavigationService.moveRow(
-							{
-								selectedRow: shortcutsContext.selectedRow,
-								currentPatternOrderIndex: shortcutsContext.currentPatternOrderIndex,
-								selectedColumn: shortcutsContext.selectedColumn
-							},
-							shortcutsContext.navigationContext,
-							16
-						);
-						shortcutsContext.onExtendSelection(
-							newState.selectedRow,
-							newState.selectedColumn
-						);
-						shortcutsContext.onSetSelectedRow(newState.selectedRow);
-						if (
-							newState.currentPatternOrderIndex !==
-							shortcutsContext.currentPatternOrderIndex
-						) {
-							shortcutsContext.onSetCurrentPatternOrderIndex(
-								newState.currentPatternOrderIndex
-							);
-						}
-					} else {
-						shortcutsContext.onClearSelection();
-						shortcutsContext.onMoveRow(16);
-					}
-				}
-				return { handled: true, shouldPreventDefault: true };
-			case 'Home':
-				if (event.ctrlKey || event.metaKey) {
-					if (event.shiftKey) {
-						shortcutsContext.onExtendSelection(shortcutsContext.selectedRow, 0);
-					} else {
-						shortcutsContext.onClearSelection();
-					}
-					shortcutsContext.onSetSelectedColumn(0);
-				} else {
-					if (!shortcutsContext.isPlaying) {
-						if (event.shiftKey) {
-							shortcutsContext.onExtendSelection(0, shortcutsContext.selectedColumn);
-						} else {
-							shortcutsContext.onClearSelection();
-						}
-						shortcutsContext.onSetSelectedRow(0);
-					}
-				}
-				return { handled: true, shouldPreventDefault: true };
-			case 'End':
-				if (event.ctrlKey || event.metaKey) {
-					const navigationState = PatternNavigationService.moveToRowEnd(
-						{
-							selectedRow: shortcutsContext.selectedRow,
-							currentPatternOrderIndex: shortcutsContext.currentPatternOrderIndex,
-							selectedColumn: shortcutsContext.selectedColumn
-						},
-						shortcutsContext.navigationContext
-					);
-					if (event.shiftKey) {
-						shortcutsContext.onExtendSelection(
-							shortcutsContext.selectedRow,
-							navigationState.selectedColumn
-						);
-					} else {
-						shortcutsContext.onClearSelection();
-					}
-					shortcutsContext.onSetSelectedColumn(navigationState.selectedColumn);
-				} else {
-					if (!shortcutsContext.isPlaying) {
-						if (event.shiftKey) {
-							shortcutsContext.onExtendSelection(
-								shortcutsContext.pattern.length - 1,
-								shortcutsContext.selectedColumn
-							);
-						} else {
-							shortcutsContext.onClearSelection();
-						}
-						shortcutsContext.onSetSelectedRow(shortcutsContext.pattern.length - 1);
-					}
 				}
 				return { handled: true, shouldPreventDefault: true };
 			case '+':

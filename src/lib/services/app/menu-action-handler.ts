@@ -8,7 +8,11 @@ import EffectsModal from '../../components/Modal/EffectsModal.svelte';
 import UserScriptsModal from '../../components/Modal/UserScriptsModal.svelte';
 import WavExportSettingsModal from '../../components/Modal/WavExportSettingsModal.svelte';
 import ProgressModal from '../../components/Modal/ProgressModal.svelte';
-import { ACTION_APPLY_SCRIPT } from '../../config/keybindings';
+import {
+	ACTION_APPLY_SCRIPT,
+	ACTION_TOGGLE_AUTO_ENVELOPE
+} from '../../config/keybindings';
+import { autoEnvStore } from '../../stores/auto-env.svelte';
 import { loadDemoProject } from '../../config/demo-songs';
 import { getChipByType } from '../../chips/registry';
 import { AY_CHIP } from '../../chips/ay';
@@ -239,6 +243,11 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
 				if (result && patternEditor?.applyScript) {
 					patternEditor.applyScript(result);
 				}
+				return;
+			}
+
+			if (data.action === ACTION_TOGGLE_AUTO_ENVELOPE) {
+				autoEnvStore.toggle();
 				return;
 			}
 

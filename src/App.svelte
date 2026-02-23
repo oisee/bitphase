@@ -24,7 +24,7 @@
 	import { tick } from 'svelte';
 	import { keybindingsStore } from './lib/stores/keybindings.svelte';
 	import { ShortcutString } from './lib/utils/shortcut-string';
-	import { ACTION_APPLY_SCRIPT } from './lib/config/keybindings';
+	import { GLOBAL_ACTION_IDS } from './lib/config/keybindings';
 	import { autobackupService } from './lib/services/backup/autobackup-service';
 	import { runAppBootstrap } from './lib/app-bootstrap';
 	import { createMenuActionHandler } from './lib/services/app/menu-action-handler';
@@ -231,9 +231,9 @@
 		}
 		const shortcut = ShortcutString.fromEvent(event);
 		const action = keybindingsStore.getActionForShortcut(shortcut);
-		if (action === ACTION_APPLY_SCRIPT) {
+		if (action !== null && GLOBAL_ACTION_IDS.has(action)) {
 			event.preventDefault();
-			handleMenuAction({ action: ACTION_APPLY_SCRIPT });
+			handleMenuAction({ action });
 		}
 	}
 </script>
