@@ -87,6 +87,8 @@ class VT2Converter {
 		'1': EffectType.SlideUp,
 		'2': EffectType.SlideDown,
 		'3': EffectType.Portamento,
+		'4': EffectType.SamplePosition,
+		'5': EffectType.OrnamentPosition,
 		'6': EffectType.OnOff,
 		B: EffectType.Speed,
 		D: EffectType.Detune
@@ -833,8 +835,15 @@ class VT2Converter {
 			return { channelEffect: [null], envelopeEffect: null };
 		}
 
+		const effectiveDelay =
+			effectType === EffectType.SamplePosition ||
+			effectType === EffectType.OrnamentPosition ||
+			effectType === EffectType.Speed
+				? 0
+				: delay;
+
 		return {
-			channelEffect: [new Effect(effectType, delay, parameter)],
+			channelEffect: [new Effect(effectType, effectiveDelay, parameter)],
 			envelopeEffect: null
 		};
 	}

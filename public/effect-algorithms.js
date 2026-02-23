@@ -3,6 +3,8 @@ class EffectAlgorithms {
 	static SLIDE_UP = 1;
 	static SLIDE_DOWN = 2;
 	static PORTAMENTO = 'P'.charCodeAt(0);
+	static SAMPLE_POSITION = 4;
+	static ORNAMENT_POSITION = 5;
 	static VIBRATO = 'V'.charCodeAt(0);
 	static ON_OFF = 6;
 	static SPEED = 'S'.charCodeAt(0);

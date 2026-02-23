@@ -204,7 +204,12 @@ class TrackerPatternProcessor {
 		const effect = row.effects[0];
 		const hasTableIndex = effect.tableIndex !== undefined && effect.tableIndex >= 0;
 
-		if (hasTableIndex && effect.effect !== EffectAlgorithms.SPEED) {
+		if (
+			hasTableIndex &&
+			effect.effect !== EffectAlgorithms.SPEED &&
+			effect.effect !== EffectAlgorithms.SAMPLE_POSITION &&
+			effect.effect !== EffectAlgorithms.ORNAMENT_POSITION
+		) {
 			this._initEffectTable(channelIndex, effect);
 		}
 
@@ -241,6 +246,12 @@ class TrackerPatternProcessor {
 				break;
 			case EffectAlgorithms.DETUNE:
 				this._initChannelDetune(channelIndex, effect, hasTableIndex);
+				break;
+			case EffectAlgorithms.SAMPLE_POSITION:
+				this._initChannelSamplePosition(channelIndex, effect);
+				break;
+			case EffectAlgorithms.ORNAMENT_POSITION:
+				this._initChannelOrnamentPosition(channelIndex, effect);
 				break;
 		}
 	}
@@ -364,6 +375,16 @@ class TrackerPatternProcessor {
 	_initChannelDetune(channelIndex, effect, hasTableIndex) {
 		const param = hasTableIndex ? this._getEffectTableValue(channelIndex) : effect.parameter;
 		this.state.channelDetune[channelIndex] = (param & 0xff) - 0x80;
+	}
+
+	_initChannelSamplePosition(channelIndex, effect) {
+		if (this.state.instrumentPositions) {
+			this.state.instrumentPositions[channelIndex] = effect.parameter & 0xff;
+		}
+	}
+
+	_initChannelOrnamentPosition(channelIndex, effect) {
+		this.state.tablePositions[channelIndex] = effect.parameter & 0xff;
 	}
 
 	_initEffectTable(channelIndex, effect) {

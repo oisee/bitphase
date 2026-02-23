@@ -103,6 +103,26 @@
 			example: 'P30F - Portamento with delay 3, speed 0x0F'
 		},
 		{
+			code: '4',
+			name: 'Sample Position',
+			description:
+				'Sets the starting row within the instrument. Use to skip the beginning of an instrument or start from a specific point.',
+			format: '4.XY',
+			delay: 'N/A',
+			parameter: 'XY - instrument row index to start from (00-FF)',
+			example: '4.05 - Start instrument from row 5'
+		},
+		{
+			code: '5',
+			name: 'Ornament Position',
+			description:
+				'Sets the starting position within the table (ornament). Use to skip the beginning of a table or start from a specific point.',
+			format: '5.XY',
+			delay: 'N/A',
+			parameter: 'XY - table row index to start from (00-FF)',
+			example: '5.03 - Start table from row 3'
+		},
+		{
 			code: '6',
 			name: 'On/Off',
 			description: 'Alternates between playing the note and muting it.',
@@ -218,15 +238,17 @@
 							<code class="ml-2 font-mono text-[var(--color-app-text-secondary)]"
 								>{effect.example}</code>
 						</div>
-						<div>
-							<span class="font-medium text-[var(--color-app-text-primary)]"
-								>With Table:</span>
-							<code class="ml-2 font-mono text-[var(--color-app-text-secondary)]"
-								>{#each getFormatSegments(effect.formatWithTable) as seg}
-									<span style="color: {seg.color}">{seg.char}</span>{/each}</code>
-							<span class="font-medium text-[var(--color-app-text-secondary)]"
-								>{effect.tableDescription}</span>
-						</div>
+						{#if effect.formatWithTable}
+							<div>
+								<span class="font-medium text-[var(--color-app-text-primary)]"
+									>With Table:</span>
+								<code class="ml-2 font-mono text-[var(--color-app-text-secondary)]"
+									>{#each getFormatSegments(effect.formatWithTable) as seg}
+										<span style="color: {seg.color}">{seg.char}</span>{/each}</code>
+								<span class="font-medium text-[var(--color-app-text-secondary)]"
+									>{effect.tableDescription}</span>
+							</div>
+						{/if}
 					</div>
 				</div>
 			{/each}

@@ -47,12 +47,21 @@ export class PatternEffectHandling {
 		} else {
 			type = effect.effect.toString(16).toUpperCase();
 		}
-		const delay =
-			effect.effect === 'D'.charCodeAt(0) ? '.' : formatHex(effect.delay, 1);
+		const noDelay =
+			effect.effect === 'D'.charCodeAt(0) ||
+			effect.effect === 'S'.charCodeAt(0) ||
+			effect.effect === 4 ||
+			effect.effect === 5;
+		const delay = noDelay ? '.' : formatHex(effect.delay, 1);
 
-		if (effect.tableIndex !== undefined) {
-			const tableChar =
-				effect.tableIndex < 0 ? '.' : this.tableIndexToChar(effect.tableIndex);
+		const noTableSyntax =
+			effect.effect === 4 || effect.effect === 5;
+		if (
+			!noTableSyntax &&
+			effect.tableIndex !== undefined &&
+			effect.tableIndex >= 0
+		) {
+			const tableChar = this.tableIndexToChar(effect.tableIndex);
 			return type + delay + 'T' + tableChar;
 		}
 
@@ -88,15 +97,19 @@ export class PatternEffectHandling {
 		const delay = parseInt(value[1] || '0', 16) || 0;
 
 		const char2 = value[2] || '.';
-		if (char2 === 'T' || char2 === 't') {
+		const noTableSyntax = type === 4 || type === 5;
+		const noDelay =
+			type === 'D'.charCodeAt(0) || type === 'S'.charCodeAt(0) || type === 4 || type === 5;
+		const effectiveDelay = noDelay ? 0 : delay;
+		if (!noTableSyntax && (char2 === 'T' || char2 === 't')) {
 			const tableChar = value[3] || '0';
 			const tableIndex = this.charToTableIndex(tableChar);
-			const result = { effect: type, delay, parameter: 0, tableIndex };
+			const result = { effect: type, delay: effectiveDelay, parameter: 0, tableIndex };
 			return this.isEmptyEffect(result) ? null : result;
 		}
 
 		const param = parseInt((value.slice(2, 4) || '00').replace(/\./g, '0'), 16) || 0;
-		const result = { effect: type, delay, parameter: param };
+		const result = { effect: type, delay: effectiveDelay, parameter: param };
 		return this.isEmptyEffect(result) ? null : result;
 	}
 

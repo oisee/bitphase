@@ -65,5 +65,22 @@ describe('PatternEffectHandling', () => {
 			expect(parsed.delay).toBe(original.delay);
 			expect(parsed.parameter).toBe(original.parameter);
 		});
+
+		it('effect 4 (sample position) formats as parameter even with tableIndex, ignores table syntax', () => {
+			const result = PatternEffectHandling.formatEffectAsString({
+				effect: 4,
+				delay: 0,
+				parameter: 0x0a,
+				tableIndex: 2
+			});
+			expect(result).toBe('4.0A');
+		});
+
+		it('effect 5 (ornament position) parses 5050 as parameter not table', () => {
+			const result = PatternEffectHandling.parseEffectFromString('5050');
+			expect(result.effect).toBe(5);
+			expect(result.parameter).toBe(0x50);
+			expect(result.tableIndex).toBeUndefined();
+		});
 	});
 });

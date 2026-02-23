@@ -203,6 +203,30 @@ describe('Channel effect interactions', () => {
 		});
 	});
 
+	describe('sample position and ornament position', () => {
+		it('effect 4 (sample position) sets instrumentPositions immediately', () => {
+			state.instrumentPositions[0] = 0;
+
+			const row = makeRow(4, 2, [
+				{ effect: EffectAlgorithms.SAMPLE_POSITION, delay: 0, parameter: 0x0a }
+			]);
+			proc._processEffects(0, row);
+
+			expect(state.instrumentPositions[0]).toBe(10);
+		});
+
+		it('effect 5 (ornament position) sets tablePositions immediately', () => {
+			state.tablePositions[0] = 0;
+
+			const row = makeRow(4, 2, [
+				{ effect: EffectAlgorithms.ORNAMENT_POSITION, delay: 0, parameter: 0x03 }
+			]);
+			proc._processEffects(0, row);
+
+			expect(state.tablePositions[0]).toBe(3);
+		});
+	});
+
 	describe('new note resets', () => {
 		it('note-off resets all channel effects', () => {
 			state.channelArpeggioCounter[0] = 5;
