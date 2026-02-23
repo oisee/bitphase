@@ -329,8 +329,9 @@
 
 <div bind:this={songViewContainer} class="relative flex h-full flex-col overflow-hidden">
 	<div class="flex flex-1 overflow-hidden">
-		<div class="relative flex min-w-0 flex-1">
-			<div class="h-full shrink-0 transition-all duration-300 {blurredContentClass}">
+		<div class="relative flex min-w-0 flex-1 flex-nowrap overflow-x-auto overflow-y-hidden">
+			<div
+				class="sticky left-0 z-20 h-full shrink-0 bg-[var(--color-app-surface-secondary)] transition-all duration-300 {blurredContentClass}">
 				<Card
 					title="Order"
 					fullHeight={true}
@@ -351,8 +352,8 @@
 				</Card>
 			</div>
 			<div
-				class="flex min-w-0 flex-1 flex-col overflow-hidden transition-all duration-300 {blurredContentClass}">
-				<div class="flex min-h-0 min-w-0 flex-1 flex-nowrap justify-center overflow-x-auto overflow-y-hidden">
+				class="flex min-h-0 min-w-max flex-1 flex-col overflow-hidden transition-all duration-300 {blurredContentClass}">
+				<div class="flex min-h-0 min-w-0 flex-1 flex-nowrap justify-center">
 					{#each projectStore.songs as song, i}
 						<Card
 							title={`${chipProcessors[i].chip.name} - (${i + 1})`}
