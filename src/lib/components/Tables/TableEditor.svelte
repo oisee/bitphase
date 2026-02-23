@@ -4,6 +4,7 @@
 	import IconCarbonDelete from '~icons/carbon/delete';
 	import IconCarbonAdd from '~icons/carbon/add';
 	import Input from '../Input/Input.svelte';
+	import RowResizeHandle from '../RowResizeHandle/RowResizeHandle.svelte';
 	import { settingsStore } from '../../stores/settings.svelte';
 
 	let {
@@ -20,6 +21,7 @@
 
 	const PITCH_VALUES = Array.from({ length: 23 }, (_, i) => i - 11);
 	const SHIFT_VALUES = Array.from({ length: 15 }, (_, i) => i - 7);
+	const MAX_ROWS = 512;
 
 	function ensureNonEmptyRows(rowsArray: number[]): number[] {
 		return rowsArray.length === 0 ? [0] : rowsArray;
@@ -178,6 +180,17 @@
 
 	function addRow() {
 		updateArraysAfterRowChange([...rows, 0]);
+	}
+
+	function setRowCount(targetCount: number) {
+		const count = Math.max(1, Math.min(MAX_ROWS, targetCount));
+		if (count === rows.length) return;
+		if (count > rows.length) {
+			const toAdd = count - rows.length;
+			updateArraysAfterRowChange([...rows, ...Array.from({ length: toAdd }, () => 0)]);
+		} else {
+			updateArraysAfterRowChange(rows.slice(0, count));
+		}
 	}
 
 	function removeRow(index: number) {
@@ -433,6 +446,15 @@
 								</div>
 							</td>
 						{/if}
+					</tr>
+					<tr>
+						<td colspan={showOffsetGrid ? 29 : 4} class="border-t border-[var(--color-app-border)] p-0">
+							<RowResizeHandle
+								rowCount={rows.length}
+								onRowCountChange={setRowCount}
+								rowHeightPx={32}
+								maxRows={MAX_ROWS} />
+						</td>
 					</tr>
 				</tfoot>
 			</table>

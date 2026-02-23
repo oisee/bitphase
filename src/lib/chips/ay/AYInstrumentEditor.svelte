@@ -6,6 +6,7 @@
 	import IconCarbonVolumeUp from '~icons/carbon/volume-up';
 	import IconCarbonArrowsVertical from '~icons/carbon/arrows-vertical';
 	import IconCarbonChartWinLoss from '~icons/carbon/chart-win-loss';
+	import RowResizeHandle from '../../components/RowResizeHandle/RowResizeHandle.svelte';
 	import IconCarbonWaveform from '~icons/carbon/waveform';
 	import IconCarbonActivity from '~icons/carbon/activity';
 	import IconCarbonRepeat from '~icons/carbon/repeat';
@@ -46,9 +47,6 @@
 	const MAX_ROWS = 512;
 
 	let isDragging = $state(false);
-	let isResizingRows = $state(false);
-	let resizeStartY = $state(0);
-	let resizeStartCount = $state(0);
 	let dragType:
 		| 'volume'
 		| 'tone'
@@ -316,26 +314,6 @@
 		}
 	}
 
-	function beginRowResize(e: MouseEvent) {
-		e.preventDefault();
-		isResizingRows = true;
-		resizeStartY = e.clientY;
-		resizeStartCount = rows.length;
-	}
-
-	function handleRowResizeMove(e: MouseEvent) {
-		if (!isResizingRows) return;
-		const rowHeightPx = isExpanded ? 32 : 28;
-		const deltaY = e.clientY - resizeStartY;
-		const deltaRows = Math.round(deltaY / rowHeightPx);
-		const targetCount = Math.max(1, Math.min(MAX_ROWS, resizeStartCount + deltaRows));
-		setRowCount(targetCount);
-	}
-
-	function endRowResize() {
-		isResizingRows = false;
-	}
-
 	function removeRow(index: number) {
 		if (rows.length === 1) return;
 		updateArraysAfterRowChange(rows.filter((_, i) => i !== index));
@@ -415,17 +393,6 @@
 		return () => window.removeEventListener('mouseup', stop);
 	});
 
-	$effect(() => {
-		if (!isResizingRows) return;
-		const onMove = (e: MouseEvent) => handleRowResizeMove(e);
-		const onUp = () => endRowResize();
-		window.addEventListener('mousemove', onMove);
-		window.addEventListener('mouseup', onUp);
-		return () => {
-			window.removeEventListener('mousemove', onMove);
-			window.removeEventListener('mouseup', onUp);
-		};
-	});
 </script>
 
 {#snippet volumeCell(index: number, value: number, isSelected: boolean)}
@@ -869,23 +836,11 @@
 						</tr>
 						<tr>
 							<td colspan="16" class="border-t border-[var(--color-app-border)] p-0">
-								<div
-									class="flex cursor-ns-resize items-center justify-center gap-1 py-1 text-[var(--color-app-text-muted)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-[var(--color-app-text-secondary)] {isResizingRows
-										? 'bg-[var(--color-app-surface-hover)]'
-										: ''}"
-									role="button"
-									tabindex="0"
-									aria-label="Drag to add or remove rows"
-									title="Drag to add or remove rows"
-									onmousedown={beginRowResize}
-									onkeydown={(e) => {
-										if (e.key === 'Enter' || e.key === ' ') {
-											e.preventDefault();
-										}
-									}}>
-									<IconCarbonArrowsVertical class="h-3 w-3" />
-									<span class="text-[0.65rem]">{rows.length} rows</span>
-								</div>
+								<RowResizeHandle
+									rowCount={rows.length}
+									onRowCountChange={setRowCount}
+									rowHeightPx={isExpanded ? 32 : 28}
+									maxRows={MAX_ROWS} />
 							</td>
 						</tr>
 					</tfoot>
