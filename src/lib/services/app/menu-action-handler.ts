@@ -49,12 +49,12 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
 			const patternEditor = ctx.getPatternEditor();
 
 			if (data.action === 'undo') {
-				undoRedoStore.undo();
+				if (!ctx.playbackStore.isPlaying) undoRedoStore.undo();
 				return;
 			}
 
 			if (data.action === 'redo') {
-				undoRedoStore.redo();
+				if (!ctx.playbackStore.isPlaying) undoRedoStore.redo();
 				return;
 			}
 

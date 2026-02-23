@@ -3,7 +3,8 @@
 	import type {
 		ChipProcessor,
 		TuningTableSupport,
-		InstrumentSupport
+		InstrumentSupport,
+		VirtualChannelSupport
 	} from '../../chips/base/processor';
 	import type { AudioService } from '../../services/audio/audio-service';
 	import Card from '../Card/Card.svelte';
@@ -180,6 +181,15 @@
 			const currentPattern = songPatterns.find((p) => p.id === patternId);
 			if (!currentPattern) return;
 
+			const withVirtual = chipProcessor as ChipProcessor & Partial<VirtualChannelSupport>;
+			if (withVirtual.sendVirtualChannelConfig) {
+				const hwLabels = chipProcessor.chip?.schema?.channelLabels ?? ['A', 'B', 'C'];
+				withVirtual.sendVirtualChannelConfig(
+					song.virtualChannelMap ?? {},
+					hwLabels.length
+				);
+			}
+
 			chipProcessor.sendInitPattern(currentPattern, patternOrderIndexForInit);
 			chipProcessor.sendInitTables(projectStore.tables);
 
@@ -341,14 +351,14 @@
 				</Card>
 			</div>
 			<div
-				class="flex flex-1 flex-col justify-center overflow-hidden transition-all duration-300 {blurredContentClass}">
-				<div class="flex flex-1 justify-center overflow-hidden">
+				class="flex min-w-0 flex-1 flex-col overflow-hidden transition-all duration-300 {blurredContentClass}">
+				<div class="flex min-h-0 min-w-0 flex-1 flex-nowrap justify-center overflow-x-auto overflow-y-hidden">
 					{#each projectStore.songs as song, i}
 						<Card
 							title={`${chipProcessors[i].chip.name} - (${i + 1})`}
 							fullHeight={true}
 							icon={IconCarbonChip}
-							class="flex flex-col p-0">
+							class="flex shrink-0 flex-col p-0">
 							{#snippet headerContent()}
 								<div class="flex items-center gap-1">
 									<div

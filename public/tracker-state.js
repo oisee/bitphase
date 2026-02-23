@@ -1,6 +1,45 @@
 const DEFAULT_SONG_HZ = 50;
 const DEFAULT_SPEED = 3;
 
+const CHANNEL_ARRAY_SPECS = [
+	['channelPatternVolumes', 15],
+	['channelTables', -1],
+	['tablePositions', 0],
+	['tableCounters', 0],
+	['channelBaseNotes', 0],
+	['channelCurrentNotes', 0],
+	['channelToneSliding', 0],
+	['channelVibratoSliding', 0],
+	['channelSlideStep', 0],
+	['channelSlideDelay', 0],
+	['channelSlideCount', 0],
+	['channelPreviousNotes', 0],
+	['channelPortamentoTarget', -1],
+	['channelPortamentoDelta', 0],
+	['channelPortamentoActive', false],
+	['channelPortamentoDelay', 0],
+	['channelPortamentoCount', 0],
+	['channelOnDuration', 0],
+	['channelOffDuration', 0],
+	['channelOnOffCounter', 0],
+	['channelArpeggioSemitone1', 0],
+	['channelArpeggioSemitone2', 0],
+	['channelArpeggioDelay', 0],
+	['channelArpeggioCounter', 0],
+	['channelArpeggioPosition', 0],
+	['channelVibratoSpeed', 0],
+	['channelVibratoDepth', 0],
+	['channelVibratoDelay', 0],
+	['channelVibratoCounter', 0],
+	['channelVibratoPosition', 0],
+	['channelDetune', 0],
+	['channelEffectTables', -1],
+	['channelEffectTablePositions', 0],
+	['channelEffectTableCounters', 0],
+	['channelEffectTableDelays', 1],
+	['channelEffectTypes', 0]
+];
+
 class TrackerState {
 	constructor(channelCount = 3) {
 		this.currentPattern = null;
@@ -18,49 +57,23 @@ class TrackerState {
 		this.currentTick = 0;
 		this.currentSpeed = DEFAULT_SPEED;
 
-		this.channelPatternVolumes = Array(channelCount).fill(15);
+		for (const [name, defaultVal] of CHANNEL_ARRAY_SPECS) {
+			this[name] = Array(channelCount).fill(defaultVal);
+		}
 
 		this.tables = [];
 		this.tablesById = {};
-		this.channelTables = Array(channelCount).fill(-1);
-		this.tablePositions = Array(channelCount).fill(0);
-		this.tableCounters = Array(channelCount).fill(0);
-		this.channelBaseNotes = Array(channelCount).fill(0);
-		this.channelCurrentNotes = Array(channelCount).fill(0);
-		this.channelToneSliding = Array(channelCount).fill(0);
-		this.channelVibratoSliding = Array(channelCount).fill(0);
-		this.channelSlideStep = Array(channelCount).fill(0);
-		this.channelSlideDelay = Array(channelCount).fill(0);
-		this.channelSlideCount = Array(channelCount).fill(0);
-		this.channelPreviousNotes = Array(channelCount).fill(0);
-		this.channelPortamentoTarget = Array(channelCount).fill(-1);
-		this.channelPortamentoDelta = Array(channelCount).fill(0);
-		this.channelPortamentoActive = Array(channelCount).fill(false);
-		this.channelPortamentoDelay = Array(channelCount).fill(0);
-		this.channelPortamentoCount = Array(channelCount).fill(0);
-		this.channelOnDuration = Array(channelCount).fill(0);
-		this.channelOffDuration = Array(channelCount).fill(0);
-		this.channelOnOffCounter = Array(channelCount).fill(0);
-		this.channelArpeggioSemitone1 = Array(channelCount).fill(0);
-		this.channelArpeggioSemitone2 = Array(channelCount).fill(0);
-		this.channelArpeggioDelay = Array(channelCount).fill(0);
-		this.channelArpeggioCounter = Array(channelCount).fill(0);
-		this.channelArpeggioPosition = Array(channelCount).fill(0);
-		this.channelVibratoSpeed = Array(channelCount).fill(0);
-		this.channelVibratoDepth = Array(channelCount).fill(0);
-		this.channelVibratoDelay = Array(channelCount).fill(0);
-		this.channelVibratoCounter = Array(channelCount).fill(0);
-		this.channelVibratoPosition = Array(channelCount).fill(0);
-		this.channelDetune = Array(channelCount).fill(0);
-
-		this.channelEffectTables = Array(channelCount).fill(-1);
-		this.channelEffectTablePositions = Array(channelCount).fill(0);
-		this.channelEffectTableCounters = Array(channelCount).fill(0);
-		this.channelEffectTableDelays = Array(channelCount).fill(1);
-		this.channelEffectTypes = Array(channelCount).fill(0);
 
 		this.speedTable = -1;
 		this.speedTablePosition = 0;
+	}
+
+	resizeChannels(newCount) {
+		for (const [name, defaultVal] of CHANNEL_ARRAY_SPECS) {
+			const arr = this[name];
+			while (arr.length < newCount) arr.push(defaultVal);
+			if (arr.length > newCount) arr.length = newCount;
+		}
 	}
 
 	reset() {
@@ -69,43 +82,10 @@ class TrackerState {
 		this.currentRow = 0;
 		this.currentTick = 0;
 		this.currentSpeed = DEFAULT_SPEED;
-		this.channelPatternVolumes.fill(15);
-		this.channelTables.fill(-1);
-		this.tablePositions.fill(0);
-		this.tableCounters.fill(0);
-		this.channelBaseNotes.fill(0);
-		this.channelCurrentNotes.fill(0);
-		this.channelToneSliding.fill(0);
-		this.channelVibratoSliding.fill(0);
-		this.channelSlideStep.fill(0);
-		this.channelSlideDelay.fill(0);
-		this.channelSlideCount.fill(0);
-		this.channelPreviousNotes.fill(0);
-		this.channelPortamentoTarget.fill(-1);
-		this.channelPortamentoDelta.fill(0);
-		this.channelPortamentoActive.fill(false);
-		this.channelPortamentoDelay.fill(0);
-		this.channelPortamentoCount.fill(0);
-		this.channelOnDuration.fill(0);
-		this.channelOffDuration.fill(0);
-		this.channelOnOffCounter.fill(0);
-		this.channelArpeggioSemitone1.fill(0);
-		this.channelArpeggioSemitone2.fill(0);
-		this.channelArpeggioDelay.fill(0);
-		this.channelArpeggioCounter.fill(0);
-		this.channelArpeggioPosition.fill(0);
-		this.channelVibratoSpeed.fill(0);
-		this.channelVibratoDepth.fill(0);
-		this.channelVibratoDelay.fill(0);
-		this.channelVibratoCounter.fill(0);
-		this.channelVibratoPosition.fill(0);
-		this.channelDetune.fill(0);
 
-		this.channelEffectTables.fill(-1);
-		this.channelEffectTablePositions.fill(0);
-		this.channelEffectTableCounters.fill(0);
-		this.channelEffectTableDelays.fill(1);
-		this.channelEffectTypes.fill(0);
+		for (const [name, defaultVal] of CHANNEL_ARRAY_SPECS) {
+			this[name].fill(defaultVal);
+		}
 
 		this.speedTable = -1;
 		this.speedTablePosition = 0;
@@ -125,7 +105,6 @@ class TrackerState {
 		if (orderIndex !== undefined) {
 			this.currentPatternOrderIndex = orderIndex;
 		}
-		// Ensure current row is within valid bounds for the new pattern
 		if (this.currentPattern && this.currentRow >= this.currentPattern.length) {
 			this.currentRow = Math.max(0, this.currentPattern.length - 1);
 		}

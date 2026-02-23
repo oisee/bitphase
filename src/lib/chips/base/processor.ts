@@ -54,3 +54,10 @@ export interface PreviewNoteSupport {
 	playPreviewRow(pattern: Pattern, rowIndex: number, instrument?: Instrument): void;
 	stopPreviewNote(channel?: number): void;
 }
+
+export interface VirtualChannelSupport {
+	sendVirtualChannelConfig(
+		virtualChannelMap: Record<number, number>,
+		hwChannelCount: number
+	): void;
+}

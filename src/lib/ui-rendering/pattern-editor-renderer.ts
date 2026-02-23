@@ -3,6 +3,7 @@ import type { Chip } from '../chips/types';
 import { BaseCanvasRenderer, type BaseRenderOptions } from './base-canvas-renderer';
 import { PatternTemplateParser } from '../services/pattern/editing/pattern-template-parsing';
 import type { getColors } from '../utils/colors';
+import type { VirtualChannelGroup } from '../models/virtual-channels';
 
 export interface PatternEditorRenderOptions extends Omit<BaseRenderOptions, 'colors'> {
 	colors: ReturnType<typeof getColors>;
@@ -28,6 +29,7 @@ export interface ChannelLabelData {
 	rowString: string;
 	channelLabels: string[];
 	channelMuted: boolean[];
+	virtualChannelGroups?: VirtualChannelGroup[];
 }
 
 export class PatternEditorRenderer extends BaseCanvasRenderer {
@@ -78,65 +80,201 @@ export class PatternEditorRenderer extends BaseCanvasRenderer {
 		}
 
 		const separatorMargin = 4;
+		const hasVirtualGroups =
+			data.virtualChannelGroups && data.virtualChannelGroups.some((g) => g.virtualChannelIndices.length > 1);
 
-		for (let i = 0; i < data.channelLabels.length && i < channelPositions.length; i++) {
-			const label = `Channel ${data.channelLabels[i]}`;
-			const channelStart = channelPositions[i];
-			const channelEnd =
-				i < channelPositions.length - 1 ? channelPositions[i + 1] : this.canvasWidth;
-			const buttonX = Math.max(0, channelStart - separatorMargin);
-			const buttonEnd =
-				i < channelPositions.length - 1 ? channelEnd - separatorMargin : this.canvasWidth;
-			const buttonWidth = buttonEnd - buttonX;
-			const buttonHeight = this.lineHeight - 4;
-			const buttonY = (this.lineHeight - buttonHeight) / 2;
-			const labelWidth = this.measureText(label);
-			const textX = buttonX + (buttonWidth - labelWidth) / 2;
-			const isMuted = data.channelMuted[i] ?? false;
-			const textColor = isMuted
-				? this.patternColors.patternEmpty
-				: this.patternColors.patternRowNum || this.patternColors.patternText;
-			const borderColor = isMuted
-				? this.patternColors.patternEmpty
-				: this.patternColors.patternCellSelected ||
-					this.patternColors.patternSelected ||
-					this.patternColors.patternText;
-			const bgColor = this.patternColors.patternSelected || this.patternColors.patternBg;
-
-			this.fillRectWithAlpha(buttonX, buttonY, buttonWidth, buttonHeight, bgColor, 0.3);
-
-			this.save();
-			this.ctx.globalAlpha = 0.4;
-			this.strokeRect(buttonX, buttonY, buttonWidth, buttonHeight, borderColor, borderWidth);
-			this.restore();
-
-			this.fillText(label, textX, labelY, textColor);
+		if (hasVirtualGroups && data.virtualChannelGroups) {
+			this.drawVirtualChannelGroupLabels(
+				data,
+				channelPositions,
+				separatorMargin,
+				labelY,
+				borderWidth
+			);
+		} else {
+			for (let i = 0; i < data.channelLabels.length && i < channelPositions.length; i++) {
+				this.drawSingleChannelLabel(
+					`Channel ${data.channelLabels[i]}`,
+					i,
+					channelPositions,
+					separatorMargin,
+					labelY,
+					borderWidth,
+					data.channelMuted[i] ?? false
+				);
+			}
 		}
 
 		this.restore();
 	}
 
-	drawChannelSeparators(rowString: string, canvasHeight: number): void {
+	private drawVirtualChannelGroupLabels(
+		data: ChannelLabelData,
+		channelPositions: number[],
+		separatorMargin: number,
+		labelY: number,
+		borderWidth: number
+	): void {
+		const groups = data.virtualChannelGroups!;
+
+		for (const group of groups) {
+			const indices = group.virtualChannelIndices;
+			const isVirtualGroup = indices.length > 1;
+
+			if (!isVirtualGroup) {
+				const idx = indices[0];
+				if (idx < channelPositions.length) {
+					this.drawSingleChannelLabel(
+						`Channel ${group.hardwareLabel}`,
+						idx,
+						channelPositions,
+						separatorMargin,
+						labelY,
+						borderWidth,
+						data.channelMuted[idx] ?? false
+					);
+				}
+				continue;
+			}
+
+			const firstIdx = indices[0];
+			const lastIdx = indices[indices.length - 1];
+			if (firstIdx >= channelPositions.length) continue;
+
+			for (let vi = 0; vi < indices.length; vi++) {
+				const vchIdx = indices[vi];
+				if (vchIdx >= channelPositions.length) continue;
+				const virtualLabel = group.virtualLabels[vi] ?? '';
+				this.drawSingleChannelLabel(
+					`${group.hardwareLabel}:${virtualLabel.replace(group.hardwareLabel, '')}`,
+					vchIdx,
+					channelPositions,
+					separatorMargin,
+					labelY,
+					borderWidth,
+					data.channelMuted[vchIdx] ?? false
+				);
+			}
+
+			const groupStart = channelPositions[firstIdx];
+			const groupEnd =
+				lastIdx < channelPositions.length - 1
+					? channelPositions[lastIdx + 1]
+					: this.canvasWidth;
+			const groupX = Math.max(0, groupStart - separatorMargin);
+			const groupWidth =
+				(lastIdx < channelPositions.length - 1
+					? groupEnd - separatorMargin
+					: this.canvasWidth) - groupX;
+			const groupBorderColor =
+				this.patternColors.patternCellSelected ||
+				this.patternColors.patternSelected ||
+				this.patternColors.patternText;
+
+			this.save();
+			this.ctx.globalAlpha = 0.6;
+			this.ctx.lineWidth = 2;
+			this.ctx.strokeStyle = groupBorderColor;
+			const buttonHeight = this.lineHeight - 4;
+			const buttonY = (this.lineHeight - buttonHeight) / 2;
+			this.ctx.strokeRect(groupX, buttonY, groupWidth, buttonHeight);
+			this.restore();
+		}
+	}
+
+	private drawSingleChannelLabel(
+		label: string,
+		index: number,
+		channelPositions: number[],
+		separatorMargin: number,
+		labelY: number,
+		borderWidth: number,
+		isMuted: boolean
+	): void {
+		const channelStart = channelPositions[index];
+		const channelEnd =
+			index < channelPositions.length - 1
+				? channelPositions[index + 1]
+				: this.canvasWidth;
+		const buttonX = Math.max(0, channelStart - separatorMargin);
+		const buttonEnd =
+			index < channelPositions.length - 1
+				? channelEnd - separatorMargin
+				: this.canvasWidth;
+		const buttonWidth = buttonEnd - buttonX;
+		const buttonHeight = this.lineHeight - 4;
+		const buttonY = (this.lineHeight - buttonHeight) / 2;
+		const labelWidth = this.measureText(label);
+		const textX = buttonX + (buttonWidth - labelWidth) / 2;
+		const textColor = isMuted
+			? this.patternColors.patternEmpty
+			: this.patternColors.patternRowNum || this.patternColors.patternText;
+		const borderColor = isMuted
+			? this.patternColors.patternEmpty
+			: this.patternColors.patternCellSelected ||
+				this.patternColors.patternSelected ||
+				this.patternColors.patternText;
+		const bgColor = this.patternColors.patternSelected || this.patternColors.patternBg;
+
+		this.fillRectWithAlpha(buttonX, buttonY, buttonWidth, buttonHeight, bgColor, 0.3);
+
+		this.save();
+		this.ctx.globalAlpha = 0.4;
+		this.strokeRect(buttonX, buttonY, buttonWidth, buttonHeight, borderColor, borderWidth);
+		this.restore();
+
+		this.fillText(label, textX, labelY, textColor);
+	}
+
+	drawChannelSeparators(
+		rowString: string,
+		canvasHeight: number,
+		virtualChannelGroups?: VirtualChannelGroup[]
+	): void {
 		const channelPositions = this.calculateChannelPositions(rowString);
 
 		if (channelPositions.length === 0 || this.channelSeparatorWidth <= 0) return;
 
+		const groupBoundaryIndices = new Set<number>();
+		if (virtualChannelGroups) {
+			for (const group of virtualChannelGroups) {
+				if (group.virtualChannelIndices.length > 0) {
+					groupBoundaryIndices.add(group.virtualChannelIndices[0]);
+				}
+			}
+		}
+
+		const hasVirtualGroups =
+			virtualChannelGroups && virtualChannelGroups.some((g) => g.virtualChannelIndices.length > 1);
+
 		this.save();
-		this.ctx.strokeStyle =
-			this.patternColors.patternChannelSeparator || this.patternColors.patternEmpty;
-		this.ctx.lineWidth = this.channelSeparatorWidth;
 
 		const margin = 4;
 		const startY = this.lineHeight;
 
 		for (let i = 0; i < channelPositions.length; i++) {
 			const x = Math.floor(channelPositions[i] - margin) + 0.5;
+			const isGroupBoundary = groupBoundaryIndices.has(i);
+
+			if (hasVirtualGroups && !isGroupBoundary) {
+				this.ctx.strokeStyle =
+					this.patternColors.patternChannelSeparator || this.patternColors.patternEmpty;
+				this.ctx.lineWidth = Math.max(1, this.channelSeparatorWidth - 1);
+				this.ctx.setLineDash([4, 4]);
+			} else {
+				this.ctx.strokeStyle =
+					this.patternColors.patternChannelSeparator || this.patternColors.patternEmpty;
+				this.ctx.lineWidth = this.channelSeparatorWidth;
+				this.ctx.setLineDash([]);
+			}
+
 			this.beginPath();
 			this.moveTo(x, startY);
 			this.lineTo(x, canvasHeight);
 			this.stroke();
 		}
 
+		this.ctx.setLineDash([]);
 		this.restore();
 	}
 

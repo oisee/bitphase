@@ -30,7 +30,10 @@
 	import { Cache } from '../../utils/memoize';
 	import { channelMuteStore } from '../../stores/channel-mute.svelte';
 	import { PatternFieldDetection } from '../../services/pattern/editing/pattern-field-detection';
-	import { PatternValueUpdates } from '../../services/pattern/editing/pattern-value-updates';
+	import {
+		PatternValueUpdates,
+		type GenericFieldUpdate
+	} from '../../services/pattern/editing/pattern-value-updates';
 	import { PatternDeleteHandler } from '../../services/pattern/editing/pattern-delete-handler';
 	import { EffectField } from '../../services/pattern/editing/effect-field';
 	import { undoRedoStore } from '../../stores/undo-redo.svelte';
@@ -38,7 +41,9 @@
 	import {
 		PatternFieldEditAction,
 		BulkPatternEditAction,
+		VirtualChannelAction,
 		type PatternEditContext,
+		type VirtualChannelEditContext,
 		type CursorPosition
 	} from '../../models/actions';
 	import {
@@ -80,6 +85,13 @@
 		computeStateHorizon,
 		buildCatchUpSegmentsToHorizon
 	} from '../../services/audio/play-from-position';
+	import {
+		getVirtualChannelGroups,
+		getHardwareChannelIndex,
+		computeEffectiveChannelLabels
+	} from '../../models/virtual-channels';
+	import { VirtualChannelService } from '../../services/pattern/virtual-channel-service';
+	import { AYProcessor } from '../../chips/ay/processor';
 
 	let {
 		songIndex,
@@ -125,6 +137,9 @@
 	}
 
 	let contextMenuPosition = $state<{ x: number; y: number } | null>(null);
+	let channelContextMenuPosition = $state<{ x: number; y: number } | null>(null);
+	let channelContextMenuHwIndex = $state<number>(-1);
+	let channelContextMenuVirtualIndex = $state<number>(-1);
 
 	const services: { audioService: AudioService } = getContext('container');
 
@@ -357,6 +372,33 @@
 			getCursorPosition()
 		);
 		undoRedoStore.pushAction(action);
+	}
+
+	function refreshAfterVirtualChannelChange(): void {
+		sendVirtualChannelConfigToProcessor();
+		clearAllCaches();
+		updateSize();
+		setupCanvas();
+		draw();
+	}
+
+	function createVirtualChannelEditContext(): VirtualChannelEditContext {
+		const song = projectStore.songs[songIndex];
+		return {
+			patterns,
+			song: song!,
+			updatePatterns: (newPatterns: Pattern[]) => {
+				updatePatterns(newPatterns);
+				lastDrawnPatternLength = -1;
+				lastVisibleRowsCache = null;
+			},
+			setCursor: (position: CursorPosition) => {
+				selectedRow = position.row;
+				selectedColumn = position.column;
+				currentPatternOrderIndex = position.patternOrderIndex;
+			},
+			onVirtualChannelChange: refreshAfterVirtualChannelChange
+		};
 	}
 
 	function recordBulkPatternEdit(oldPattern: Pattern, newPattern: Pattern): void {
@@ -813,6 +855,7 @@
 	}
 
 	function initPlayback() {
+		sendVirtualChannelConfigToProcessor();
 		chipProcessor.sendInitPattern(currentPattern, currentPatternOrderIndex);
 		chipProcessor.sendInitSpeed(speed);
 
@@ -1100,16 +1143,22 @@
 			if (rowToUse !== null && rowToUse >= 0 && rowToUse < patternToDraw.length) {
 				const rowString = getPatternRowData(patternToDraw, rowToUse);
 
-				renderer.drawChannelSeparators(rowString, canvasHeight);
+				const song = projectStore.songs[songIndex];
+				const vcGroups = song ? getVirtualChannelGroups(
+					schema.channelLabels ?? ['A', 'B', 'C'],
+					song.virtualChannelMap ?? {}
+				) : undefined;
 
-				const channelLabels =
-					schema.channelLabels || patternToDraw.channels.map((ch) => ch.label);
+				renderer.drawChannelSeparators(rowString, canvasHeight, vcGroups);
+
+				const channelLabels = patternToDraw.channels.map((ch) => ch.label);
 				const channelMuted = getCachedChannelMuted(patternToDraw);
 
 				renderer.drawChannelLabels({
 					rowString,
 					channelLabels,
-					channelMuted
+					channelMuted,
+					virtualChannelGroups: vcGroups
 				});
 			}
 		}
@@ -1205,8 +1254,8 @@
 			currentPatternOrderIndex,
 			pattern,
 			hasSelection,
-			onUndo: () => undoRedoStore.undo(),
-			onRedo: () => undoRedoStore.redo(),
+			onUndo: () => { if (!playbackStore.isPlaying) undoRedoStore.undo(); },
+			onRedo: () => { if (!playbackStore.isPlaying) undoRedoStore.redo(); },
 			onCopy: copySelection,
 			onCut: cutSelection,
 			onPaste: pasteSelection,
@@ -1697,6 +1746,45 @@
 
 	function handleContextMenu(event: MouseEvent): void {
 		event.preventDefault();
+
+		if (!canvas || !renderer) {
+			contextMenuPosition = { x: event.clientX, y: event.clientY };
+			return;
+		}
+
+		const rect = canvas.getBoundingClientRect();
+		const y = event.clientY - rect.top;
+		const x = event.clientX - rect.left;
+
+		if (y <= lineHeight && currentPattern) {
+			const patternToRender = findOrCreatePattern(currentPattern.id);
+			const visibleRows = getVisibleRows(currentPattern);
+			const firstVisibleRow = visibleRows.find((r) => !r.isEmpty);
+			if (firstVisibleRow && firstVisibleRow.rowIndex >= 0 && firstVisibleRow.rowIndex < patternToRender.length) {
+				const rowString = getPatternRowData(patternToRender, firstVisibleRow.rowIndex);
+				const channelPositions = renderer.calculateChannelPositions(rowString);
+				const song = projectStore.songs[songIndex];
+				const hwLabels = schema.channelLabels ?? ['A', 'B', 'C'];
+
+				for (let i = 0; i < channelPositions.length; i++) {
+					const channelStart = channelPositions[i];
+					const channelEnd =
+						i < channelPositions.length - 1 ? channelPositions[i + 1] : canvasWidth;
+					if (x >= channelStart && x < channelEnd) {
+						const hwIndex = getHardwareChannelIndex(
+							i,
+							hwLabels,
+							song?.virtualChannelMap ?? {}
+						);
+						channelContextMenuHwIndex = hwIndex;
+						channelContextMenuVirtualIndex = i;
+						channelContextMenuPosition = { x: event.clientX, y: event.clientY };
+						return;
+					}
+				}
+			}
+		}
+
 		contextMenuPosition = { x: event.clientX, y: event.clientY };
 	}
 
@@ -1704,9 +1792,94 @@
 		contextMenuPosition = null;
 	}
 
+	function closeChannelContextMenu(): void {
+		channelContextMenuPosition = null;
+	}
+
 	function handleContextMenuAction(data: { action: string }): void {
 		closeContextMenu();
 		onaction?.(data);
+	}
+
+	function applyVirtualChannelChange(
+		result: { updatedMap: Record<number, number>; updatedPatterns: Pattern[] }
+	): void {
+		const song = projectStore.songs[songIndex]!;
+		const oldMap = { ...song.virtualChannelMap };
+		const oldPatterns = patterns;
+
+		song.virtualChannelMap = result.updatedMap;
+		updatePatterns(result.updatedPatterns);
+
+		const action = new VirtualChannelAction(
+			createVirtualChannelEditContext(),
+			oldPatterns,
+			result.updatedPatterns,
+			oldMap,
+			result.updatedMap,
+			getCursorPosition()
+		);
+		undoRedoStore.pushAction(action);
+
+		refreshAfterVirtualChannelChange();
+	}
+
+	function handleChannelContextMenuAction(data: { action: string }): void {
+		closeChannelContextMenu();
+		if (playbackStore.isPlaying) return;
+		const song = projectStore.songs[songIndex];
+		if (!song) return;
+
+		const hwIndex = channelContextMenuHwIndex;
+
+		if (data.action === 'add_virtual_channel') {
+			applyVirtualChannelChange(
+				VirtualChannelService.addVirtualChannel(song, hwIndex, patterns)
+			);
+		} else if (data.action === 'remove_virtual_channel') {
+			const result = VirtualChannelService.removeVirtualChannel(
+				song, hwIndex, patterns, channelContextMenuVirtualIndex
+			);
+			if (result) {
+				applyVirtualChannelChange(result);
+			}
+		}
+	}
+
+	function getChannelContextMenuItems(): import('../../components/Menu/types').MenuItem[] {
+		const song = projectStore.songs[songIndex];
+		const hwLabels = schema.channelLabels ?? ['A', 'B', 'C'];
+		const hwIndex = channelContextMenuHwIndex;
+		const currentCount = song?.virtualChannelMap?.[hwIndex] ?? 1;
+		const hwLabel = hwLabels[hwIndex] ?? '?';
+		const effectiveLabels = computeEffectiveChannelLabels(hwLabels, song?.virtualChannelMap ?? {});
+		const clickedLabel = effectiveLabels[channelContextMenuVirtualIndex] ?? hwLabel;
+		const isPlaying = playbackStore.isPlaying;
+
+		return [
+			{
+				label: `Add virtual channel to ${hwLabel}`,
+				action: 'add_virtual_channel',
+				disabled: isPlaying
+			},
+			{
+				label: `Remove virtual channel ${clickedLabel}`,
+				action: 'remove_virtual_channel',
+				disabled: currentCount <= 1 || isPlaying
+			}
+		];
+	}
+
+	function sendVirtualChannelConfigToProcessor(): void {
+		const song = projectStore.songs[songIndex];
+		if (!song) return;
+		const hwLabels = schema.channelLabels ?? ['A', 'B', 'C'];
+		if (chipProcessor && 'sendVirtualChannelConfig' in chipProcessor) {
+			(chipProcessor as AYProcessor).sendVirtualChannelConfig(
+				song.virtualChannelMap,
+				hwLabels.length
+			);
+		}
 	}
 
 	function createClipboardContext(): ClipboardContext {
@@ -2030,42 +2203,8 @@
 
 			const { minRow, maxRow, minCol, maxCol } = bounds;
 
-			// First pass: check if selection contains any notes
 			let hasNotes = false;
-			for (let row = minRow; row <= maxRow && row < pattern.length; row++) {
-				const rowString = getPatternRowData(pattern, row);
-				const cellPositions = getCellPositions(rowString, row);
-				const segments = textParser ? textParser.parseRowString(rowString, row) : undefined;
-
-				for (let col = minCol; col <= maxCol && col < cellPositions.length; col++) {
-					const cell = cellPositions[col];
-					if (!cell.fieldKey) continue;
-
-					const fieldInfo = PatternFieldDetection.detectFieldAtCursor({
-						pattern,
-						selectedRow: row,
-						selectedColumn: col,
-						cellPositions,
-						segments,
-						converter,
-						formatter,
-						schema
-					});
-					if (fieldInfo && fieldInfo.fieldType === 'note') {
-						hasNotes = true;
-						break;
-					}
-				}
-				if (hasNotes) break;
-			}
-
-			// Second pass: collect cells to update based on whether selection has notes
-			const cellsToUpdate: Array<{
-				row: number;
-				col: number;
-				fieldInfo: any;
-				currentValue: string | number | null;
-			}> = [];
+			const cellsToUpdate: Array<{ row: number; col: number; fieldInfo: any }> = [];
 
 			for (let row = minRow; row <= maxRow && row < pattern.length; row++) {
 				const rowString = getPatternRowData(pattern, row);
@@ -2088,45 +2227,63 @@
 					});
 					if (!fieldInfo) continue;
 
-					const currentValue = PatternValueUpdates.getFieldValue(
-						{
-							pattern,
-							selectedRow: row,
-							selectedColumn: col,
-							cellPositions,
-							segments,
-							converter,
-							formatter,
-							schema
-						},
-						fieldInfo
-					);
+					if (fieldInfo.fieldType === 'note') {
+						hasNotes = true;
+					}
 
-					// If selection has notes, only include notes; otherwise include all compatible fields
-					const shouldInclude = hasNotes
-						? fieldInfo.fieldType === 'note'
-						: fieldInfo.fieldType === 'note' ||
-							fieldInfo.fieldType === 'hex' ||
-							fieldInfo.fieldType === 'dec' ||
-							fieldInfo.fieldType === 'symbol';
+					const shouldInclude =
+						fieldInfo.fieldType === 'note' ||
+						fieldInfo.fieldType === 'hex' ||
+						fieldInfo.fieldType === 'dec' ||
+						fieldInfo.fieldType === 'symbol';
 
 					if (shouldInclude) {
-						cellsToUpdate.push({ row, col, fieldInfo, currentValue });
+						cellsToUpdate.push({ row, col, fieldInfo });
 					}
 				}
 			}
 
-			for (const { row, col, fieldInfo, currentValue } of cellsToUpdate) {
-				pattern = updateFieldAtPosition(
-					pattern,
+			const filteredCells = hasNotes
+				? cellsToUpdate.filter((c) => c.fieldInfo.fieldType === 'note')
+				: cellsToUpdate;
+
+			const genericPattern = converter.toGeneric(pattern);
+			const updates: GenericFieldUpdate[] = [];
+
+			for (const { row, col, fieldInfo } of filteredCells) {
+				const currentValue = PatternValueUpdates.getValueFromGeneric(
+					genericPattern,
 					row,
-					col,
+					fieldInfo
+				);
+				const fieldDefinition = PatternValueUpdates.getFieldDefinition(
+					{
+						pattern,
+						selectedRow: row,
+						selectedColumn: col,
+						cellPositions: [],
+						converter,
+						formatter,
+						schema
+					},
+					fieldInfo.fieldKey
+				);
+				const newValue = PatternValueUpdates.computeIncrementValue(
 					fieldInfo,
 					currentValue,
 					delta,
-					isOctaveIncrement
+					isOctaveIncrement,
+					fieldDefinition,
+					tuningTable,
+					editorStateStore.envelopeAsNote
 				);
+				if (newValue !== null) {
+					updates.push({ row, fieldInfo, newValue });
+				}
 			}
+
+			PatternValueUpdates.applyUpdatesToGeneric(genericPattern, updates);
+			pattern = converter.fromGeneric(genericPattern);
 
 			recordBulkPatternEdit(originalPattern, pattern);
 			updatePatternInArray(pattern);
@@ -2239,12 +2396,14 @@
 	let lastFontSize = -1;
 	let lastFontFamily = '';
 	let lastChannelSeparatorWidth = -1;
+	let lastChannelCount = -1;
 	let needsSetup = true;
 
 	$effect(() => {
 		if (!canvas) return;
 
 		const currentPatternLength = currentPattern?.length ?? -1;
+		const currentChannelCount = currentPattern?.channels?.length ?? -1;
 		const fontSizeChanged = fontSize !== lastFontSize;
 		const fontFamilyChanged = fontFamily !== lastFontFamily;
 		const channelSeparatorWidthChanged = channelSeparatorWidth !== lastChannelSeparatorWidth;
@@ -2264,6 +2423,7 @@
 			lastFontSize = fontSize;
 			lastFontFamily = fontFamily;
 			lastChannelSeparatorWidth = channelSeparatorWidth;
+			lastChannelCount = currentChannelCount;
 			requestAnimationFrame(() => {
 				if (ctx && canvas && !document.hidden) {
 					updateSize();
@@ -2288,6 +2448,7 @@
 
 		const patternChanged = currentPattern !== undefined;
 		const patternLengthChanged = currentPatternLength !== lastDrawnPatternLength;
+		const channelCountChanged = currentChannelCount !== lastChannelCount;
 		const sizeChanged = canvasWidth !== lastCanvasWidth || canvasHeight !== lastCanvasHeight;
 		const rowChanged = selectedRow !== lastDrawnRow;
 		const orderChanged =
@@ -2295,14 +2456,19 @@
 			patternOrder.length !== lastPatternOrderLength ||
 			patterns.length !== lastPatternsLength;
 
-		if (sizeChanged) {
+		if (sizeChanged || channelCountChanged) {
+			clearAllCaches();
 			updateSize();
 			setupCanvas();
 			lastCanvasWidth = canvasWidth;
 			lastCanvasHeight = canvasHeight;
+			if (channelCountChanged) {
+				lastChannelCount = currentChannelCount;
+				sendVirtualChannelConfigToProcessor();
+			}
 		}
 
-		if (rowChanged || orderChanged || patternChanged || patternLengthChanged || sizeChanged) {
+		if (rowChanged || orderChanged || patternChanged || patternLengthChanged || sizeChanged || channelCountChanged) {
 			if (fontReady && !document.hidden) draw();
 			lastDrawnRow = selectedRow;
 			lastDrawnOrderIndex = currentPatternOrderIndex;
@@ -2554,5 +2720,11 @@
 			items={editMenuItems}
 			onAction={handleContextMenuAction}
 			onClose={closeContextMenu} />
+
+		<ContextMenu
+			position={channelContextMenuPosition}
+			items={getChannelContextMenuItems()}
+			onAction={handleChannelContextMenuAction}
+			onClose={closeChannelContextMenu} />
 	</div>
 </div>

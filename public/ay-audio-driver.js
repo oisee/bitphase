@@ -3,12 +3,20 @@ import EffectAlgorithms from './effect-algorithms.js';
 import { PT3VolumeTable } from './pt3-volume-table.js';
 
 class AYAudioDriver {
-	constructor() {
-		this.channelMixerState = [
-			{ tone: true, noise: true, envelope: false },
-			{ tone: true, noise: true, envelope: false },
-			{ tone: true, noise: true, envelope: false }
-		];
+	constructor(channelCount = 3) {
+		this.channelMixerState = [];
+		for (let i = 0; i < channelCount; i++) {
+			this.channelMixerState.push({ tone: true, noise: true, envelope: false });
+		}
+	}
+
+	resizeChannels(newCount) {
+		while (this.channelMixerState.length < newCount) {
+			this.channelMixerState.push({ tone: true, noise: true, envelope: false });
+		}
+		if (this.channelMixerState.length > newCount) {
+			this.channelMixerState.length = newCount;
+		}
 	}
 
 	calculateVolume(

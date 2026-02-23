@@ -73,7 +73,12 @@ type WorkletCommand =
 			speed?: number | null;
 	  }
 	| { type: 'preview_row'; pattern: Pattern; rowIndex: number; instrument?: Instrument }
-	| { type: 'stop_preview'; channel?: number };
+	| { type: 'stop_preview'; channel?: number }
+	| {
+			type: 'set_virtual_channel_config';
+			virtualChannelMap: Record<number, number>;
+			hwChannelCount: number;
+	  };
 
 export class AYProcessor
 	implements
@@ -366,5 +371,16 @@ export class AYProcessor
 
 	stopPreviewNote(channel?: number): void {
 		this.sendCommand({ type: 'stop_preview', channel });
+	}
+
+	sendVirtualChannelConfig(
+		virtualChannelMap: Record<number, number>,
+		hwChannelCount: number
+	): void {
+		this.sendCommand({
+			type: 'set_virtual_channel_config',
+			virtualChannelMap,
+			hwChannelCount
+		});
 	}
 }

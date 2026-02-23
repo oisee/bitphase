@@ -2,7 +2,19 @@ import type { Pattern } from '../../../models/song';
 import { NoteName } from '../../../models/song';
 import { formatNoteFromEnum, parseNoteFromString } from '../../../utils/note-utils';
 import { formatHex, formatSymbol } from '../../../chips/base/field-formatters';
+import {
+	envelopePeriodToNote,
+	noteToEnvelopePeriod
+} from '../../../utils/envelope-note-conversion';
+import type { GenericPattern } from '../../../models/song/generic';
 import type { EditingContext, FieldInfo } from './editing-context';
+import { EffectField } from './effect-field';
+
+export interface GenericFieldUpdate {
+	row: number;
+	fieldInfo: FieldInfo;
+	newValue: string | number | null;
+}
 
 export class PatternValueUpdates {
 	static updateFieldValue(
@@ -26,13 +38,38 @@ export class PatternValueUpdates {
 		fieldInfo: FieldInfo
 	): string | number | null {
 		const genericPattern = context.converter.toGeneric(context.pattern);
+		return PatternValueUpdates.getValueFromGeneric(
+			genericPattern,
+			context.selectedRow,
+			fieldInfo
+		);
+	}
+
+	static getValueFromGeneric(
+		genericPattern: GenericPattern,
+		row: number,
+		fieldInfo: FieldInfo
+	): string | number | null {
 		if (fieldInfo.isGlobal) {
-			const patternRow = genericPattern.patternRows[context.selectedRow];
+			const patternRow = genericPattern.patternRows[row];
 			return (patternRow[fieldInfo.fieldKey] as string | number | null) ?? null;
-		} else {
-			const channel = genericPattern.channels[fieldInfo.channelIndex];
-			const row = channel.rows[context.selectedRow];
-			return (row[fieldInfo.fieldKey] as string | number | null) ?? null;
+		}
+		const channel = genericPattern.channels[fieldInfo.channelIndex];
+		const rowData = channel.rows[row];
+		return (rowData[fieldInfo.fieldKey] as string | number | null) ?? null;
+	}
+
+	static applyUpdatesToGeneric(
+		genericPattern: GenericPattern,
+		updates: GenericFieldUpdate[]
+	): void {
+		for (const { row, fieldInfo, newValue } of updates) {
+			if (fieldInfo.isGlobal) {
+				genericPattern.patternRows[row][fieldInfo.fieldKey] = newValue;
+			} else {
+				genericPattern.channels[fieldInfo.channelIndex].rows[row][fieldInfo.fieldKey] =
+					newValue;
+			}
 		}
 	}
 
@@ -128,5 +165,78 @@ export class PatternValueUpdates {
 		}
 
 		return newValue;
+	}
+
+	static computeIncrementValue(
+		fieldInfo: FieldInfo,
+		currentValue: string | number | null,
+		delta: number,
+		isOctaveIncrement: boolean,
+		fieldDefinition: { length?: number; allowZeroValue?: boolean } | null,
+		tuningTable?: number[],
+		envelopeAsNote?: boolean
+	): string | number | null {
+		const adjustedDelta =
+			fieldInfo.fieldType === 'note' && isOctaveIncrement ? delta * 12 : delta;
+
+		if (fieldInfo.fieldType === 'note') {
+			if (currentValue === null || currentValue === undefined || currentValue === '') {
+				return null;
+			}
+			return PatternValueUpdates.incrementNoteValue(
+				currentValue as string,
+				adjustedDelta
+			);
+		}
+
+		if (
+			fieldInfo.fieldKey === 'envelopeValue' &&
+			envelopeAsNote &&
+			tuningTable &&
+			(currentValue === null || currentValue === undefined || currentValue === '')
+		) {
+			return null;
+		}
+		if (
+			fieldInfo.fieldKey === 'envelopeValue' &&
+			envelopeAsNote &&
+			tuningTable
+		) {
+			const currentPeriod = currentValue as number;
+			const noteIndex = envelopePeriodToNote(currentPeriod, tuningTable);
+			if (noteIndex === null) return null;
+			const semitonesDelta = isOctaveIncrement ? delta * 12 : delta;
+			const newNoteIndex = Math.max(
+				0,
+				Math.min(tuningTable.length - 1, noteIndex + semitonesDelta)
+			);
+			return noteToEnvelopePeriod(newNoteIndex, tuningTable);
+		}
+
+		if (
+			(fieldInfo.fieldType === 'hex' ||
+				fieldInfo.fieldType === 'dec' ||
+				fieldInfo.fieldType === 'symbol') &&
+			!EffectField.isEffectField(fieldInfo.fieldKey)
+		) {
+			if (
+				PatternValueUpdates.isDisplayedAsEmpty(
+					currentValue,
+					fieldInfo.fieldType,
+					fieldDefinition?.length ?? 1,
+					fieldDefinition?.allowZeroValue
+				)
+			) {
+				return null;
+			}
+			return PatternValueUpdates.incrementNumericValue(
+				currentValue as number,
+				delta,
+				fieldInfo.fieldType,
+				fieldDefinition?.length
+			);
+		}
+
+		return null;
 	}
 }

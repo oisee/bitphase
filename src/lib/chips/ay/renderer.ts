@@ -3,6 +3,7 @@ import type { Pattern } from '../../models/song';
 import type { ChipRenderer } from '../base/renderer';
 import type { ResourceLoader } from '../base/resource-loader';
 import { BrowserResourceLoader } from '../base/resource-loader';
+import { getTotalVirtualChannelCount } from '../../models/virtual-channels';
 
 const SAMPLE_RATE = 44100;
 const DEFAULT_SPEED = 6;
@@ -68,6 +69,7 @@ export class AYChipRenderer implements ChipRenderer {
 		AYAudioDriver: any;
 		AyumiEngine: any;
 		AYChipRegisterState: any;
+		VirtualChannelMixer: any;
 	}> {
 		onProgress?.(20, 'Loading processor modules...');
 		const { default: AyumiState } = await this.loader.loadModule<{ default: new () => unknown }>(
@@ -87,13 +89,16 @@ export class AYChipRenderer implements ChipRenderer {
 			);
 		const { default: AYChipRegisterState } =
 			await this.loader.loadModule<{ default: new () => unknown }>('ay-chip-register-state.js');
+		const { default: VirtualChannelMixer } =
+			await this.loader.loadModule<{ default: new () => unknown }>('virtual-channel-mixer.js');
 
 		return {
 			AyumiState,
 			TrackerPatternProcessor,
 			AYAudioDriver,
 			AyumiEngine,
-			AYChipRegisterState
+			AYChipRegisterState,
+			VirtualChannelMixer
 		};
 	}
 
@@ -161,6 +166,7 @@ export class AYChipRenderer implements ChipRenderer {
 		audioDriver: any,
 		ayumiEngine: any,
 		registerState: any,
+		mixer: any,
 		wasm: any,
 		ayumiPtr: number,
 		song: any,
@@ -219,7 +225,14 @@ export class AYChipRenderer implements ChipRenderer {
 				audioDriver.processInstruments(state, registerState);
 				patternProcessor.processVibrato();
 				patternProcessor.processSlides();
-				ayumiEngine.applyRegisterState(registerState);
+
+				if (mixer.hasVirtualChannels()) {
+					const hwState = mixer.merge(registerState, state);
+					ayumiEngine.applyRegisterState(hwState);
+					registerState.forceEnvelopeShapeWrite = false;
+				} else {
+					ayumiEngine.applyRegisterState(registerState);
+				}
 
 				const isLastPattern =
 					state.currentPatternOrderIndex >= state.patternOrder.length - 1;
@@ -295,15 +308,26 @@ export class AYChipRenderer implements ChipRenderer {
 			TrackerPatternProcessor,
 			AYAudioDriver,
 			AyumiEngine,
-			AYChipRegisterState
+			AYChipRegisterState,
+			VirtualChannelMixer
 		} = await this.loadProcessorModules(onProgress);
 
-		const state = new AyumiState();
+		const virtualChannelMap: Record<number, number> = song.virtualChannelMap ?? {};
+		const hasVirtual = Object.values(virtualChannelMap).some((c: number) => c > 1);
+		const totalChannelCount = hasVirtual
+			? getTotalVirtualChannelCount(TONE_CHANNELS, virtualChannelMap)
+			: TONE_CHANNELS;
+
+		const state = new AyumiState(totalChannelCount);
 		this.setupState(state, song, project, wasm, ayumiPtr, wasmBuffer);
 
-		const audioDriver = new AYAudioDriver();
+		const audioDriver = new AYAudioDriver(totalChannelCount);
 		const ayumiEngine = new AyumiEngine(wasm, ayumiPtr);
-		const registerState = new AYChipRegisterState();
+		const registerState = new AYChipRegisterState(totalChannelCount);
+		const mixer = new VirtualChannelMixer();
+		if (hasVirtual) {
+			mixer.configure(virtualChannelMap, TONE_CHANNELS);
+		}
 		const patternProcessor = new TrackerPatternProcessor(state, audioDriver, {
 			postMessage: () => {}
 		});
@@ -329,6 +353,7 @@ export class AYChipRenderer implements ChipRenderer {
 				audioDriver,
 				ayumiEngine,
 				registerState,
+				mixer,
 				wasm,
 				ayumiPtr,
 				song,

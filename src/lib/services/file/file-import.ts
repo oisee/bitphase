@@ -14,6 +14,7 @@ import {
 	InstrumentRow
 } from '../../models/song';
 import type { ChipSchema } from '../../chips/base/schema';
+import { computeEffectiveChannelLabels } from '../../models/virtual-channels';
 
 function reconstructProject(data: any, getChip: (chipType: string) => Chip | null): Project {
 	const songs = data.songs?.map((songData: any) => reconstructSong(songData, getChip)) || [];
@@ -66,8 +67,15 @@ function reconstructSong(data: any, getChip: (chipType: string) => Chip | null):
 	const chip = data.chipType ? getChip(data.chipType) : null;
 	const schema = chip?.schema;
 	const song = new Song(schema);
+
+	const virtualChannelMap: Record<number, number> = data.virtualChannelMap ?? {};
+	song.virtualChannelMap = virtualChannelMap;
+
+	const hwLabels = schema?.channelLabels ?? ['A', 'B', 'C'];
+	const effectiveLabels = computeEffectiveChannelLabels(hwLabels, virtualChannelMap);
+
 	song.patterns = data.patterns?.map((patternData: any) =>
-		reconstructPattern(patternData, schema)
+		reconstructPattern(patternData, schema, effectiveLabels)
 	) || [new Pattern(0, 64, schema)];
 	song.tuningTable = data.tuningTable || song.tuningTable;
 	song.chipType = data.chipType;
@@ -92,10 +100,14 @@ function reconstructSong(data: any, getChip: (chipType: string) => Chip | null):
 	return song;
 }
 
-function reconstructPattern(data: any, schema?: ChipSchema): Pattern {
+function reconstructPattern(
+	data: any,
+	schema?: ChipSchema,
+	effectiveChannelLabels?: string[]
+): Pattern {
 	const length = data.length ?? 64;
-	const pattern = new Pattern(data.id ?? 0, length, schema);
-	const channelLabels = schema?.channelLabels ?? ['A', 'B', 'C'];
+	const pattern = new Pattern(data.id ?? 0, length, schema, effectiveChannelLabels);
+	const channelLabels = effectiveChannelLabels ?? schema?.channelLabels ?? ['A', 'B', 'C'];
 	if (data.channels) {
 		pattern.channels = data.channels.map((channelData: any, index: number) =>
 			reconstructChannel(

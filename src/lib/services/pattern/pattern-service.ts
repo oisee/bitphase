@@ -24,15 +24,20 @@ export class PatternService {
 	/**
 	 * Create a new empty pattern
 	 */
-	static createEmptyPattern(id: number, schema?: ChipSchema): Pattern {
-		return new Pattern(id, 64, schema);
+	static createEmptyPattern(
+		id: number,
+		schema?: ChipSchema,
+		effectiveChannelLabels?: string[]
+	): Pattern {
+		return new Pattern(id, 64, schema, effectiveChannelLabels);
 	}
 
 	/**
 	 * Create a deep copy of a pattern with a new ID
 	 */
 	static clonePattern(sourcePattern: Pattern, newId: number, schema?: ChipSchema): Pattern {
-		const clonedPattern = new Pattern(newId, sourcePattern.length, schema);
+		const channelLabels = sourcePattern.channels.map((c) => c.label);
+		const clonedPattern = new Pattern(newId, sourcePattern.length, schema, channelLabels);
 
 		sourcePattern.channels.forEach((channel, channelIndex) => {
 			channel.rows.forEach((row, rowIndex) => {
@@ -487,7 +492,8 @@ export class PatternService {
 			return pattern;
 		}
 
-		const resizedPattern = new Pattern(pattern.id, newLength, schema);
+		const channelLabels = pattern.channels.map((c) => c.label);
+		const resizedPattern = new Pattern(pattern.id, newLength, schema, channelLabels);
 		const copyLength = Math.min(pattern.length, newLength);
 
 		for (let channelIndex = 0; channelIndex < pattern.channels.length; channelIndex++) {

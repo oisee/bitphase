@@ -11,6 +11,7 @@ import TrackerPatternProcessor from './tracker-pattern-processor.js';
 import AYAudioDriver from './ay-audio-driver.js';
 import AyumiEngine from './ayumi-engine.js';
 import AYChipRegisterState from './ay-chip-register-state.js';
+import VirtualChannelMixer from './virtual-channel-mixer.js';
 
 class AyumiProcessor extends AudioWorkletProcessor {
 	constructor() {
@@ -21,6 +22,9 @@ class AyumiProcessor extends AudioWorkletProcessor {
 		this.patternProcessor = null;
 		this.ayumiEngine = null;
 		this.registerState = new AYChipRegisterState();
+		this.virtualChannelMixer = new VirtualChannelMixer();
+		this.virtualChannelMap = {};
+		this.hwChannelCount = 3;
 		this.port.onmessage = this.handleMessage.bind(this);
 		this.aymFrequency = 1773400;
 		this.paused = true;
@@ -104,12 +108,15 @@ class AyumiProcessor extends AudioWorkletProcessor {
 			case 'change_pattern_during_playback':
 				this.handleChangePatternDuringPlayback(data);
 				break;
-			case 'preview_row':
-				this.handlePreviewRow(data);
-				break;
-			case 'stop_preview':
-				this.handleStopPreview(data.channel);
-				break;
+		case 'preview_row':
+			this.handlePreviewRow(data);
+			break;
+		case 'stop_preview':
+			this.handleStopPreview(data.channel);
+			break;
+		case 'set_virtual_channel_config':
+			this.handleSetVirtualChannelConfig(data);
+			break;
 		}
 	}
 
@@ -139,6 +146,7 @@ class AyumiProcessor extends AudioWorkletProcessor {
 				this.audioDriver,
 				this.port
 			);
+			this._applyVirtualChannelResize();
 			this.initialized = true;
 		} catch (error) {
 			console.error('Failed to initialize Ayumi:', error);
@@ -168,6 +176,9 @@ class AyumiProcessor extends AudioWorkletProcessor {
 		) {
 			this.state.currentPattern = null;
 		}
+		if (data.pattern?.channels?.length) {
+			this._ensureChannelCapacity(data.pattern.channels.length);
+		}
 		this.state.setPattern(data.pattern, data.patternOrderIndex);
 	}
 
@@ -176,6 +187,9 @@ class AyumiProcessor extends AudioWorkletProcessor {
 	}
 
 	handleSetPatternData(data) {
+		if (data.pattern?.channels?.length) {
+			this._ensureChannelCapacity(data.pattern.channels.length);
+		}
 		if (data.patternOrderIndex !== this.state.currentPatternOrderIndex) {
 			this.pendingNextPattern = {
 				pattern: data.pattern,
@@ -243,14 +257,28 @@ class AyumiProcessor extends AudioWorkletProcessor {
 		};
 	}
 
+	handleSetVirtualChannelConfig({ virtualChannelMap, hwChannelCount }) {
+		this.virtualChannelMap = virtualChannelMap || {};
+		this.hwChannelCount = hwChannelCount || 3;
+		this.virtualChannelMixer.configure(this.virtualChannelMap, this.hwChannelCount);
+
+		const totalChannels = this.virtualChannelMixer.getTotalVirtualChannelCount();
+		this.state.resizeChannels(totalChannels);
+		this.registerState.resize(totalChannels);
+		if (this.audioDriver) {
+			this.audioDriver.resizeChannels(totalChannels);
+		}
+	}
+
 	handleSetChannelMute({ channelIndex, muted }) {
-		if (channelIndex >= 0 && channelIndex < 3) {
+		const totalChannels = this.virtualChannelMixer.getTotalVirtualChannelCount();
+		if (channelIndex >= 0 && channelIndex < totalChannels) {
 			this.state.channelMuted[channelIndex] = muted;
 			if (muted) {
 				this.applyChannelSilent(this.registerState, channelIndex);
 				this.state.channelEnvelopeEnabled[channelIndex] = false;
 				if (this.ayumiEngine) {
-					this.ayumiEngine.applyRegisterState(this.registerState);
+					this._applyRegisterStateToEngine();
 				}
 			}
 		}
@@ -259,6 +287,10 @@ class AyumiProcessor extends AudioWorkletProcessor {
 	handleChangePatternDuringPlayback({ row, patternOrderIndex, pattern, speed }) {
 		if (!this.state.wasmModule || !this.initialized || this.paused) {
 			return;
+		}
+
+		if (pattern?.channels?.length) {
+			this._ensureChannelCapacity(pattern.channels.length);
 		}
 
 		this.pendingNextPattern = null;
@@ -367,6 +399,9 @@ class AyumiProcessor extends AudioWorkletProcessor {
 
 		if (catchUpSegments?.length && this.patternProcessor && this.audioDriver && this.ayumiEngine) {
 			for (const segment of catchUpSegments) {
+				if (segment.pattern?.channels?.length) {
+					this._ensureChannelCapacity(segment.pattern.channels.length);
+				}
 				this.state.setPattern(segment.pattern, segment.patternOrderIndex);
 				const numRows = segment.numRows ?? 0;
 				for (let r = 0; r < numRows; r++) {
@@ -377,11 +412,14 @@ class AyumiProcessor extends AudioWorkletProcessor {
 					);
 					this.patternProcessor.processTables();
 					this.audioDriver.processInstruments(this.state, this.registerState);
-					this.ayumiEngine.applyRegisterState(this.registerState);
+					this._applyRegisterStateToEngine();
 				}
 			}
 		}
 
+		if (startPattern?.channels?.length) {
+			this._ensureChannelCapacity(startPattern.channels.length);
+		}
 		this.state.setPattern(startPattern, startPatternOrderIndex);
 		this.state.currentPatternOrderIndex = startPatternOrderIndex;
 		this.state.currentRow = startRow;
@@ -389,16 +427,45 @@ class AyumiProcessor extends AudioWorkletProcessor {
 		this.postPositionUpdate();
 	}
 
+	_applyRegisterStateToEngine() {
+		if (!this.ayumiEngine) return;
+		if (this.virtualChannelMixer.hasVirtualChannels()) {
+			const hwState = this.virtualChannelMixer.merge(this.registerState, this.state);
+			this.ayumiEngine.applyRegisterState(hwState);
+			this.registerState.forceEnvelopeShapeWrite = false;
+		} else {
+			this.ayumiEngine.applyRegisterState(this.registerState);
+		}
+	}
+
+	_applyVirtualChannelResize() {
+		if (!this.virtualChannelMixer.hasVirtualChannels()) return;
+		const totalChannels = this.virtualChannelMixer.getTotalVirtualChannelCount();
+		this.state.resizeChannels(totalChannels);
+		this.registerState.resize(totalChannels);
+		if (this.audioDriver) {
+			this.audioDriver.resizeChannels(totalChannels);
+		}
+	}
+
+	_ensureChannelCapacity(channelCount) {
+		if (channelCount <= this.registerState.channelCount) return;
+		this.state.resizeChannels(channelCount);
+		this.registerState.resize(channelCount);
+		if (this.audioDriver) {
+			this.audioDriver.resizeChannels(channelCount);
+		}
+	}
+
 	enforceMuteState() {
-		for (let ch = 0; ch < 3; ch++) {
+		const totalChannels = this.registerState.channelCount;
+		for (let ch = 0; ch < totalChannels; ch++) {
 			if (this.state.channelMuted[ch]) {
 				this.applyChannelSilent(this.registerState, ch);
 				this.state.channelEnvelopeEnabled[ch] = false;
 			}
 		}
-		if (this.ayumiEngine) {
-			this.ayumiEngine.applyRegisterState(this.registerState);
-		}
+		this._applyRegisterStateToEngine();
 	}
 
 	ensurePlaybackWorkers() {
@@ -410,6 +477,7 @@ class AyumiProcessor extends AudioWorkletProcessor {
 				this.audioDriver,
 				this.port
 			);
+			this._applyVirtualChannelResize();
 		}
 	}
 
@@ -421,7 +489,7 @@ class AyumiProcessor extends AudioWorkletProcessor {
 		this.registerState.reset();
 		if (this.ayumiEngine) {
 			this.ayumiEngine.reset();
-			this.ayumiEngine.applyRegisterState(this.registerState);
+			this._applyRegisterStateToEngine();
 		}
 		this.state.reset();
 		this.ensurePlaybackWorkers();
@@ -458,15 +526,13 @@ class AyumiProcessor extends AudioWorkletProcessor {
 			);
 		}
 		this.audioDriver.processInstruments(this.state, this.registerState);
-		this.ayumiEngine.applyRegisterState(this.registerState);
+		this._applyRegisterStateToEngine();
 	}
 
 	handleStop() {
 		this.paused = true;
 		this.registerState.reset();
-		if (this.ayumiEngine) {
-			this.ayumiEngine.applyRegisterState(this.registerState);
-		}
+		this._applyRegisterStateToEngine();
 		this.state.reset();
 		this.state.currentPattern = null;
 		this.pendingNextPattern = null;
@@ -487,6 +553,9 @@ class AyumiProcessor extends AudioWorkletProcessor {
 		if (!this.audioDriver || !this.patternProcessor || !this.ayumiEngine) {
 			return;
 		}
+		if (pattern.channels.length) {
+			this._ensureChannelCapacity(pattern.channels.length);
+		}
 		if (instrument) {
 			this.state.setInstruments([instrument]);
 		}
@@ -498,11 +567,13 @@ class AyumiProcessor extends AudioWorkletProcessor {
 			this.patternProcessor.parsePatternRow(pattern, r, this.registerState);
 		}
 		this.audioDriver.processInstruments(this.state, this.registerState);
-		if (this.ayumiEngine) {
-			this.ayumiEngine.applyRegisterState(this.registerState);
-		}
+		this._applyRegisterStateToEngine();
 
-		this.previewActiveChannels = new Set([0, 1, 2]);
+		const totalChannels = this.registerState.channelCount;
+		this.previewActiveChannels = new Set();
+		for (let ch = 0; ch < totalChannels; ch++) {
+			this.previewActiveChannels.add(ch);
+		}
 		this.previewTickSampleCounter = 0;
 	}
 
@@ -511,16 +582,11 @@ class AyumiProcessor extends AudioWorkletProcessor {
 			this.previewActiveChannels.delete(channel);
 			this.applyChannelSilent(this.registerState, channel);
 			this.state.channelSoundEnabled[channel] = false;
-
-			if (this.ayumiEngine) {
-				this.ayumiEngine.applyRegisterState(this.registerState);
-			}
+			this._applyRegisterStateToEngine();
 		} else {
 			this.previewActiveChannels.clear();
 			this.registerState.reset();
-			if (this.ayumiEngine) {
-				this.ayumiEngine.applyRegisterState(this.registerState);
-			}
+			this._applyRegisterStateToEngine();
 		}
 	}
 
@@ -547,16 +613,16 @@ class AyumiProcessor extends AudioWorkletProcessor {
 			for (let i = 0; i < numSamples; i++) {
 				this.state.tickAccumulator += this.state.tickStep;
 
-				if (this.previewActiveChannels.size > 0) {
-					this.previewTickSampleCounter++;
-					if (this.previewTickSampleCounter >= this.state.samplesPerTick) {
-						this.previewTickSampleCounter = 0;
-						this.patternProcessor.processTables();
-						if (this.state.channelInstruments) {
-							this.audioDriver.processInstruments(this.state, this.registerState);
-						}
+			if (this.previewActiveChannels.size > 0) {
+				this.previewTickSampleCounter++;
+				if (this.previewTickSampleCounter >= this.state.samplesPerTick) {
+					this.previewTickSampleCounter = 0;
+					this.patternProcessor.processTables();
+					if (this.state.channelInstruments) {
+						this.audioDriver.processInstruments(this.state, this.registerState);
 					}
-					this.ayumiEngine.applyRegisterState(this.registerState);
+				}
+				this._applyRegisterStateToEngine();
 				} else if (
 					this.state.currentPattern &&
 					this.state.currentPattern.length > 0 &&
@@ -620,11 +686,11 @@ class AyumiProcessor extends AudioWorkletProcessor {
 					this.patternProcessor.processVibrato();
 					this.patternProcessor.processSlides();
 
-					this.enforceMuteState();
+				this.enforceMuteState();
 
-					this.ayumiEngine.applyRegisterState(this.registerState);
+				this._applyRegisterStateToEngine();
 
-					const needsPatternChange = this.state.advancePosition();
+				const needsPatternChange = this.state.advancePosition();
 					if (needsPatternChange) {
 						this.nextPatternRequested = false;
 						if (

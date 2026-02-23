@@ -1,9 +1,22 @@
 import { DEFAULT_AYM_FREQUENCY } from './ayumi-constants.js';
 import TrackerState from './tracker-state.js';
 
+const AY_CHANNEL_ARRAY_SPECS = [
+	['channelInstruments', -1],
+	['instrumentPositions', 0],
+	['channelInstrumentVolumes', 0],
+	['channelToneAccumulator', 0],
+	['channelNoiseAccumulator', 0],
+	['channelEnvelopeAccumulator', 0],
+	['channelAmplitudeSliding', 0],
+	['channelEnvelopeEnabled', false],
+	['channelMuted', false],
+	['channelSoundEnabled', false]
+];
+
 class AyumiState extends TrackerState {
-	constructor() {
-		super(3);
+	constructor(channelCount = 3) {
+		super(channelCount);
 		this.wasmModule = null;
 		this.ayumiPtr = null;
 		this.aymFrequency = DEFAULT_AYM_FREQUENCY;
@@ -12,16 +25,10 @@ class AyumiState extends TrackerState {
 
 		this.instruments = [];
 		this.instrumentIdToIndex = new Map();
-		this.channelInstruments = Array(3).fill(-1);
-		this.instrumentPositions = Array(3).fill(0);
-		this.channelInstrumentVolumes = Array(3).fill(0);
-		this.channelToneAccumulator = Array(3).fill(0);
-		this.channelNoiseAccumulator = Array(3).fill(0);
-		this.channelEnvelopeAccumulator = Array(3).fill(0);
-		this.channelAmplitudeSliding = Array(3).fill(0);
-		this.channelEnvelopeEnabled = Array(3).fill(false);
-		this.channelMuted = Array(3).fill(false);
-		this.channelSoundEnabled = Array(3).fill(false);
+
+		for (const [name, defaultVal] of AY_CHANNEL_ARRAY_SPECS) {
+			this[name] = Array(channelCount).fill(defaultVal);
+		}
 
 		this.envelopeSlideDelay = 0;
 		this.envelopeSlideDelayCounter = 0;
@@ -97,17 +104,21 @@ class AyumiState extends TrackerState {
 		});
 	}
 
+	resizeChannels(newCount) {
+		super.resizeChannels(newCount);
+		for (const [name, defaultVal] of AY_CHANNEL_ARRAY_SPECS) {
+			const arr = this[name];
+			while (arr.length < newCount) arr.push(defaultVal);
+			if (arr.length > newCount) arr.length = newCount;
+		}
+	}
+
 	reset() {
 		super.reset();
-		this.channelInstruments.fill(-1);
-		this.instrumentPositions.fill(0);
-		this.channelInstrumentVolumes.fill(0);
-		this.channelToneAccumulator.fill(0);
-		this.channelNoiseAccumulator.fill(0);
-		this.channelEnvelopeAccumulator.fill(0);
-		this.channelAmplitudeSliding.fill(0);
-		this.channelEnvelopeEnabled.fill(false);
-		this.channelSoundEnabled.fill(false);
+
+		for (const [name, defaultVal] of AY_CHANNEL_ARRAY_SPECS) {
+			this[name].fill(defaultVal);
+		}
 
 		this.envelopeSlideDelay = 0;
 		this.envelopeSlideDelayCounter = 0;

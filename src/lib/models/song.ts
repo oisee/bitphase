@@ -1,5 +1,6 @@
 import type { ChipSchema, ChipField } from '../chips/base/schema';
 import { getDefaultForFieldType } from '../chips/base/schema';
+import { computeEffectiveChannelLabels } from './virtual-channels';
 
 enum NoteName {
 	None = 0,
@@ -139,11 +140,16 @@ class Pattern {
 	channels: Channel[];
 	patternRows: PatternRow[];
 
-	constructor(id: number, length: number = 64, schema?: ChipSchema) {
+	constructor(
+		id: number,
+		length: number = 64,
+		schema?: ChipSchema,
+		effectiveChannelLabels?: string[]
+	) {
 		this.id = id;
 		this.length = length;
 
-		const channelLabels = schema?.channelLabels ?? ['A', 'B', 'C'];
+		const channelLabels = effectiveChannelLabels ?? schema?.channelLabels ?? ['A', 'B', 'C'];
 		const fields = schema?.fields;
 		const globalFields = schema?.globalFields;
 
@@ -162,6 +168,7 @@ class Song {
 	public interruptFrequency: number;
 	public tuningTableIndex?: number;
 	public a4TuningHz?: number;
+	public virtualChannelMap: Record<number, number> = {};
 	private schema?: ChipSchema;
 
 	constructor(schema?: ChipSchema) {
@@ -180,9 +187,15 @@ class Song {
 		return this.schema;
 	}
 
+	getEffectiveChannelLabels(): string[] {
+		const hwLabels = this.schema?.channelLabels ?? ['A', 'B', 'C'];
+		return computeEffectiveChannelLabels(hwLabels, this.virtualChannelMap);
+	}
+
 	addPattern(): Pattern {
 		const newId = this.patterns.length;
-		const pattern = new Pattern(newId, 64, this.schema);
+		const effectiveLabels = this.getEffectiveChannelLabels();
+		const pattern = new Pattern(newId, 64, this.schema, effectiveLabels);
 		this.patterns.push(pattern);
 		return pattern;
 	}
