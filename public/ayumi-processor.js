@@ -651,12 +651,15 @@ class AyumiProcessor extends AudioWorkletProcessor {
 							});
 						}
 
-						this.patternProcessor.parsePatternRow(
-							this.state.currentPattern,
-							this.state.currentRow,
-							this.registerState
-						);
-						this.patternProcessor.processSpeedTable();
+					if (this.state.currentPattern.channels) {
+						this._ensureChannelCapacity(this.state.currentPattern.channels.length);
+					}
+					this.patternProcessor.parsePatternRow(
+						this.state.currentPattern,
+						this.state.currentRow,
+						this.registerState
+					);
+					this.patternProcessor.processSpeedTable();
 
 						const now = currentTime * 1000;
 						if (now - this.lastPositionUpdateTime >= this.positionUpdateThrottleMs) {
@@ -698,6 +701,9 @@ class AyumiProcessor extends AudioWorkletProcessor {
 							this.pendingNextPattern.orderIndex ===
 								this.state.currentPatternOrderIndex
 						) {
+							if (this.pendingNextPattern.pattern.channels) {
+								this._ensureChannelCapacity(this.pendingNextPattern.pattern.channels.length);
+							}
 							this.state.setPattern(
 								this.pendingNextPattern.pattern,
 								this.pendingNextPattern.orderIndex
