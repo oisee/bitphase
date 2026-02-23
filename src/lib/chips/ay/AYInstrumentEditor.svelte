@@ -26,7 +26,29 @@
 	const VOLUME_VALUES = Array.from({ length: 16 }, (_, i) => i);
 	const showVolumeGrid = $derived(isExpanded);
 
+	const EMPTY_ROW = {
+		tone: false,
+		noise: false,
+		envelope: false,
+		retriggerEnvelope: false,
+		toneAdd: 0,
+		noiseAdd: 0,
+		envelopeAdd: 0,
+		volume: 0,
+		loop: false,
+		amplitudeSliding: false,
+		amplitudeSlideUp: false,
+		toneAccumulation: false,
+		noiseAccumulation: false,
+		envelopeAccumulation: false
+	};
+
+	const MAX_ROWS = 512;
+
 	let isDragging = $state(false);
+	let isResizingRows = $state(false);
+	let resizeStartY = $state(0);
+	let resizeStartCount = $state(0);
 	let dragType:
 		| 'volume'
 		| 'tone'
@@ -279,25 +301,39 @@
 	}
 
 	function addRow() {
-		updateArraysAfterRowChange([
-			...rows,
-			{
-				tone: false,
-				noise: false,
-				envelope: false,
-				retriggerEnvelope: false,
-				toneAdd: 0,
-				noiseAdd: 0,
-				envelopeAdd: 0,
-				volume: 0,
-				loop: false,
-				amplitudeSliding: false,
-				amplitudeSlideUp: false,
-				toneAccumulation: false,
-				noiseAccumulation: false,
-				envelopeAccumulation: false
-			}
-		]);
+		updateArraysAfterRowChange([...rows, { ...EMPTY_ROW }]);
+	}
+
+	function setRowCount(targetCount: number) {
+		const count = Math.max(1, Math.min(MAX_ROWS, targetCount));
+		if (count === rows.length) return;
+		if (count > rows.length) {
+			const toAdd = count - rows.length;
+			const newRows = [...rows, ...Array.from({ length: toAdd }, () => ({ ...EMPTY_ROW }))];
+			updateArraysAfterRowChange(newRows);
+		} else {
+			updateArraysAfterRowChange(rows.slice(0, count));
+		}
+	}
+
+	function beginRowResize(e: MouseEvent) {
+		e.preventDefault();
+		isResizingRows = true;
+		resizeStartY = e.clientY;
+		resizeStartCount = rows.length;
+	}
+
+	function handleRowResizeMove(e: MouseEvent) {
+		if (!isResizingRows) return;
+		const rowHeightPx = isExpanded ? 32 : 28;
+		const deltaY = e.clientY - resizeStartY;
+		const deltaRows = Math.round(deltaY / rowHeightPx);
+		const targetCount = Math.max(1, Math.min(MAX_ROWS, resizeStartCount + deltaRows));
+		setRowCount(targetCount);
+	}
+
+	function endRowResize() {
+		isResizingRows = false;
 	}
 
 	function removeRow(index: number) {
@@ -377,6 +413,18 @@
 		};
 		window.addEventListener('mouseup', stop);
 		return () => window.removeEventListener('mouseup', stop);
+	});
+
+	$effect(() => {
+		if (!isResizingRows) return;
+		const onMove = (e: MouseEvent) => handleRowResizeMove(e);
+		const onUp = () => endRowResize();
+		window.addEventListener('mousemove', onMove);
+		window.addEventListener('mouseup', onUp);
+		return () => {
+			window.removeEventListener('mousemove', onMove);
+			window.removeEventListener('mouseup', onUp);
+		};
 	});
 </script>
 
@@ -816,6 +864,27 @@
 										<IconCarbonAdd class="mr-1 h-3.5 w-3.5" />
 										<span class="mr-1 text-xs">Add new row</span>
 									</button>
+								</div>
+							</td>
+						</tr>
+						<tr>
+							<td colspan="16" class="border-t border-[var(--color-app-border)] p-0">
+								<div
+									class="flex cursor-ns-resize items-center justify-center gap-1 py-1 text-[var(--color-app-text-muted)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-[var(--color-app-text-secondary)] {isResizingRows
+										? 'bg-[var(--color-app-surface-hover)]'
+										: ''}"
+									role="button"
+									tabindex="0"
+									aria-label="Drag to add or remove rows"
+									title="Drag to add or remove rows"
+									onmousedown={beginRowResize}
+									onkeydown={(e) => {
+										if (e.key === 'Enter' || e.key === ' ') {
+											e.preventDefault();
+										}
+									}}>
+									<IconCarbonArrowsVertical class="h-3 w-3" />
+									<span class="text-[0.65rem]">{rows.length} rows</span>
 								</div>
 							</td>
 						</tr>
