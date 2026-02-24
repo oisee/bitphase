@@ -10,6 +10,7 @@ import {
 	InstrumentRow
 } from '../../models/song';
 import { PT3TuneTables, generate12TETTuningTable } from '../../models/pt3/tuning-tables';
+import { numberToInstrumentId } from '../../utils/instrument-id';
 import { convertPT3ToVT2 } from './pt3-to-vt2';
 
 interface VT2Module {
@@ -210,52 +211,211 @@ class VT2Converter {
 
 		const { tuningTable, tuningTableIndex, a4TuningHz } = this.resolveTuningTable(module1);
 
-		const result1 = this.createSongFromModule(
-			module1,
-			patterns1,
+		const { instruments: mergedInstruments, instrumentRemap } = this.mergeInstrumentsWithRemap(
 			samples1,
-			tables1,
-			tuningTable,
-			tuningTableIndex,
-			a4TuningHz
+			samples2
 		);
-		const result2 = this.createSongFromModule(
-			module2,
-			patterns2,
-			samples2,
-			tables2,
-			tuningTable,
-			tuningTableIndex,
-			a4TuningHz
+		const { tables: mergedTables, tableRemap } = this.mergeTablesWithRemap(tables1, tables2);
+
+		const { patternOrder, unifiedToVt1, unifiedToVt2 } = this.computeUnifiedPatternOrder(
+			module1.playOrder,
+			module2.playOrder
 		);
 
-		const mergedInstruments = this.mergeInstruments(
-			result1.instruments,
-			result2.instruments
+		const song1 = this.createSongWithUnifiedPatterns(
+			module1, patterns1, tuningTable, tuningTableIndex, a4TuningHz,
+			unifiedToVt1, new Map(), new Map()
+		);
+		const song2 = this.createSongWithUnifiedPatterns(
+			module2, patterns2, tuningTable, tuningTableIndex, a4TuningHz,
+			unifiedToVt2, instrumentRemap, tableRemap
 		);
 
 		return new Project(
 			module1.title,
 			module1.author,
-			[result1.song, result2.song],
+			[song1, song2],
 			module1.loopPoint || 0,
-			module1.playOrder,
-			this.convertTables(tables1),
+			patternOrder,
+			mergedTables,
 			{},
 			mergedInstruments
 		);
 	}
 
-	private mergeInstruments(a: Instrument[], b: Instrument[]): Instrument[] {
-		const byId = new Map(a.map((inst) => [inst.id, inst]));
-		for (const inst of b) {
-			if (!byId.has(inst.id)) {
-				byId.set(inst.id, inst);
+	private mergeInstrumentsWithRemap(
+		samples1: VT2Sample[],
+		samples2: VT2Sample[]
+	): { instruments: Instrument[]; instrumentRemap: Map<number, number> } {
+		const maxId1 = samples1.length > 0 ? Math.max(...samples1.map((s) => s.id)) : 0;
+		const instrumentRemap = new Map<number, number>();
+		for (const s of samples2) {
+			if (s.id > 0) {
+				instrumentRemap.set(s.id, s.id + maxId1);
 			}
 		}
-		return [...byId.values()].sort(
-			(x, y) => parseInt(x.id, 36) - parseInt(y.id, 36)
-		);
+
+		const convertSample = (sample: VT2Sample, offset: number): Instrument => {
+			let loopPoint = 0;
+			for (let i = 0; i < sample.data.length; i++) {
+				if (sample.data[i].loop) {
+					loopPoint = i;
+					break;
+				}
+			}
+			const numericId = sample.id + offset;
+			const instrumentId = numberToInstrumentId(numericId);
+			return new Instrument(
+				instrumentId,
+				sample.data.map((line) => {
+					return new InstrumentRow({
+						tone: line.tone,
+						noise: line.noise,
+						envelope: line.envelope,
+						toneAdd: line.toneAdd,
+						noiseAdd: line.noiseAdd,
+						volume: line.volume,
+						loop: line.loop,
+						amplitudeSliding: line.amplitudeSliding || false,
+						amplitudeSlideUp: line.amplitudeSlideUp || false,
+						envelopeAdd: line.noiseAdd,
+						envelopeAccumulation: line.noiseAccumulation || false,
+						toneAccumulation: line.toneAccumulation || false,
+						noiseAccumulation: line.noiseAccumulation || false,
+						retriggerEnvelope: false
+					});
+				}),
+				loopPoint,
+				`Instrument ${instrumentId}`
+			);
+		};
+
+		const instruments1 = samples1.map((s) => convertSample(s, 0));
+		const instruments2 = samples2.map((s) => convertSample(s, maxId1));
+		const merged = this.initializeInstrumentsArray([...instruments1, ...instruments2]);
+
+		return { instruments: merged, instrumentRemap };
+	}
+
+	private mergeTablesWithRemap(
+		tables1: VT2Table[],
+		tables2: VT2Table[]
+	): { tables: Table[]; tableRemap: Map<number, number> } {
+		const maxId1 = tables1.length > 0 ? Math.max(...tables1.map((t) => t.id)) : 0;
+		const tableRemap = new Map<number, number>();
+		for (const t of tables2) {
+			if (t.id > 0) {
+				tableRemap.set(t.id, t.id + maxId1);
+			}
+		}
+
+		const converted1 = this.convertTables(tables1);
+		const converted2 = tables2.map((table) => {
+			const newId = table.id + maxId1 - 1;
+			return new Table(
+				newId,
+				table.data,
+				table.loop ? table.loopPoint : 0,
+				`Table ${newId.toString(36).toUpperCase()}`
+			);
+		});
+
+		return { tables: [...converted1, ...converted2], tableRemap };
+	}
+
+	private computeUnifiedPatternOrder(
+		order1: number[],
+		order2: number[]
+	): {
+		patternOrder: number[];
+		unifiedToVt1: Map<number, number>;
+		unifiedToVt2: Map<number, number>;
+	} {
+		const sameOrder =
+			order1.length === order2.length && order1.every((v, i) => v === (order2[i] ?? v));
+		if (sameOrder) {
+			const identity1 = new Map<number, number>();
+			const identity2 = new Map<number, number>();
+			for (const id of new Set(order1)) {
+				identity1.set(id, id);
+				identity2.set(id, id);
+			}
+			return { patternOrder: order1, unifiedToVt1: identity1, unifiedToVt2: identity2 };
+		}
+
+		const len = Math.max(order1.length, order2.length);
+		const pairToUnifiedId = new Map<string, number>();
+		let nextUnifiedId = 0;
+		const patternOrder: number[] = [];
+		const unifiedToVt1 = new Map<number, number>();
+		const unifiedToVt2 = new Map<number, number>();
+
+		for (let i = 0; i < len; i++) {
+			const id1 = order1[i] ?? 0;
+			const id2 = order2[i] ?? 0;
+			const key = `${id1},${id2}`;
+			let unifiedId = pairToUnifiedId.get(key);
+			if (unifiedId === undefined) {
+				unifiedId = nextUnifiedId++;
+				pairToUnifiedId.set(key, unifiedId);
+				unifiedToVt1.set(unifiedId, id1);
+				unifiedToVt2.set(unifiedId, id2);
+			}
+			patternOrder.push(unifiedId);
+		}
+
+		return { patternOrder, unifiedToVt1, unifiedToVt2 };
+	}
+
+	private createSongWithUnifiedPatterns(
+		module: VT2Module,
+		vtPatterns: VT2Pattern[],
+		tuningTable: number[],
+		tuningTableIndex: number,
+		a4TuningHz: number,
+		unifiedToVtId: Map<number, number>,
+		instrumentRemap: Map<number, number>,
+		tableRemap: Map<number, number>
+	): Song {
+		const song = new Song();
+		song.tuningTable = tuningTable;
+		song.tuningTableIndex = tuningTableIndex;
+		song.a4TuningHz = a4TuningHz;
+		song.initialSpeed = module.speed >= 1 && module.speed <= 255 ? module.speed : 3;
+		const chipVariant = this.detectChipType(module);
+		song.chipType = chipVariant === 'AY' || chipVariant === 'YM' ? 'ay' : undefined;
+		song.chipVariant = chipVariant;
+		song.chipFrequency = module.chipFrequency;
+		song.interruptFrequency = module.interruptFrequency;
+
+		const vtPatternsById = new Map(vtPatterns.map((p) => [p.id, p]));
+		const usedVtIds = new Set(unifiedToVtId.values());
+		const usedUnifiedIds = new Set(unifiedToVtId.keys());
+
+		const patterns: Pattern[] = [];
+		for (const [unifiedId, vtId] of unifiedToVtId) {
+			const vt2Pattern = vtPatternsById.get(vtId);
+			const rowCount = vt2Pattern?.rows.length ?? 64;
+			const pattern = new Pattern(unifiedId, rowCount);
+			if (vt2Pattern) {
+				this.convertPatternWithRemap(vt2Pattern, pattern, 0, instrumentRemap, tableRemap);
+			}
+			patterns.push(pattern);
+		}
+
+		let nextId = Math.max(...usedUnifiedIds, -1) + 1;
+		for (const vtPattern of vtPatterns) {
+			if (!usedVtIds.has(vtPattern.id)) {
+				const newId = usedUnifiedIds.has(vtPattern.id) ? nextId++ : vtPattern.id;
+				const pattern = new Pattern(newId, vtPattern.rows.length);
+				this.convertPatternWithRemap(vtPattern, pattern, 0, instrumentRemap, tableRemap);
+				patterns.push(pattern);
+				usedUnifiedIds.add(newId);
+			}
+		}
+
+		song.patterns = patterns.sort((a, b) => a.id - b.id);
+		return song;
 	}
 
 	private resolveTuningTable(module: VT2Module): {
@@ -698,6 +858,16 @@ class VT2Converter {
 		pattern: Pattern,
 		channelOffset: number = 0
 	): void {
+		this.convertPatternWithRemap(vt2Pattern, pattern, channelOffset, new Map(), new Map());
+	}
+
+	private convertPatternWithRemap(
+		vt2Pattern: VT2Pattern,
+		pattern: Pattern,
+		channelOffset: number,
+		instrumentRemap: Map<number, number>,
+		tableRemap: Map<number, number>
+	): void {
 		const ZERO_VALUE = -1;
 
 		for (
@@ -729,14 +899,22 @@ class VT2Converter {
 					continue;
 				}
 
+				let instrument = vt2ChannelData.instrument ?? 0;
+				if (instrument > 0 && instrumentRemap.has(instrument)) {
+					instrument = instrumentRemap.get(instrument)!;
+				}
+
+				const rawTable = vt2ChannelData.table ?? 0;
+				let tableValue = this.convertTableValue(rawTable, vt2ChannelData.envelopeShape ?? 0);
+				if (rawTable > 0 && tableRemap.has(rawTable)) {
+					tableValue = tableRemap.get(rawTable)!;
+				}
+
 				const { noteName, octave } = this.parseNote(vt2ChannelData.note || '---');
 				row.note = new Note(noteName, octave);
-				row.instrument = vt2ChannelData.instrument ?? 0;
+				row.instrument = instrument;
 				row.volume = vt2ChannelData.volume ?? 0;
-				row.table = this.convertTableValue(
-					vt2ChannelData.table ?? 0,
-					vt2ChannelData.envelopeShape ?? 0
-				);
+				row.table = tableValue;
 				row.envelopeShape = vt2ChannelData.envelopeShape ?? 0;
 
 				const { channelEffect, envelopeEffect } = this.parseEffects(
