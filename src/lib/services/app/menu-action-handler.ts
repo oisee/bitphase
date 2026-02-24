@@ -10,9 +10,11 @@ import WavExportSettingsModal from '../../components/Modal/WavExportSettingsModa
 import ProgressModal from '../../components/Modal/ProgressModal.svelte';
 import {
 	ACTION_APPLY_SCRIPT,
-	ACTION_TOGGLE_AUTO_ENVELOPE
+	ACTION_TOGGLE_AUTO_ENVELOPE,
+	ACTION_TOGGLE_ENVELOPE_AS_NOTE
 } from '../../config/keybindings';
 import { autoEnvStore } from '../../stores/auto-env.svelte';
+import { editorStateStore } from '../../stores/editor-state.svelte';
 import { loadDemoProject } from '../../config/demo-songs';
 import { getChipByType } from '../../chips/registry';
 import { AY_CHIP } from '../../chips/ay';
@@ -248,6 +250,11 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
 
 			if (data.action === ACTION_TOGGLE_AUTO_ENVELOPE) {
 				autoEnvStore.toggle();
+				return;
+			}
+
+			if (data.action === ACTION_TOGGLE_ENVELOPE_AS_NOTE) {
+				editorStateStore.setEnvelopeAsNote(!editorStateStore.envelopeAsNote);
 				return;
 			}
 

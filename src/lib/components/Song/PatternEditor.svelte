@@ -1697,10 +1697,7 @@
 			ShortcutString.matchesMouseEvent(selectShortcut, event) &&
 			cellAtColumn
 		) {
-			if (
-				schema.fields?.instrument &&
-				cellAtColumn.fieldKey === 'instrument'
-			) {
+			if (schema.fields?.instrument && cellAtColumn.fieldKey === 'instrument') {
 				const segments = textParser.parseRowString(rowString, cell.row);
 				const segment = segments?.find(
 					(s) =>

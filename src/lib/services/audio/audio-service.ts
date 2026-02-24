@@ -128,14 +128,10 @@ export class AudioService {
 		const orderIndex = patternOrderIndex ?? 0;
 
 		this.chipProcessors.forEach((chipProcessor, index) => {
-			const speed = getSpeedForChip ? getSpeedForChip(index) ?? null : null;
+			const speed = getSpeedForChip ? (getSpeedForChip(index) ?? null) : null;
 			const chipCatchUp = getCatchUpSegmentsForChip?.(index) ?? catchUpSegments;
 			const chipStartPattern = getStartPatternForChip?.(index) ?? startPattern;
-			if (
-				chipCatchUp &&
-				chipStartPattern &&
-				chipProcessor.playFromPosition
-			) {
+			if (chipCatchUp && chipStartPattern && chipProcessor.playFromPosition) {
 				chipProcessor.playFromPosition(
 					row,
 					orderIndex,

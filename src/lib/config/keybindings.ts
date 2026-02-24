@@ -20,6 +20,7 @@ export const ACTION_CYCLE_CHANNEL = 'cycle-channel';
 export const ACTION_SWAP_CHANNEL_LEFT = 'swap-channel-left';
 export const ACTION_SWAP_CHANNEL_RIGHT = 'swap-channel-right';
 export const ACTION_TOGGLE_AUTO_ENVELOPE = 'toggle-auto-envelope';
+export const ACTION_TOGGLE_ENVELOPE_AS_NOTE = 'toggle-envelope-as-note';
 export const ACTION_PAGE_UP = 'page-up';
 export const ACTION_PAGE_DOWN = 'page-down';
 export const ACTION_HOME = 'home';
@@ -69,6 +70,11 @@ export const BINDABLE_ACTIONS: BindableAction[] = [
 		label: 'Toggle Auto Envelope',
 		defaultShortcut: 'Mod+E'
 	},
+	{
+		id: ACTION_TOGGLE_ENVELOPE_AS_NOTE,
+		label: 'Toggle Envelope as Note',
+		defaultShortcut: 'Mod+Shift+E'
+	},
 	{ id: ACTION_PAGE_UP, label: 'Page Up', defaultShortcut: 'PageUp' },
 	{ id: ACTION_PAGE_DOWN, label: 'Page Down', defaultShortcut: 'PageDown' },
 	{ id: ACTION_HOME, label: 'Home (first row)', defaultShortcut: 'Home' },
@@ -93,7 +99,8 @@ export const BINDABLE_ACTIONS: BindableAction[] = [
 export const GLOBAL_ACTION_IDS = new Set([
 	ACTION_APPLY_SCRIPT,
 	ACTION_TOGGLE_PLAYBACK,
-	ACTION_TOGGLE_AUTO_ENVELOPE
+	ACTION_TOGGLE_AUTO_ENVELOPE,
+	ACTION_TOGGLE_ENVELOPE_AS_NOTE
 ]);
 
 export const PATTERN_EDITOR_ACTION_IDS = new Set(
