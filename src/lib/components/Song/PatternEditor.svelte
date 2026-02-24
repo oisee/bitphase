@@ -566,6 +566,14 @@
 		return channels;
 	}
 
+	export function isEnterPlayFromRowActive(): boolean {
+		return isEnterKeyHeld;
+	}
+
+	export function clearEnterPlayFromRowState(): void {
+		isEnterKeyHeld = false;
+	}
+
 	export function playFromCursor() {
 		if (!chipProcessor || !chipProcessor.isAudioNodeAvailable()) {
 			console.warn('Audio processor not available or not initialized');

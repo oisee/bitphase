@@ -24,7 +24,7 @@
 	import { tick } from 'svelte';
 	import { keybindingsStore } from './lib/stores/keybindings.svelte';
 	import { ShortcutString } from './lib/utils/shortcut-string';
-	import { GLOBAL_ACTION_IDS } from './lib/config/keybindings';
+	import { ACTION_PLAY_FROM_ROW, GLOBAL_ACTION_IDS } from './lib/config/keybindings';
 	import { autobackupService } from './lib/services/backup/autobackup-service';
 	import { runAppBootstrap } from './lib/app-bootstrap';
 	import { createMenuActionHandler } from './lib/services/app/menu-action-handler';
@@ -220,6 +220,8 @@
 
 	setContext('container', container);
 
+	let enterPlayFromRowActive = $state(false);
+
 	function handleGlobalKeyDown(event: KeyboardEvent) {
 		if (event.defaultPrevented) return;
 		const target = event.target as HTMLElement;
@@ -233,12 +235,30 @@
 		const action = keybindingsStore.getActionForShortcut(shortcut);
 		if (action !== null && GLOBAL_ACTION_IDS.has(action)) {
 			event.preventDefault();
+			if (action === ACTION_PLAY_FROM_ROW && !event.repeat) {
+				enterPlayFromRowActive = true;
+			}
 			handleMenuAction({ action });
+		}
+	}
+
+	function handleGlobalKeyUp(event: KeyboardEvent) {
+		if (event.key !== 'Enter') return;
+		const shortcut = ShortcutString.fromEvent(event);
+		const action = keybindingsStore.getActionForShortcut(shortcut);
+		if (action !== ACTION_PLAY_FROM_ROW) return;
+		const shouldStop =
+			enterPlayFromRowActive || (patternEditor?.isEnterPlayFromRowActive?.() ?? false);
+		if (shouldStop) {
+			enterPlayFromRowActive = false;
+			patternEditor?.clearEnterPlayFromRowState?.();
+			playbackStore.isPlaying = false;
+			container.audioService.stop();
 		}
 	}
 </script>
 
-<svelte:window onkeydown={handleGlobalKeyDown} />
+<svelte:window onkeydown={handleGlobalKeyDown} onkeyup={handleGlobalKeyUp} />
 
 <main
 	class="flex h-screen flex-col gap-1 overflow-hidden bg-[var(--color-app-surface-secondary)] font-sans text-xs text-[var(--color-app-text-primary)]">

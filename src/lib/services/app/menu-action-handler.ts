@@ -10,8 +10,10 @@ import WavExportSettingsModal from '../../components/Modal/WavExportSettingsModa
 import ProgressModal from '../../components/Modal/ProgressModal.svelte';
 import {
 	ACTION_APPLY_SCRIPT,
+	ACTION_PLAY_FROM_ROW,
 	ACTION_TOGGLE_AUTO_ENVELOPE,
-	ACTION_TOGGLE_ENVELOPE_AS_NOTE
+	ACTION_TOGGLE_ENVELOPE_AS_NOTE,
+	ACTION_TOGGLE_PLAYBACK
 } from '../../config/keybindings';
 import { autoEnvStore } from '../../stores/auto-env.svelte';
 import { editorStateStore } from '../../stores/editor-state.svelte';
@@ -135,7 +137,7 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
 				return;
 			}
 
-			if (data.action === 'playFromCursor') {
+			if (data.action === 'playFromCursor' || data.action === ACTION_PLAY_FROM_ROW) {
 				if (ctx.playbackStore.isPlaying) return;
 				if (patternEditor) {
 					ctx.playbackStore.isPlaying = true;
@@ -144,7 +146,7 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
 				return;
 			}
 
-			if (data.action === 'togglePlayback') {
+			if (data.action === 'togglePlayback' || data.action === ACTION_TOGGLE_PLAYBACK) {
 				ctx.playbackStore.isPlaying = !ctx.playbackStore.isPlaying;
 				if (ctx.playbackStore.isPlaying) {
 					patternEditor?.togglePlayback?.();
