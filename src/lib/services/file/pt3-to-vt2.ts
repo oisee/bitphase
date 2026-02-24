@@ -521,18 +521,31 @@ function vtmToVT2Text(vtm: VTM): string {
 	return lines.join('\n');
 }
 
+export function isTurboSoundPT3(buffer: ArrayBuffer): boolean {
+	const data = new Uint8Array(buffer);
+	if (data.length < 16) return false;
+	const footer = data.slice(data.length - 4);
+	return footer[0] === 0x30 && footer[1] === 0x32 && footer[2] === 0x54 && footer[3] === 0x53;
+}
+
+export function splitTurboSoundPT3(buffer: ArrayBuffer): { module1: ArrayBuffer; module2: ArrayBuffer } {
+	const data = new Uint8Array(buffer);
+	const footerOffset = data.length - 16;
+	const size1 = data[footerOffset + 4] | (data[footerOffset + 5] << 8);
+	const size2 = data[footerOffset + 10] | (data[footerOffset + 11] << 8);
+
+	if (size1 + size2 + 16 !== data.length) {
+		throw new Error(`TurboSound PT3: module sizes don't match file size (${size1} + ${size2} + 16 != ${data.length})`);
+	}
+
+	return {
+		module1: buffer.slice(0, size1),
+		module2: buffer.slice(size1, size1 + size2)
+	};
+}
+
 export function convertPT3ToVT2(buffer: ArrayBuffer): string {
 	const data = new Uint8Array(buffer);
 	const vtm = parsePT3(data);
-	console.log('[PT3→VT2]', {
-		title: vtm.title,
-		positionsCount: vtm.positions.value.length,
-		positionsValue: vtm.positions.value.slice(0, 20),
-		positionsLoop: vtm.positions.loop,
-		initialDelay: vtm.initialDelay,
-		patternsDecoded: vtm.patterns.filter((p) => p !== null).length,
-		samplesCount: vtm.samples.filter((s) => s !== null).length,
-		ornamentsCount: vtm.ornaments.filter((o) => o !== null).length
-	});
 	return vtmToVT2Text(vtm);
 }

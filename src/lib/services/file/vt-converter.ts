@@ -11,7 +11,7 @@ import {
 } from '../../models/song';
 import { PT3TuneTables, generate12TETTuningTable } from '../../models/pt3/tuning-tables';
 import { numberToInstrumentId } from '../../utils/instrument-id';
-import { convertPT3ToVT2 } from './pt3-to-vt2';
+import { convertPT3ToVT2, isTurboSoundPT3, splitTurboSoundPT3 } from './pt3-to-vt2';
 
 interface VT2Module {
 	title: string;
@@ -1141,24 +1141,19 @@ export function convertVT2String(content: string): Project {
 	return converter.convert(content);
 }
 
-/**
- * Loads and converts a PT3 file to a Project object
- */
 export async function loadPT3File(file: File): Promise<Project> {
 	const buffer = await file.arrayBuffer();
+
+	if (isTurboSoundPT3(buffer)) {
+		const { module1, module2 } = splitTurboSoundPT3(buffer);
+		const vt2Module1 = convertPT3ToVT2(module1);
+		const vt2Module2 = convertPT3ToVT2(module2);
+		const combinedVT2 = vt2Module1 + '\n' + vt2Module2;
+		return convertVT2String(combinedVT2);
+	}
+
 	const vt2Content = convertPT3ToVT2(buffer);
-	const project = convertVT2String(vt2Content);
-	console.log('[PT3 import]', {
-		patternOrder: project.patternOrder,
-		patternOrderLength: project.patternOrder?.length,
-		songsCount: project.songs.length,
-		patternsCount: project.songs[0]?.patterns?.length ?? 0,
-		patternIds: project.songs[0]?.patterns?.map((p) => p.id) ?? [],
-		initialSpeed: project.songs[0]?.initialSpeed,
-		instrumentsCount: project.instruments?.length ?? 0,
-		loopPointId: project.loopPointId
-	});
-	return project;
+	return convertVT2String(vt2Content);
 }
 
 export { VT2Converter };
