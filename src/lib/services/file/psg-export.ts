@@ -1,13 +1,16 @@
 import type { Project } from '../../models/project';
 import { downloadFile, sanitizeFilename } from '../../utils/file-download';
+import { getTotalVirtualChannelCount } from '../../models/virtual-channels';
 
 const DEFAULT_SPEED = 6;
+const TONE_CHANNELS = 3;
 
 export interface PsgExportModules {
-	AyumiState: new () => any;
+	AyumiState: new (channelCount?: number) => any;
 	TrackerPatternProcessor: new (state: any, driver: any, opts: { postMessage: () => void }) => any;
-	AYAudioDriver: new () => any;
-	AYChipRegisterState: new () => any;
+	AYAudioDriver: new (channelCount?: number) => any;
+	AYChipRegisterState: new (channelCount?: number) => any;
+	VirtualChannelMixer: new () => any;
 }
 
 interface AYRegisterState {
@@ -123,6 +126,7 @@ class PsgExportService {
 		patternProcessor: any,
 		audioDriver: any,
 		registerState: any,
+		mixer: any,
 		song: any,
 		totalRows: number,
 		patterns: any[],
@@ -182,8 +186,14 @@ class PsgExportService {
 			patternProcessor.processVibrato();
 			patternProcessor.processSlides();
 
-			const ayRegisters = convertRegisterStateToAYRegisters(registerState);
+			const stateToConvert = mixer.hasVirtualChannels()
+				? mixer.merge(registerState, state)
+				: registerState;
+			const ayRegisters = convertRegisterStateToAYRegisters(stateToConvert);
 			registerFrames.push([...ayRegisters]);
+			if (mixer.hasVirtualChannels()) {
+				registerState.forceEnvelopeShapeWrite = false;
+			}
 
 			const isLastPattern = state.currentPatternOrderIndex >= state.patternOrder.length - 1;
 			const isLastRow = state.currentRow >= state.currentPattern.length - 1;
@@ -223,8 +233,20 @@ class PsgExportService {
 			throw new Error('Song is empty');
 		}
 
-		const { AyumiState, TrackerPatternProcessor, AYAudioDriver, AYChipRegisterState } = modules;
-		const state = new AyumiState();
+		const {
+			AyumiState,
+			TrackerPatternProcessor,
+			AYAudioDriver,
+			AYChipRegisterState,
+			VirtualChannelMixer
+		} = modules;
+		const virtualChannelMap: Record<number, number> = song.virtualChannelMap ?? {};
+		const hasVirtual = Object.values(virtualChannelMap).some((c: number) => c > 1);
+		const totalChannelCount = hasVirtual
+			? getTotalVirtualChannelCount(TONE_CHANNELS, virtualChannelMap)
+			: TONE_CHANNELS;
+
+		const state = new AyumiState(totalChannelCount);
 		state.setTuningTable(song.tuningTable);
 		state.setInstruments(project.instruments);
 		state.setTables(project.tables);
@@ -234,8 +256,12 @@ class PsgExportService {
 			state.intFrequency = song.interruptFrequency;
 		}
 
-		const audioDriver = new AYAudioDriver();
-		const registerState = new AYChipRegisterState();
+		const audioDriver = new AYAudioDriver(totalChannelCount);
+		const registerState = new AYChipRegisterState(totalChannelCount);
+		const mixer = new VirtualChannelMixer();
+		if (hasVirtual) {
+			mixer.configure(virtualChannelMap, TONE_CHANNELS);
+		}
 		const patternProcessor = new TrackerPatternProcessor(state, audioDriver, {
 			postMessage: () => {}
 		});
@@ -256,6 +282,7 @@ class PsgExportService {
 			patternProcessor,
 			audioDriver,
 			registerState,
+			mixer,
 			song,
 			totalRows,
 			patterns,
@@ -296,12 +323,16 @@ class PsgExportService {
 		const { default: AYChipRegisterState } = await import(
 			`${baseUrl}ay-chip-register-state.js`
 		);
+		const { default: VirtualChannelMixer } = await import(
+			`${baseUrl}virtual-channel-mixer.js`
+		);
 
 		const modules: PsgExportModules = {
 			AyumiState,
 			TrackerPatternProcessor,
 			AYAudioDriver,
-			AYChipRegisterState
+			AYChipRegisterState,
+			VirtualChannelMixer
 		};
 
 		try {
@@ -366,7 +397,16 @@ export async function generatePSGBuffer(
 		const { default: AYChipRegisterState } = await import(
 			`${baseUrl}ay-chip-register-state.js`
 		);
-		modules = { AyumiState, TrackerPatternProcessor, AYAudioDriver, AYChipRegisterState };
+		const { default: VirtualChannelMixer } = await import(
+			`${baseUrl}virtual-channel-mixer.js`
+		);
+		modules = {
+			AyumiState,
+			TrackerPatternProcessor,
+			AYAudioDriver,
+			AYChipRegisterState,
+			VirtualChannelMixer
+		};
 	}
 
 	return psgExportService.runCaptureWithModules(project, songIndex, modules);

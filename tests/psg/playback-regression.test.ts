@@ -9,6 +9,7 @@ import AyumiState from '../../public/ayumi-state.js';
 import AYAudioDriver from '../../public/ay-audio-driver.js';
 import AYChipRegisterState from '../../public/ay-chip-register-state.js';
 import TrackerPatternProcessor from '../../public/tracker-pattern-processor.js';
+import VirtualChannelMixer from '../../public/virtual-channel-mixer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -16,7 +17,8 @@ const psgProcessorModules = {
 	AyumiState,
 	TrackerPatternProcessor,
 	AYAudioDriver,
-	AYChipRegisterState
+	AYChipRegisterState,
+	VirtualChannelMixer
 };
 
 async function loadDemoProject(btpFilename: string) {
