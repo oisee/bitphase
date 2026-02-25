@@ -16,6 +16,9 @@ export const ACTION_TRANSPOSE_OCTAVE_DOWN = 'transpose-octave-down';
 export const ACTION_APPLY_SCRIPT = 'apply-script';
 export const ACTION_TOGGLE_PLAYBACK = 'toggle-playback';
 export const ACTION_PLAY_FROM_ROW = 'play-from-row';
+export const ACTION_PLAY_FROM_CURSOR = 'play-from-cursor';
+export const ACTION_PLAY_FROM_BEGINNING = 'play-from-beginning';
+export const ACTION_PLAY_PATTERN = 'play-pattern';
 export const ACTION_CYCLE_CHANNEL = 'cycle-channel';
 export const ACTION_SWAP_CHANNEL_LEFT = 'swap-channel-left';
 export const ACTION_SWAP_CHANNEL_RIGHT = 'swap-channel-right';
@@ -56,7 +59,10 @@ export const BINDABLE_ACTIONS: BindableAction[] = [
 	{ id: ACTION_OCTAVE_UP, label: 'Octave Up (Editor)', defaultShortcut: '*' },
 	{ id: ACTION_OCTAVE_DOWN, label: 'Octave Down (Editor)', defaultShortcut: '/' },
 	{ id: ACTION_TOGGLE_PLAYBACK, label: 'Play / Pause', defaultShortcut: ' ' },
-	{ id: ACTION_PLAY_FROM_ROW, label: 'Play from row (hold)', defaultShortcut: 'Enter' },
+	{ id: ACTION_PLAY_FROM_CURSOR, label: 'Play from cursor', defaultShortcut: 'F7' },
+	{ id: ACTION_PLAY_FROM_ROW, label: 'Play from cursor (hold)', defaultShortcut: 'Enter' },
+	{ id: ACTION_PLAY_FROM_BEGINNING, label: 'Play from beginning', defaultShortcut: 'F5' },
+	{ id: ACTION_PLAY_PATTERN, label: 'Play pattern (loop)', defaultShortcut: 'F6' },
 	{ id: ACTION_CYCLE_CHANNEL, label: 'Cycle channel', defaultShortcut: '`' },
 	{
 		id: ACTION_SWAP_CHANNEL_LEFT,
@@ -104,6 +110,9 @@ export const GLOBAL_ACTION_IDS = new Set([
 	ACTION_APPLY_SCRIPT,
 	ACTION_TOGGLE_PLAYBACK,
 	ACTION_PLAY_FROM_ROW,
+	ACTION_PLAY_FROM_CURSOR,
+	ACTION_PLAY_FROM_BEGINNING,
+	ACTION_PLAY_PATTERN,
 	ACTION_TOGGLE_AUTO_ENVELOPE,
 	ACTION_TOGGLE_ENVELOPE_AS_NOTE,
 	ACTION_OCTAVE_UP,
@@ -112,7 +121,12 @@ export const GLOBAL_ACTION_IDS = new Set([
 
 export const PATTERN_EDITOR_ACTION_IDS = new Set(
 	BINDABLE_ACTIONS.filter(
-		(a) => a.id !== ACTION_APPLY_SCRIPT && a.id !== ACTION_PLAY_FROM_ROW
+		(a) =>
+			a.id !== ACTION_APPLY_SCRIPT &&
+			a.id !== ACTION_PLAY_FROM_ROW &&
+			a.id !== ACTION_PLAY_FROM_CURSOR &&
+			a.id !== ACTION_PLAY_FROM_BEGINNING &&
+			a.id !== ACTION_PLAY_PATTERN
 	).map((a) => a.id)
 );
 

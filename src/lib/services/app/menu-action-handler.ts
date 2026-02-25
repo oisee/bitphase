@@ -10,7 +10,10 @@ import WavExportSettingsModal from '../../components/Modal/WavExportSettingsModa
 import ProgressModal from '../../components/Modal/ProgressModal.svelte';
 import {
 	ACTION_APPLY_SCRIPT,
+	ACTION_PLAY_FROM_BEGINNING,
+	ACTION_PLAY_FROM_CURSOR,
 	ACTION_PLAY_FROM_ROW,
+	ACTION_PLAY_PATTERN,
 	ACTION_TOGGLE_AUTO_ENVELOPE,
 	ACTION_TOGGLE_ENVELOPE_AS_NOTE,
 	ACTION_TOGGLE_PLAYBACK
@@ -124,7 +127,7 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
 				return;
 			}
 
-			if (data.action === 'playFromBeginning') {
+			if (data.action === 'playFromBeginning' || data.action === ACTION_PLAY_FROM_BEGINNING) {
 				if (ctx.playbackStore.isPlaying) {
 					ctx.playbackStore.isPlaying = false;
 					ctx.container.audioService.stop();
@@ -137,7 +140,11 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
 				return;
 			}
 
-			if (data.action === 'playFromCursor' || data.action === ACTION_PLAY_FROM_ROW) {
+			if (
+				data.action === 'playFromCursor' ||
+				data.action === ACTION_PLAY_FROM_ROW ||
+				data.action === ACTION_PLAY_FROM_CURSOR
+			) {
 				if (ctx.playbackStore.isPlaying) return;
 				if (patternEditor) {
 					ctx.playbackStore.isPlaying = true;
@@ -156,7 +163,7 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
 				return;
 			}
 
-			if (data.action === 'playPattern') {
+			if (data.action === 'playPattern' || data.action === ACTION_PLAY_PATTERN) {
 				if (ctx.playbackStore.isPlaying) {
 					ctx.playbackStore.isPlaying = false;
 					ctx.container.audioService.stop();
