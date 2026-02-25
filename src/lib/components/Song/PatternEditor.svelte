@@ -698,7 +698,7 @@
 				if (usePerChip) {
 					return {
 						getStartPatternForChip: (chipIndex: number) => {
-							const patternId = patternOrder[0];
+							const patternId = currentPattern.id;
 							const songPatterns = projectStore.patterns[chipIndex] ?? [];
 							const schema = chipProcessors[chipIndex]?.chip?.schema;
 							return (
