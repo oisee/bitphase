@@ -2,15 +2,16 @@
 	import type { Snippet } from 'svelte';
 	import Portal from './Portal.svelte';
 
-	let { onClose, children } = $props<{
+	let { onClose, children, isActive = true } = $props<{
 		onClose?: () => void;
 		children: Snippet;
+		isActive?: boolean;
 	}>();
 
 	let modalElement: HTMLElement | null = $state(null);
 
 	$effect(() => {
-		if (modalElement) {
+		if (modalElement && isActive) {
 			modalElement.focus();
 		}
 	});
@@ -24,6 +25,7 @@
 	function handleKeyDown(event: KeyboardEvent) {
 		if (event.key === 'Escape') {
 			onClose?.();
+			event.preventDefault();
 		}
 	}
 </script>
@@ -40,7 +42,13 @@
 			bind:this={modalElement}
 			class="max-h-[90vh] max-w-[90vw] overflow-x-auto overflow-y-hidden rounded-sm border border-[var(--color-app-border)] bg-[var(--color-app-surface)] text-xs shadow-xl transition-transform duration-200"
 			onclick={(e) => e.stopPropagation()}
-			onkeydown={(e) => e.stopPropagation()}
+			onkeydown={(e) => {
+				if (e.key === 'Escape') {
+					onClose?.();
+					e.preventDefault();
+				}
+				e.stopPropagation();
+			}}
 			role="presentation"
 			tabindex="-1"
 			style="animation: slideUp 0.2s ease-out;">

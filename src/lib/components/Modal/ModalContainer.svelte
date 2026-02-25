@@ -27,7 +27,7 @@
 			baseDismiss();
 		}
 	}}
-	<Modal onClose={onCloseHandler}>
+	<Modal onClose={onCloseHandler} isActive={index === modals.length - 1}>
 		<Component {...props} />
 	</Modal>
 {/each}
