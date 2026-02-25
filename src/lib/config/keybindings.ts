@@ -27,6 +27,8 @@ export const ACTION_HOME = 'home';
 export const ACTION_HOME_COLUMN = 'home-column';
 export const ACTION_END = 'end';
 export const ACTION_END_COLUMN = 'end-column';
+export const ACTION_OCTAVE_UP = 'octave-up';
+export const ACTION_OCTAVE_DOWN = 'octave-down';
 export const ACTION_SELECT_INSTRUMENT_OR_TABLE_IN_EDITOR = 'select-instrument-or-table-in-editor';
 
 export interface BindableAction {
@@ -51,6 +53,8 @@ export const BINDABLE_ACTIONS: BindableAction[] = [
 		label: 'Transpose Octave Down',
 		defaultShortcut: 'Shift+-'
 	},
+	{ id: ACTION_OCTAVE_UP, label: 'Octave Up (Editor)', defaultShortcut: '*' },
+	{ id: ACTION_OCTAVE_DOWN, label: 'Octave Down (Editor)', defaultShortcut: '/' },
 	{ id: ACTION_TOGGLE_PLAYBACK, label: 'Play / Pause', defaultShortcut: ' ' },
 	{ id: ACTION_PLAY_FROM_ROW, label: 'Play from row (hold)', defaultShortcut: 'Enter' },
 	{ id: ACTION_CYCLE_CHANNEL, label: 'Cycle channel', defaultShortcut: '`' },
@@ -101,7 +105,9 @@ export const GLOBAL_ACTION_IDS = new Set([
 	ACTION_TOGGLE_PLAYBACK,
 	ACTION_PLAY_FROM_ROW,
 	ACTION_TOGGLE_AUTO_ENVELOPE,
-	ACTION_TOGGLE_ENVELOPE_AS_NOTE
+	ACTION_TOGGLE_ENVELOPE_AS_NOTE,
+	ACTION_OCTAVE_UP,
+	ACTION_OCTAVE_DOWN
 ]);
 
 export const PATTERN_EDITOR_ACTION_IDS = new Set(

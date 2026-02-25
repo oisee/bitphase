@@ -24,7 +24,12 @@
 	import { tick } from 'svelte';
 	import { keybindingsStore } from './lib/stores/keybindings.svelte';
 	import { ShortcutString } from './lib/utils/shortcut-string';
-	import { ACTION_PLAY_FROM_ROW, GLOBAL_ACTION_IDS } from './lib/config/keybindings';
+	import {
+		ACTION_PLAY_FROM_ROW,
+		ACTION_OCTAVE_UP,
+		ACTION_OCTAVE_DOWN,
+		GLOBAL_ACTION_IDS
+	} from './lib/config/keybindings';
 	import { autobackupService } from './lib/services/backup/autobackup-service';
 	import { runAppBootstrap } from './lib/app-bootstrap';
 	import { createMenuActionHandler } from './lib/services/app/menu-action-handler';
@@ -235,6 +240,18 @@
 		const action = keybindingsStore.getActionForShortcut(shortcut);
 		if (action !== null && GLOBAL_ACTION_IDS.has(action)) {
 			event.preventDefault();
+			if (action === ACTION_OCTAVE_UP) {
+				if (editorStateStore.octave < 8) {
+					editorStateStore.setOctave(editorStateStore.octave + 1);
+				}
+				return;
+			}
+			if (action === ACTION_OCTAVE_DOWN) {
+				if (editorStateStore.octave > 0) {
+					editorStateStore.setOctave(editorStateStore.octave - 1);
+				}
+				return;
+			}
 			if (action === ACTION_PLAY_FROM_ROW && !event.repeat) {
 				enterPlayFromRowActive = true;
 			}
