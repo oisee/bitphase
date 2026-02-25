@@ -22,7 +22,6 @@
 	import IconCarbonChevronUp from '~icons/carbon/chevron-up';
 	import IconCarbonChevronDown from '~icons/carbon/chevron-down';
 	import IconCarbonClose from '~icons/carbon/close';
-	import IconCarbonPlay from '~icons/carbon/play';
 	import { PATTERN_EDITOR_CONSTANTS } from './types';
 	import { getContext, setContext, tick } from 'svelte';
 	import Input from '../Input/Input.svelte';
@@ -104,6 +103,12 @@
 
 	const services: { audioService: AudioService } = getContext('container');
 
+	let previewSpaceHandler = $state<(() => void) | null>(null);
+	let rightPanelEl: HTMLDivElement | null = $state(null);
+	setContext('registerPreviewSpaceHandler', (fn: (() => void) | null) => {
+		previewSpaceHandler = fn;
+	});
+
 	setContext('requestPatternRedraw', () => {
 		patternEditors.forEach((editor) => editor?.requestRedraw?.());
 	});
@@ -118,6 +123,29 @@
 		if (editorStateStore.selectTableRequest !== null) {
 			rightPanelActiveTabId = 'tables';
 		}
+	});
+
+	$effect(() => {
+		const el = rightPanelEl;
+		const handler = previewSpaceHandler;
+		if (!el) return;
+		const container = el;
+		function onKeyDownCapture(e: KeyboardEvent) {
+			if (e.key !== ' ' || e.repeat) return;
+			if (!container.contains(document.activeElement)) return;
+			if (handler) {
+				e.preventDefault();
+				e.stopPropagation();
+				const active = document.activeElement as HTMLElement | null;
+				if (active && active !== container) {
+					active.blur?.();
+					container.focus();
+				}
+				handler();
+			}
+		}
+		container.addEventListener('keydown', onKeyDownCapture, { capture: true });
+		return () => container.removeEventListener('keydown', onKeyDownCapture, { capture: true });
 	});
 
 	const SPEED_EFFECT_TYPE = 'S'.charCodeAt(0);
@@ -513,10 +541,22 @@
 					aria-label="Collapse panel"></button>
 			{/if}
 		</div>
+		<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 		<div
-			class="relative z-10 flex h-full shrink-0 flex-col border-l border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] transition-all duration-300 {isRightPanelExpanded
+			bind:this={rightPanelEl}
+			role="region"
+			aria-label="Instruments and tables"
+			tabindex={0}
+			class="relative z-10 flex h-full shrink-0 flex-col border-l border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] outline-none transition-all duration-300 focus:outline-none {isRightPanelExpanded
 				? 'w-[1200px]'
-				: 'w-[32rem]'}">
+				: 'w-[32rem]'}"
+			onmousedown={(e: MouseEvent) => {
+				const target = e.target as HTMLElement;
+				if (!target.closest('input, textarea, button, select, [contenteditable="true"], a')) {
+					rightPanelEl?.focus();
+				}
+			}}>
 			<div class="min-h-0 flex-1 overflow-hidden">
 				<TabView tabs={rightPanelTabs} bind:activeTabId={rightPanelActiveTabId}>
 					{#snippet children(tabId)}
@@ -541,9 +581,6 @@
 					{#if settingsStore.showInstrumentPreview && chipProcessors[activeEditorIndex].chip.previewRow}
 						{@const PreviewRow = chipProcessors[activeEditorIndex].chip.previewRow}
 						<div class="flex flex-col gap-2 bg-[var(--color-app-surface)] px-2 py-3">
-							<span
-								class="flex items-center gap-1.5 text-xs text-[var(--color-app-text-muted)]">
-								<IconCarbonPlay class="h-3.5 w-3.5 shrink-0" />Preview playground</span>
 							<PreviewRow
 								chip={chipProcessors[activeEditorIndex].chip}
 								instrumentId={editorStateStore.currentInstrument}

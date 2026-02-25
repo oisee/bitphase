@@ -15,6 +15,8 @@
 		envelopePeriodToNoteString,
 		noteStringToEnvelopePeriod
 	} from '../../utils/envelope-note-conversion';
+	import IconCarbonPlay from '~icons/carbon/play';
+	import IconCarbonPauseFilled from '~icons/carbon/pause-filled';
 
 	let {
 		chip,
@@ -28,6 +30,12 @@
 
 	const ROW_INDEX = 0;
 	const containerContext: { audioService: AudioService } = getContext('container');
+	let registerPreviewSpaceHandler: ((fn: (() => void) | null) => void) | undefined;
+	try {
+		registerPreviewSpaceHandler = getContext('registerPreviewSpaceHandler');
+	} catch {
+		registerPreviewSpaceHandler = undefined;
+	}
 	const schema = chip.schema;
 
 	let envelopePeriod = $state(0);
@@ -36,6 +44,8 @@
 	let table = $state('');
 	let volume = $state('F');
 	let activeNotes = $state<Array<{ key: string; note: string }>>([]);
+	let lastPlayedNotes = $state<string[]>(['C-4']);
+	let isPreviewPlaying = $state(false);
 	let noteInputEl: HTMLDivElement | null = $state(null);
 	let envelopeInputEl: HTMLDivElement | null = $state(null);
 
@@ -63,14 +73,42 @@
 	$effect(() => {
 		if (isDisabled && !wasPlaying) {
 			activeNotes = [];
+			isPreviewPlaying = false;
 		}
 		wasPlaying = isDisabled;
 	});
 
+	let prevInstruments: typeof projectStore.instruments | undefined = $state();
+	let prevTables: typeof projectStore.tables | undefined = $state();
+
+	$effect(() => {
+		const instruments = projectStore.instruments;
+		const tables = projectStore.tables;
+		const playing = isPreviewPlaying;
+		if (!playing) {
+			prevInstruments = instruments;
+			prevTables = tables;
+			return;
+		}
+		if (prevInstruments !== instruments || prevTables !== tables) {
+			prevInstruments = instruments;
+			prevTables = tables;
+			isPreviewPlaying = false;
+			queueMicrotask(() => {
+				isPreviewPlaying = true;
+			});
+		}
+	});
+
+	const effectiveNoteStrings = $derived(
+		isPreviewPlaying ? lastPlayedNotes : activeNotes.map((n) => n.note)
+	);
+
 	$effect(() => {
 		const processors = previewProcessors as unknown as PreviewNoteSupport[];
 		if (processors.length === 0) return;
-		if (activeNotes.length === 0) {
+		const hasNotes = effectiveNoteStrings.length > 0;
+		if (!hasNotes) {
 			if (hadActiveNotes) {
 				hadActiveNotes = false;
 				processors.forEach((proc) => proc.stopPreviewNote());
@@ -89,28 +127,42 @@
 		const currentInstrument = projectStore.instruments.find(
 			(i) => i.id.toUpperCase().padStart(2, '0') === normalizedId
 		);
-		const noteStrings = activeNotes.map((n) => n.note);
 		processors.forEach((proc, processorIndex) => {
 			const start = processorIndex * 3;
 			const channelNotes = [
-				noteStrings[start] ?? 'OFF',
-				noteStrings[start + 1] ?? 'OFF',
-				noteStrings[start + 2] ?? 'OFF'
+				effectiveNoteStrings[start] ?? 'OFF',
+				effectiveNoteStrings[start + 1] ?? 'OFF',
+				effectiveNoteStrings[start + 2] ?? 'OFF'
 			];
 			proc.playPreviewRow(buildPreviewPattern(channelNotes), ROW_INDEX, currentInstrument);
 		});
 	});
 
 	$effect(() => {
-		const keys = activeNotes.map((n) => n.key);
+		const keys = activeNotes.map((n) => n.key).filter((k) => k !== ' ');
 		if (keys.length === 0) return;
 		function onWindowKeyUp(e: KeyboardEvent) {
+			if (e.key === ' ') return;
 			if (keys.includes(e.key)) {
-				activeNotes = activeNotes.filter((n) => n.key !== e.key);
+				const nextNotes = activeNotes.filter((n) => n.key !== e.key);
+				if (nextNotes.length === 0) {
+					lastPlayedNotes = activeNotes.map((n) => n.note);
+				}
+				activeNotes = nextNotes;
 			}
 		}
 		window.addEventListener('keyup', onWindowKeyUp);
 		return () => window.removeEventListener('keyup', onWindowKeyUp);
+	});
+
+	function togglePreviewPlaying() {
+		if (isDisabled || lastPlayedNotes.length === 0) return;
+		isPreviewPlaying = !isPreviewPlaying;
+	}
+
+	$effect(() => {
+		registerPreviewSpaceHandler?.(togglePreviewPlaying);
+		return () => registerPreviewSpaceHandler?.(null);
 	});
 
 	function parseHex4(s: string): number {
@@ -192,7 +244,11 @@
 		if (isDisabled) return;
 		const key = event.key;
 		if (!activeNotes.some((n) => n.key === key)) return;
-		activeNotes = activeNotes.filter((n) => n.key !== key);
+		const nextNotes = activeNotes.filter((n) => n.key !== key);
+		if (nextNotes.length === 0) {
+			lastPlayedNotes = activeNotes.map((n) => n.note);
+		}
+		activeNotes = nextNotes;
 	}
 
 	function clampEnvelopePeriod() {
@@ -260,7 +316,27 @@
 	}
 </script>
 
-<div class="flex flex-wrap items-end gap-3 font-mono text-xs">
+<div data-ay-playground class="flex flex-col gap-2">
+	<div
+		class="flex items-center gap-1.5 text-xs text-[var(--color-app-text-muted)]"
+		role="group"
+		aria-label="Preview playground">
+		<button
+			type="button"
+			class="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded border border-[var(--color-app-border)] bg-[var(--color-app-primary)] text-[var(--color-app-secondary)] transition-colors hover:bg-[var(--color-app-primary-hover)] disabled:pointer-events-none disabled:opacity-50"
+			disabled={isDisabled || lastPlayedNotes.length === 0}
+			title={isPreviewPlaying ? 'Stop preview (Space)' : 'Play preview (Space)'}
+			aria-label={isPreviewPlaying ? 'Stop preview' : 'Play preview'}
+			onclick={togglePreviewPlaying}>
+			{#if isPreviewPlaying}
+				<IconCarbonPauseFilled class="h-3.5 w-3.5" />
+			{:else}
+				<IconCarbonPlay class="h-3.5 w-3.5" />
+			{/if}
+		</button>
+		<span>Preview playground</span>
+	</div>
+	<div class="flex flex-wrap items-end gap-3 font-mono text-xs">
 	<div class="flex flex-col gap-0.5">
 		<span class="text-[var(--color-app-text-muted)]">Inst</span>
 		<div
@@ -387,14 +463,22 @@
 			tabindex={isDisabled ? -1 : 0}
 			aria-label="Note (keyboard: piano keys)"
 			aria-disabled={isDisabled}
-			title="Click to focus, then use keyboard. Polyphony: {maxPoly} notes (3 per chip). Piano: Z–P, Q–I; A = OFF; letters = note with current octave."
+			title="Click to focus, then use keyboard. Polyphony: {maxPoly} notes (3 per chip). Piano: Z–P, Q–I; A = OFF; letters = note with current octave. SPACE = toggle play."
 			onclick={() => noteInputEl?.focus()}
 			onkeydown={handleNoteKeyDown}
 			onkeyup={handleNoteKeyUp}
 			onblur={() => {
+				if (activeNotes.length > 0) {
+					lastPlayedNotes = activeNotes.map((n) => n.note);
+				}
 				activeNotes = [];
 			}}>
-			{activeNotes.length > 0 ? activeNotes.map((n) => n.note).join(' ') : '—'}
+			{activeNotes.length > 0
+				? activeNotes.map((n) => n.note).join(' ')
+				: lastPlayedNotes.length > 0
+					? lastPlayedNotes.join(' ')
+					: '—'}
 		</div>
+	</div>
 	</div>
 </div>
