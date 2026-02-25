@@ -405,14 +405,7 @@ class AyumiProcessor extends AudioWorkletProcessor {
 				this.state.setPattern(segment.pattern, segment.patternOrderIndex);
 				const numRows = segment.numRows ?? 0;
 				for (let r = 0; r < numRows; r++) {
-					this.patternProcessor.parsePatternRow(
-						this.state.currentPattern,
-						r,
-						this.registerState
-					);
-					this.patternProcessor.processTables();
-					this.audioDriver.processInstruments(this.state, this.registerState);
-					this._applyRegisterStateToEngine();
+					this._simulateRow(this.state.currentPattern, r);
 				}
 			}
 		}
@@ -425,6 +418,21 @@ class AyumiProcessor extends AudioWorkletProcessor {
 		this.state.currentRow = startRow;
 
 		this.postPositionUpdate();
+	}
+
+	_simulateRow(pattern, rowIndex) {
+		this.patternProcessor.parsePatternRow(pattern, rowIndex, this.registerState);
+		this.patternProcessor.processSpeedTable();
+		const ticksPerRow = this.state.currentSpeed;
+		for (let tick = 0; tick < ticksPerRow; tick++) {
+			this.patternProcessor.processTables();
+			this.patternProcessor.processArpeggio();
+			this.patternProcessor.processEffectTables();
+			this.audioDriver.processInstruments(this.state, this.registerState);
+			this.patternProcessor.processVibrato();
+			this.patternProcessor.processSlides();
+		}
+		this._applyRegisterStateToEngine();
 	}
 
 	_applyRegisterStateToEngine() {
@@ -519,14 +527,8 @@ class AyumiProcessor extends AudioWorkletProcessor {
 			return;
 		}
 		for (let r = 0; r < upToRow; r++) {
-			this.patternProcessor.parsePatternRow(
-				this.state.currentPattern,
-				r,
-				this.registerState
-			);
+			this._simulateRow(this.state.currentPattern, r);
 		}
-		this.audioDriver.processInstruments(this.state, this.registerState);
-		this._applyRegisterStateToEngine();
 	}
 
 	handleStop() {
@@ -564,10 +566,8 @@ class AyumiProcessor extends AudioWorkletProcessor {
 		this.registerState.reset();
 
 		for (let r = 0; r <= rowIndex; r++) {
-			this.patternProcessor.parsePatternRow(pattern, r, this.registerState);
+			this._simulateRow(pattern, r);
 		}
-		this.audioDriver.processInstruments(this.state, this.registerState);
-		this._applyRegisterStateToEngine();
 
 		const totalChannels = this.registerState.channelCount;
 		this.previewActiveChannels = new Set();

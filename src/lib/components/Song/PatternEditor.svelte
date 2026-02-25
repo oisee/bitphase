@@ -1384,6 +1384,7 @@
 		if (isPlayFromRowShortcut(event) && !event.repeat && !isEnterKeyHeld) {
 			event.preventDefault();
 			isEnterKeyHeld = true;
+			playbackStore.isPlaying = true;
 			playFromCursor();
 			return;
 		}
@@ -1517,6 +1518,7 @@
 	function handleKeyUp(event: KeyboardEvent) {
 		if (isPlayFromRowShortcut(event) && isEnterKeyHeld) {
 			isEnterKeyHeld = false;
+			playbackStore.isPlaying = false;
 			pausePlayback();
 			return;
 		}
