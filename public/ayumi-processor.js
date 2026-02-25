@@ -565,9 +565,13 @@ class AyumiProcessor extends AudioWorkletProcessor {
 		this.state.reset();
 		this.registerState.reset();
 
-		for (let r = 0; r <= rowIndex; r++) {
+		for (let r = 0; r < rowIndex; r++) {
 			this._simulateRow(pattern, r);
 		}
+		this.patternProcessor.parsePatternRow(pattern, rowIndex, this.registerState);
+		this.patternProcessor.processTables();
+		this.audioDriver.processInstruments(this.state, this.registerState);
+		this._applyRegisterStateToEngine();
 
 		const totalChannels = this.registerState.channelCount;
 		this.previewActiveChannels = new Set();

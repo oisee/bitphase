@@ -32,6 +32,9 @@
 	import { settingsStore } from '../../stores/settings.svelte';
 	import { editorStateStore } from '../../stores/editor-state.svelte';
 	import { projectStore } from '../../stores/project.svelte';
+	import { keybindingsStore } from '../../stores/keybindings.svelte';
+	import { ShortcutString } from '../../utils/shortcut-string';
+	import { ACTION_TOGGLE_PLAYBACK } from '../../config/keybindings';
 
 	let {
 		chipProcessors,
@@ -131,7 +134,10 @@
 		if (!el) return;
 		const container = el;
 		function onKeyDownCapture(e: KeyboardEvent) {
-			if (e.key !== ' ' || e.repeat) return;
+			if (e.repeat) return;
+			const shortcut = ShortcutString.fromEvent(e);
+			const action = keybindingsStore.getActionForShortcut(shortcut);
+			if (action !== ACTION_TOGGLE_PLAYBACK) return;
 			if (!container.contains(document.activeElement)) return;
 			if (handler) {
 				e.preventDefault();

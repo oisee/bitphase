@@ -17,6 +17,9 @@
 	} from '../../utils/envelope-note-conversion';
 	import IconCarbonPlay from '~icons/carbon/play';
 	import IconCarbonPauseFilled from '~icons/carbon/pause-filled';
+	import { keybindingsStore } from '../../stores/keybindings.svelte';
+	import { ShortcutString } from '../../utils/shortcut-string';
+	import { ACTION_TOGGLE_PLAYBACK } from '../../config/keybindings';
 
 	let {
 		chip,
@@ -104,17 +107,37 @@
 		isPreviewPlaying ? lastPlayedNotes : activeNotes.map((n) => n.note)
 	);
 
+	let savedStereoLayout: string | undefined = undefined;
+
+	$effect(() => {
+		return () => {
+			if (savedStereoLayout !== undefined) {
+				containerContext.audioService.chipSettings.set('stereoLayout', savedStereoLayout);
+				savedStereoLayout = undefined;
+			}
+		};
+	});
+
 	$effect(() => {
 		const processors = previewProcessors as unknown as PreviewNoteSupport[];
 		if (processors.length === 0) return;
 		const hasNotes = effectiveNoteStrings.length > 0;
+		const chipSettings = containerContext.audioService.chipSettings;
 		if (!hasNotes) {
 			if (hadActiveNotes) {
 				hadActiveNotes = false;
 				processors.forEach((proc) => proc.stopPreviewNote());
 				containerContext.audioService.setPreviewActiveForChips(null);
+				if (savedStereoLayout !== undefined) {
+					chipSettings.set('stereoLayout', savedStereoLayout);
+					savedStereoLayout = undefined;
+				}
 			}
 			return;
+		}
+		if (savedStereoLayout === undefined) {
+			savedStereoLayout = (chipSettings.get('stereoLayout') as string) ?? 'ABC';
+			chipSettings.set('stereoLayout', 'mono');
 		}
 		hadActiveNotes = true;
 		const chipIndices = containerContext.audioService.chipProcessors
@@ -139,10 +162,11 @@
 	});
 
 	$effect(() => {
-		const keys = activeNotes.map((n) => n.key).filter((k) => k !== ' ');
+		const keys = activeNotes.map((n) => n.key);
 		if (keys.length === 0) return;
 		function onWindowKeyUp(e: KeyboardEvent) {
-			if (e.key === ' ') return;
+			const action = keybindingsStore.getActionForShortcut(ShortcutString.fromEvent(e));
+			if (action === ACTION_TOGGLE_PLAYBACK) return;
 			if (keys.includes(e.key)) {
 				const nextNotes = activeNotes.filter((n) => n.key !== e.key);
 				if (nextNotes.length === 0) {
@@ -325,7 +349,9 @@
 			type="button"
 			class="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded border border-[var(--color-app-border)] bg-[var(--color-app-primary)] text-[var(--color-app-secondary)] transition-colors hover:bg-[var(--color-app-primary-hover)] disabled:pointer-events-none disabled:opacity-50"
 			disabled={isDisabled || lastPlayedNotes.length === 0}
-			title={isPreviewPlaying ? 'Stop preview (Space)' : 'Play preview (Space)'}
+			title={isPreviewPlaying
+				? `Stop preview (${ShortcutString.toDisplay(keybindingsStore.getShortcut(ACTION_TOGGLE_PLAYBACK))})`
+				: `Play preview (${ShortcutString.toDisplay(keybindingsStore.getShortcut(ACTION_TOGGLE_PLAYBACK))})`}
 			aria-label={isPreviewPlaying ? 'Stop preview' : 'Play preview'}
 			onclick={togglePreviewPlaying}>
 			{#if isPreviewPlaying}
@@ -463,7 +489,7 @@
 			tabindex={isDisabled ? -1 : 0}
 			aria-label="Note (keyboard: piano keys)"
 			aria-disabled={isDisabled}
-			title="Click to focus, then use keyboard. Polyphony: {maxPoly} notes (3 per chip). Piano: Z–P, Q–I; A = OFF; letters = note with current octave. SPACE = toggle play."
+			title={`Click to focus, then use keyboard. Polyphony: ${maxPoly} notes (3 per chip). Piano: Z–P, Q–I; A = OFF; letters = note with current octave. ${ShortcutString.toDisplay(keybindingsStore.getShortcut(ACTION_TOGGLE_PLAYBACK))} = toggle play.`}
 			onclick={() => noteInputEl?.focus()}
 			onkeydown={handleNoteKeyDown}
 			onkeyup={handleNoteKeyUp}
