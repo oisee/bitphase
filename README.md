@@ -35,15 +35,26 @@ A modern web-based chiptune tracker designed for creating music on retro sound c
 ### Persistent Settings
 - **Hex mode** toggle persisted across browser sessions (shared between Instruments and Tables views)
 
-### Upcoming: Fill Column & Alpha Mask
+### Alpha Mask (Virtual Channel Gating)
 
-The instrument system now includes an **alpha** field (0-15) per instrument row, visible as the **α** column in the instrument editor. This is the foundation for a fill column system where:
+Each instrument row has an **alpha** field (0–F), visible as the **α** column in the instrument editor. Alpha controls **virtual channel priority** — it determines which virtual channel gets to play on a shared hardware channel.
 
-- **Alpha = F (15)**: Fully opaque — the primary instrument plays normally (default, backward-compatible)
-- **Alpha < F**: Transparent ticks — during these ticks, a background fill layer can play instead
-- This enables layered textures where a lead instrument has "holes" that a secondary fill channel fills in, all controlled per-tick by the instrument definition
+**How it works:**
 
-Alpha values are stored in `.btp` files and default to 15 for older files and VT2/PT3 imports. The fill column playback engine (Phase 2) is not yet implemented.
+When multiple virtual channels (e.g. A, A', A'') share one hardware channel, alpha on the **primary** (leftmost) channel acts as a gate:
+
+- **Alpha = F (15)**: Fully opaque — primary channel always wins, even if silent. This is the default, so existing songs are unaffected.
+- **Alpha = 0**: Fully transparent — any active underlying channel punches through.
+- **Alpha 1–E**: Threshold gate — an underlying channel wins only if its alpha **exceeds** the primary's alpha.
+- Among qualifying underlying channels, **leftmost** (highest priority) wins.
+- If no underlying channel qualifies, the primary still plays.
+
+**Key detail:** Alpha is the **sole gating mechanism**. A silent primary with alpha=F produces opaque silence (blocks underlying channels). A silent primary with alpha=0 is transparent (lets underlying channels through). Volume and mixer state do not affect priority.
+
+**Gating instrument pattern:**
+Create a looping instrument on the primary channel with volume=0 throughout. Set alpha=F on ticks where you want silence, and alpha=0 on ticks where underlying channels should play. This creates rhythmic punch-through patterns without the primary producing any sound.
+
+Alpha values are stored in `.btp` files and default to 15 for older files and VT2/PT3 imports. Single-channel playback (no virtual channels) is unaffected by alpha.
 
 ## Prerequisites
 
