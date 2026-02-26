@@ -3,6 +3,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { exportToWAV } from '../../services/file/wav-export';
 	import { exportToPSG } from '../../services/file/psg-export';
+	import { exportToSNDH } from '../../services/file/sndh-export';
 	import type { Project } from '../../models/project';
 	import type { WavExportSettings } from '../../services/file/wav-export-settings';
 
@@ -14,7 +15,7 @@
 		dismiss
 	} = $props<{
 		project: Project;
-		exportType?: 'wav' | 'psg';
+		exportType?: 'wav' | 'psg' | 'sndh';
 		wavSettings?: WavExportSettings;
 		resolve?: (value?: any) => void;
 		dismiss?: (error?: any) => void;
@@ -37,6 +38,16 @@
 		try {
 			if (exportType === 'psg') {
 				await exportToPSG(
+					project,
+					0,
+					(progressValue, messageValue) => {
+						progress = progressValue;
+						message = messageValue;
+					},
+					abortController.signal
+				);
+			} else if (exportType === 'sndh') {
+				await exportToSNDH(
 					project,
 					0,
 					(progressValue, messageValue) => {

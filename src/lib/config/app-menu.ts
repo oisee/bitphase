@@ -31,7 +31,8 @@ export const menuItems: MenuItem[] = [
 				type: 'expandable',
 				items: [
 					{ label: 'WAV', type: 'normal', action: 'export-wav' },
-					{ label: 'PSG', type: 'normal', action: 'export-psg' }
+					{ label: 'PSG', type: 'normal', action: 'export-psg' },
+					{ label: 'SNDH', type: 'normal', action: 'export-sndh' }
 				]
 			}
 		]
