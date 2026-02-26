@@ -75,7 +75,7 @@ describe('VirtualChannelMixer', () => {
 			expect(result.channels[2].tone).toBe(400);
 		});
 
-		it('should select lower-priority channel when higher-priority is silent', () => {
+		it('should keep silent primary when alpha is F (opaque silence)', () => {
 			mixer.configure({ 1: 2 }, 3);
 			const registerState = new AYChipRegisterState(4);
 			registerState.channels[1].tone = 200;
@@ -85,6 +85,22 @@ describe('VirtualChannelMixer', () => {
 			registerState.channels[3].tone = 400;
 
 			const state = createState(4);
+			const result = mixer.merge(registerState, state);
+
+			expect(result.channels[1].tone).toBe(200);
+		});
+
+		it('should let underlying through silent primary when alpha is 0 (transparent)', () => {
+			mixer.configure({ 1: 2 }, 3);
+			const registerState = new AYChipRegisterState(4);
+			registerState.channels[1].tone = 200;
+			registerState.channels[1].volume = 0;
+			registerState.channels[2].tone = 300;
+			registerState.channels[2].volume = 8;
+			registerState.channels[3].tone = 400;
+
+			const state = createState(4);
+			state.channelCurrentAlpha[1] = 0;
 			const result = mixer.merge(registerState, state);
 
 			expect(result.channels[1].tone).toBe(300);
