@@ -4,7 +4,8 @@ import AYChipRegisterState from '../../public/ay-chip-register-state.js';
 
 function createState(channelCount: number) {
 	return {
-		channelSoundEnabled: Array(channelCount).fill(true)
+		channelSoundEnabled: Array(channelCount).fill(true),
+		channelCurrentAlpha: Array(channelCount).fill(15)
 	};
 }
 
@@ -89,7 +90,7 @@ describe('VirtualChannelMixer', () => {
 			expect(result.channels[1].tone).toBe(300);
 		});
 
-		it('should fall back to last virtual channel when all are inactive', () => {
+		it('should fall back to primary virtual channel when all are inactive', () => {
 			mixer.configure({ 1: 2 }, 3);
 			const registerState = new AYChipRegisterState(4);
 			registerState.channels[1].tone = 200;
@@ -103,7 +104,7 @@ describe('VirtualChannelMixer', () => {
 			state.channelSoundEnabled[2] = false;
 			const result = mixer.merge(registerState, state);
 
-			expect(result.channels[1].tone).toBe(300);
+			expect(result.channels[1].tone).toBe(200);
 		});
 
 		it('should treat envelope volume flag as active', () => {
@@ -134,6 +135,106 @@ describe('VirtualChannelMixer', () => {
 			expect(result.channels[1].mixer.tone).toBe(true);
 			expect(result.channels[1].mixer.noise).toBe(false);
 			expect(result.channels[1].mixer.envelope).toBe(true);
+		});
+
+		it('should let underlying channel punch through when primary alpha is 0', () => {
+			mixer.configure({ 0: 2 }, 3);
+			const registerState = new AYChipRegisterState(4);
+			registerState.channels[0].tone = 100;
+			registerState.channels[0].volume = 10;
+			registerState.channels[1].tone = 200;
+			registerState.channels[1].volume = 8;
+
+			const state = createState(4);
+			state.channelCurrentAlpha[0] = 0;
+			state.channelCurrentAlpha[1] = 15;
+			const result = mixer.merge(registerState, state);
+
+			expect(result.channels[0].tone).toBe(200);
+		});
+
+		it('should let underlying win when its alpha exceeds primary alpha', () => {
+			mixer.configure({ 0: 2 }, 3);
+			const registerState = new AYChipRegisterState(4);
+			registerState.channels[0].tone = 100;
+			registerState.channels[0].volume = 10;
+			registerState.channels[1].tone = 200;
+			registerState.channels[1].volume = 8;
+
+			const state = createState(4);
+			state.channelCurrentAlpha[0] = 5;
+			state.channelCurrentAlpha[1] = 10;
+			const result = mixer.merge(registerState, state);
+
+			expect(result.channels[0].tone).toBe(200);
+		});
+
+		it('should keep primary when its alpha equals underlying alpha', () => {
+			mixer.configure({ 0: 2 }, 3);
+			const registerState = new AYChipRegisterState(4);
+			registerState.channels[0].tone = 100;
+			registerState.channels[0].volume = 10;
+			registerState.channels[1].tone = 200;
+			registerState.channels[1].volume = 8;
+
+			const state = createState(4);
+			state.channelCurrentAlpha[0] = 10;
+			state.channelCurrentAlpha[1] = 10;
+			const result = mixer.merge(registerState, state);
+
+			expect(result.channels[0].tone).toBe(100);
+		});
+
+		it('should keep primary with alpha F regardless of underlying', () => {
+			mixer.configure({ 0: 2 }, 3);
+			const registerState = new AYChipRegisterState(4);
+			registerState.channels[0].tone = 100;
+			registerState.channels[0].volume = 10;
+			registerState.channels[1].tone = 200;
+			registerState.channels[1].volume = 8;
+
+			const state = createState(4);
+			state.channelCurrentAlpha[0] = 15;
+			state.channelCurrentAlpha[1] = 15;
+			const result = mixer.merge(registerState, state);
+
+			expect(result.channels[0].tone).toBe(100);
+		});
+
+		it('should skip inactive underlying channels during alpha resolution', () => {
+			mixer.configure({ 0: 3 }, 3);
+			const registerState = new AYChipRegisterState(5);
+			registerState.channels[0].tone = 100;
+			registerState.channels[0].volume = 10;
+			registerState.channels[1].tone = 200;
+			registerState.channels[1].volume = 0;
+			registerState.channels[2].tone = 300;
+			registerState.channels[2].volume = 8;
+
+			const state = createState(5);
+			state.channelCurrentAlpha[0] = 0;
+			state.channelCurrentAlpha[1] = 15;
+			state.channelSoundEnabled[1] = false;
+			state.channelCurrentAlpha[2] = 15;
+			const result = mixer.merge(registerState, state);
+
+			expect(result.channels[0].tone).toBe(300);
+		});
+
+		it('should fall back to primary when underlying alpha does not exceed primary', () => {
+			mixer.configure({ 0: 2 }, 3);
+			const registerState = new AYChipRegisterState(4);
+			registerState.channels[0].tone = 100;
+			registerState.channels[0].volume = 10;
+			registerState.channels[1].tone = 200;
+			registerState.channels[1].volume = 8;
+
+			const state = createState(4);
+			state.channelCurrentAlpha[0] = 10;
+			state.channelCurrentAlpha[1] = 5;
+			const result = mixer.merge(registerState, state);
+
+			expect(result.channels[0].tone).toBe(100);
 		});
 
 		it('should copy global state (envelope, noise)', () => {

@@ -455,6 +455,7 @@ class AYAudioDriver {
 				this.channelMixerState[channelIndex].noise = false;
 				this.channelMixerState[channelIndex].envelope = false;
 				state.channelEnvelopeEnabled[channelIndex] = false;
+				state.channelCurrentAlpha[channelIndex] = 15;
 				continue;
 			}
 
@@ -470,6 +471,7 @@ class AYAudioDriver {
 				this.channelMixerState[channelIndex].noise = false;
 				this.channelMixerState[channelIndex].envelope = false;
 				state.channelEnvelopeEnabled[channelIndex] = false;
+				state.channelCurrentAlpha[channelIndex] = 15;
 				continue;
 			}
 
@@ -502,6 +504,7 @@ class AYAudioDriver {
 				this.channelMixerState[channelIndex].tone = false;
 				this.channelMixerState[channelIndex].noise = false;
 				this.channelMixerState[channelIndex].envelope = false;
+				state.channelCurrentAlpha[channelIndex] = 15;
 				state.instrumentPositions[channelIndex]++;
 				if (state.instrumentPositions[channelIndex] >= effectiveRowsLength) {
 					if (effectiveLoop > 0 && effectiveLoop < effectiveRowsLength) {
@@ -561,6 +564,8 @@ class AYAudioDriver {
 			if (instrumentRow.volume >= 0) {
 				state.channelInstrumentVolumes[channelIndex] = instrumentRow.volume;
 			}
+
+			state.channelCurrentAlpha[channelIndex] = instrumentRow.alpha ?? 15;
 
 			if (instrumentRow.amplitudeSliding) {
 				if (instrumentRow.amplitudeSlideUp) {
