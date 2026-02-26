@@ -200,6 +200,7 @@ function reconstructInstrumentRow(data: any): InstrumentRow {
 		envelopeAdd: data.envelopeAdd ?? 0,
 		envelopeAccumulation: data.envelopeAccumulation ?? false,
 		volume: data.volume ?? 0,
+		alpha: data.alpha ?? 15,
 		loop: data.loop ?? false,
 		amplitudeSliding: data.amplitudeSliding ?? false,
 		amplitudeSlideUp: data.amplitudeSlideUp ?? false,
