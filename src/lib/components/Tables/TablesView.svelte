@@ -17,7 +17,7 @@
 	import Card from '../Card/Card.svelte';
 	import { downloadJson, pickFileAsText } from '../../utils/file-download';
 	import EditableIdField from '../EditableIdField/EditableIdField.svelte';
-	import { getContext, tick } from 'svelte';
+	import { getContext, tick, untrack } from 'svelte';
 	import type { AudioService } from '../../services/audio/audio-service';
 	import {
 		getNextAvailableTableId,
@@ -202,6 +202,16 @@
 			?.querySelector(`[data-table-index="${selectedTableIndex}"]`)
 			?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
 	}
+
+	$effect(() => {
+		if (editorStateStore.selectTableRequest !== null) return;
+		if (tables.length > 0 && tables[selectedTableIndex]) {
+			const tableId = tables[selectedTableIndex].id;
+			untrack(() => {
+				editorStateStore.setCurrentTable(tableId);
+			});
+		}
+	});
 
 	$effect(() => {
 		const targetId = editorStateStore.currentTable;
