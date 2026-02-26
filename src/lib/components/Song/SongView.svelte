@@ -56,6 +56,48 @@
 	let rightPanelActiveTabId = $state('instruments');
 	let isRightPanelExpanded = $state(false);
 	let selectedColumn = $state(0);
+
+	const RIGHT_PANEL_WIDTH_KEY = 'rightPanelWidth';
+	const DEFAULT_PANEL_WIDTH = 512;
+	const MIN_PANEL_WIDTH = 380;
+	const MAX_PANEL_WIDTH = 900;
+	let rightPanelWidth = $state(
+		Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH,
+			parseInt(localStorage.getItem(RIGHT_PANEL_WIDTH_KEY) ?? '', 10) || DEFAULT_PANEL_WIDTH
+		))
+	);
+	let isResizingPanel = $state(false);
+	let panelResizeStartX = $state(0);
+	let panelResizeStartWidth = $state(0);
+
+	function startPanelResize(e: MouseEvent) {
+		isResizingPanel = true;
+		panelResizeStartX = e.clientX;
+		panelResizeStartWidth = rightPanelWidth;
+		e.preventDefault();
+	}
+
+	function onPanelResize(e: MouseEvent) {
+		if (!isResizingPanel) return;
+		const delta = panelResizeStartX - e.clientX;
+		rightPanelWidth = Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, panelResizeStartWidth + delta));
+	}
+
+	function endPanelResize() {
+		if (!isResizingPanel) return;
+		isResizingPanel = false;
+		localStorage.setItem(RIGHT_PANEL_WIDTH_KEY, String(rightPanelWidth));
+	}
+
+	$effect(() => {
+		if (!isResizingPanel) return;
+		window.addEventListener('mousemove', onPanelResize);
+		window.addEventListener('mouseup', endPanelResize);
+		return () => {
+			window.removeEventListener('mousemove', onPanelResize);
+			window.removeEventListener('mouseup', endPanelResize);
+		};
+	});
 	let selectedFieldKey = $state<string | null>(null);
 
 	$effect(() => {
@@ -555,15 +597,24 @@
 			role="region"
 			aria-label="Instruments and tables"
 			tabindex={0}
-			class="relative z-10 flex h-full shrink-0 flex-col border-l border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] outline-none transition-all duration-300 focus:outline-none {isRightPanelExpanded
-				? 'w-[1200px]'
-				: 'w-[32rem]'}"
+			class="relative z-10 flex h-full shrink-0 flex-col border-l border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] outline-none focus:outline-none {isRightPanelExpanded
+				? 'w-[1200px] transition-all duration-300'
+				: ''}"
+			style={isRightPanelExpanded ? '' : `width: ${rightPanelWidth}px`}
 			onmousedown={(e: MouseEvent) => {
 				const target = e.target as HTMLElement;
 				if (!target.closest('input, textarea, button, select, [contenteditable="true"], a')) {
 					rightPanelEl?.focus();
 				}
 			}}>
+			{#if !isRightPanelExpanded}
+				<div
+					class="absolute top-0 left-0 z-20 h-full w-1 cursor-col-resize hover:bg-[var(--color-app-primary)]/50 {isResizingPanel ? 'bg-[var(--color-app-primary)]/50' : ''}"
+					onmousedown={startPanelResize}
+					role="button"
+					tabindex="-1"
+					aria-label="Resize panel"></div>
+			{/if}
 			<div class="min-h-0 flex-1 overflow-hidden">
 				<TabView tabs={rightPanelTabs} bind:activeTabId={rightPanelActiveTabId}>
 					{#snippet children(tabId)}

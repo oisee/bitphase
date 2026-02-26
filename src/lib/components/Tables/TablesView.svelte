@@ -111,7 +111,7 @@
 		};
 	});
 
-	let asHex = $state(false);
+	let asHex = $state(localStorage.getItem('instrumentHexMode') === 'true');
 	let selectedTableIndex = $state(0);
 	let selectedTableRowIndices = $state<number[]>([]);
 	let tableEditor: TableEditor | null = $state(null);
@@ -332,7 +332,7 @@
 		{
 			label: 'Hex',
 			icon: hexIcon,
-			onClick: () => (asHex = !asHex),
+			onClick: () => { asHex = !asHex; localStorage.setItem('instrumentHexMode', String(asHex)); },
 			class: asHex ? 'text-[var(--color-app-primary)]' : ''
 		},
 		{

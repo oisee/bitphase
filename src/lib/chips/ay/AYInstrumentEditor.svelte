@@ -3,6 +3,7 @@
 	import IconCarbonTrashCan from '~icons/carbon/trash-can';
 	import IconCarbonDelete from '~icons/carbon/delete';
 	import IconCarbonAdd from '~icons/carbon/add';
+	import IconCarbonCopy from '~icons/carbon/copy';
 	import IconCarbonVolumeUp from '~icons/carbon/volume-up';
 	import IconCarbonArrowsVertical from '~icons/carbon/arrows-vertical';
 	import IconCarbonChartWinLoss from '~icons/carbon/chart-win-loss';
@@ -364,6 +365,13 @@
 		updateArraysAfterRowChange([...rows, { ...EMPTY_ROW }]);
 	}
 
+	function duplicateRow(index: number) {
+		if (rows.length >= MAX_ROWS) return;
+		const newRows = [...rows];
+		newRows.splice(index + 1, 0, { ...rows[index] });
+		updateArraysAfterRowChange(newRows);
+	}
+
 	function setRowCount(targetCount: number) {
 		const count = Math.max(1, Math.min(MAX_ROWS, targetCount));
 		if (count === rows.length) return;
@@ -597,7 +605,7 @@
 						<tr>
 							<th class={isExpanded ? 'w-14 min-w-14 px-2 py-1.5' : 'px-1 py-1'}
 								>row</th>
-							<th class={isExpanded ? 'w-8 px-1.5' : 'w-6 px-0.5'}></th>
+							<th class={isExpanded ? 'w-20 min-w-20 px-1' : 'w-16 min-w-16 px-0.5'}></th>
 							<th
 								class={isExpanded ? 'w-6 px-1.5' : 'w-4 px-0.5'}
 								bind:this={loopColumnRef}>{isExpanded ? 'loop' : 'lp'}</th>
@@ -771,8 +779,8 @@
 									class="border border-[var(--color-app-border)] {selected
 										? ROW_SELECTION_STYLES.cell
 										: 'bg-[var(--color-app-surface-secondary)]'} {isExpanded
-										? 'px-1.5'
-										: 'px-0.5'}">
+										? 'w-20 min-w-20 px-1'
+										: 'w-16 min-w-16 px-0.5'}">
 									<div
 										class="flex items-center justify-center {isExpanded
 											? 'gap-1'
@@ -787,6 +795,16 @@
 											<IconCarbonTrashCan
 												class={isExpanded ? 'h-3.5 w-3.5' : 'h-3 w-3'} />
 										</button>
+										<button
+											class="flex cursor-pointer items-center justify-center rounded p-0.5 text-[var(--color-app-text-muted)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-blue-400"
+											onclick={(e) => {
+												e.stopPropagation();
+												duplicateRow(index);
+											}}
+											title="Duplicate this row">
+											<IconCarbonCopy
+												class={isExpanded ? 'h-3.5 w-3.5' : 'h-3 w-3'} />
+										</button>
 										{#if index < rows.length - 1}
 											<button
 												class="flex cursor-pointer items-center justify-center rounded p-0.5 text-[var(--color-app-text-muted)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-red-500"
@@ -794,11 +812,9 @@
 													e.stopPropagation();
 													removeRowsFromBottom(index);
 												}}
-												title="Remove all rows from bottom up to this one">
+												title="Remove all rows below this one">
 												<IconCarbonDelete
-													class={isExpanded
-														? 'h-3.5 w-3.5'
-														: 'h-3 w-3'} />
+													class={isExpanded ? 'h-3.5 w-3.5' : 'h-3 w-3'} />
 											</button>
 										{/if}
 									</div>

@@ -28,7 +28,11 @@ import {
 	ACTION_HOME,
 	ACTION_HOME_COLUMN,
 	ACTION_END,
-	ACTION_END_COLUMN
+	ACTION_END_COLUMN,
+	ACTION_JUMP_CHANNEL_LEFT,
+	ACTION_JUMP_CHANNEL_RIGHT,
+	ACTION_CURSOR_HOME,
+	ACTION_CURSOR_END
 } from '../../config/keybindings';
 
 export interface PatternKeyboardShortcutsContext {
@@ -275,6 +279,44 @@ function dispatchCommandAction(
 			ctx.onSetSelectedColumn(navigationState.selectedColumn);
 			return true;
 		}
+		case ACTION_JUMP_CHANNEL_LEFT: {
+			const navState = PatternNavigationService.moveToPrevChannel(
+				{
+					selectedRow: ctx.selectedRow,
+					currentPatternOrderIndex: ctx.currentPatternOrderIndex,
+					selectedColumn: ctx.selectedColumn
+				},
+				ctx.navigationContext
+			);
+			ctx.onClearSelection();
+			ctx.onSetSelectedColumn(navState.selectedColumn);
+			return true;
+		}
+		case ACTION_JUMP_CHANNEL_RIGHT: {
+			const navState = PatternNavigationService.moveToNextChannel(
+				{
+					selectedRow: ctx.selectedRow,
+					currentPatternOrderIndex: ctx.currentPatternOrderIndex,
+					selectedColumn: ctx.selectedColumn
+				},
+				ctx.navigationContext
+			);
+			ctx.onClearSelection();
+			ctx.onSetSelectedColumn(navState.selectedColumn);
+			return true;
+		}
+		case ACTION_CURSOR_HOME:
+			if (!ctx.isPlaying) {
+				ctx.onClearSelection();
+				ctx.onSetSelectedRow(0);
+			}
+			return true;
+		case ACTION_CURSOR_END:
+			if (!ctx.isPlaying) {
+				ctx.onClearSelection();
+				ctx.onSetSelectedRow(ctx.pattern.length - 1);
+			}
+			return true;
 		default:
 			return false;
 	}

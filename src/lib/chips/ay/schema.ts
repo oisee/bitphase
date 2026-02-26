@@ -1,5 +1,9 @@
 import type { ChipSchema } from '../base/schema';
-import { PT3TuneTables, generate12TETTuningTable } from '../../models/pt3/tuning-tables';
+import {
+	PT3TuneTables,
+	generate12TETTuningTable,
+	generateNaturalTuningTable
+} from '../../models/pt3/tuning-tables';
 
 export const AY_CHIP_SCHEMA: ChipSchema = {
 	chipType: 'ay',
@@ -179,22 +183,50 @@ export const AY_CHIP_SCHEMA: ChipSchema = {
 			group: 'chip',
 			notifyAudioService: true,
 			showWhen: { key: 'tuningTableIndex', value: 5 }
+		},
+		{
+			key: 'naturalRoot',
+			label: 'Root note',
+			type: 'select',
+			options: [
+				{ label: 'C', value: 0 },
+				{ label: 'C#', value: 1 },
+				{ label: 'D', value: 2 },
+				{ label: 'D#', value: 3 },
+				{ label: 'E', value: 4 },
+				{ label: 'F', value: 5 },
+				{ label: 'F#', value: 6 },
+				{ label: 'G', value: 7 },
+				{ label: 'G#', value: 8 },
+				{ label: 'A', value: 9 },
+				{ label: 'A#', value: 10 },
+				{ label: 'B', value: 11 }
+			],
+			defaultValue: 0,
+			group: 'chip',
+			notifyAudioService: true,
+			showWhen: { key: 'tuningTableIndex', value: 4 }
 		}
 	],
 	resolveTuningTable(song) {
 		const index = Number(song.tuningTableIndex ?? 2);
 		const chipFreq = Number(song.chipFrequency ?? 1773400);
 		const a4 = Math.min(880, Math.max(220, Number(song.a4TuningHz ?? 440)));
-		return resolveAYTuningTable(index, chipFreq, a4);
+		const naturalRoot = Number(song.naturalRoot ?? 0);
+		return resolveAYTuningTable(index, chipFreq, a4, naturalRoot);
 	},
-	tuningTableSettingKeys: ['tuningTableIndex', 'a4TuningHz', 'chipFrequency']
+	tuningTableSettingKeys: ['tuningTableIndex', 'a4TuningHz', 'chipFrequency', 'naturalRoot']
 };
 
 export function resolveAYTuningTable(
 	index: number,
 	chipFrequencyHz: number,
-	a4TuningHz: number
+	a4TuningHz: number,
+	naturalRoot: number = 0
 ): number[] {
+	if (index === 4) {
+		return generateNaturalTuningTable(naturalRoot);
+	}
 	if (index >= 0 && index < PT3TuneTables.length) {
 		return [...PT3TuneTables[index]];
 	}

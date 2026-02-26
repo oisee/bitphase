@@ -70,6 +70,28 @@ const TABLE_LENGTH = 96;
 const MIN_PERIOD = 1;
 const MAX_PERIOD = 4095;
 
+const JUST_INTONATION_RATIOS = [
+	1, 16 / 15, 9 / 8, 6 / 5, 5 / 4, 4 / 3, 64 / 45, 3 / 2, 8 / 5, 5 / 3, 16 / 9, 15 / 8
+];
+
+const NATURAL_BASE_PERIOD = 2880;
+
+export function generateNaturalTuningTable(rootSemitone: number): number[] {
+	const result: number[] = [];
+	for (let i = 0; i < TABLE_LENGTH; i++) {
+		const semitone = i % 12;
+		const octave = Math.floor(i / 12);
+		const intervalFromRoot = ((semitone - rootSemitone) % 12 + 12) % 12;
+		const rootRelativeOctave = octave - (semitone < rootSemitone ? 1 : 0);
+		const freqRatio = JUST_INTONATION_RATIOS[intervalFromRoot];
+		let period = Math.round(NATURAL_BASE_PERIOD / freqRatio / Math.pow(2, rootRelativeOctave));
+		if (period > MAX_PERIOD) period = MAX_PERIOD;
+		if (period < MIN_PERIOD) period = MIN_PERIOD;
+		result.push(period);
+	}
+	return result;
+}
+
 export function generate12TETTuningTable(chipFrequencyHz: number, a4Hz: number = 440): number[] {
 	const result: number[] = [];
 	for (let i = 0; i < TABLE_LENGTH; i++) {
