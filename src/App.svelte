@@ -1,7 +1,8 @@
 <script lang="ts">
 	import MenuBar from './lib/components/Menu/MenuBar.svelte';
 	import './app.css';
-	import { menuItems } from './lib/config/app-menu';
+	import { buildMenuItems } from './lib/config/app-menu';
+	import { buildChipConfiguration } from './lib/config/export-formats';
 	import { handleFileImport } from './lib/services/file/file-import';
 	import { handleFileExport } from './lib/services/file/file-export';
 	import type { Song } from './lib/models/song';
@@ -103,6 +104,13 @@
 	});
 
 	let activeSongIndex = $state(0);
+
+	const menuItems = $derived.by(() => {
+		const chipTypes = projectStore.songs
+			.map((s) => s.chipType)
+			.filter((t): t is string => t !== undefined);
+		return buildMenuItems(buildChipConfiguration(chipTypes));
+	});
 
 	$effect(() => {
 		if (projectStore.initialized) return;
