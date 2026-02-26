@@ -8,6 +8,16 @@
 
 A modern web-based chiptune tracker designed for creating music on retro sound chips. Currently supports the AY-3-8910 / YM2149F chip (used in ZX Spectrum and other 8-bit computers), with plans to support additional chips in the future.
 
+## Upcoming: Fill Column & Alpha Mask
+
+The instrument system now includes an **alpha** field (0-15) per instrument row, visible as the **α** column in the instrument editor. This is the foundation for a fill column system where:
+
+- **Alpha = F (15)**: Fully opaque — the primary instrument plays normally (default, backward-compatible)
+- **Alpha < F**: Transparent ticks — during these ticks, a background fill layer can play instead
+- This enables layered textures where a lead instrument has "holes" that a secondary fill channel fills in, all controlled per-tick by the instrument definition
+
+Alpha values are stored in `.btp` files and default to 15 for older files and VT2/PT3 imports. The fill column playback engine (Phase 2) is not yet implemented.
+
 ## Prerequisites
 
 - **Node.js** (v18 or higher)
