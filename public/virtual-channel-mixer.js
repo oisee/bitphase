@@ -61,17 +61,16 @@ class VirtualChannelMixer {
 
 			let selectedVch = -1;
 			const primaryVch = virtualIndices[0];
-			const primaryActive = this._isChannelActive(primaryVch, virtualRegisterState, state);
 			const primaryAlpha = state.channelCurrentAlpha?.[primaryVch] ?? 15;
 
-			if (primaryActive && primaryAlpha >= 15) {
+			if (primaryAlpha >= 15) {
 				selectedVch = primaryVch;
 			} else {
 				for (let i = 1; i < virtualIndices.length; i++) {
 					const vch = virtualIndices[i];
 					if (!this._isChannelActive(vch, virtualRegisterState, state)) continue;
 					const underlyingAlpha = state.channelCurrentAlpha?.[vch] ?? 15;
-					if (underlyingAlpha > primaryAlpha || !primaryActive) {
+					if (underlyingAlpha > primaryAlpha) {
 						selectedVch = vch;
 						break;
 					}
