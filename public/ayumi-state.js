@@ -11,7 +11,8 @@ const AY_CHANNEL_ARRAY_SPECS = [
 	['channelAmplitudeSliding', 0],
 	['channelEnvelopeEnabled', false],
 	['channelMuted', false],
-	['channelSoundEnabled', false]
+	['channelSoundEnabled', false],
+	['channelCurrentAlpha', 15]
 ];
 
 class AyumiState extends TrackerState {

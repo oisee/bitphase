@@ -60,15 +60,25 @@ class VirtualChannelMixer {
 			}
 
 			let selectedVch = -1;
-			for (const vch of virtualIndices) {
-				if (this._isChannelActive(vch, virtualRegisterState, state)) {
-					selectedVch = vch;
-					break;
-				}
-			}
+			const primaryVch = virtualIndices[0];
+			const primaryActive = this._isChannelActive(primaryVch, virtualRegisterState, state);
+			const primaryAlpha = state.channelCurrentAlpha?.[primaryVch] ?? 15;
 
-			if (selectedVch === -1) {
-				selectedVch = virtualIndices[virtualIndices.length - 1];
+			if (primaryActive && primaryAlpha >= 15) {
+				selectedVch = primaryVch;
+			} else {
+				for (let i = 1; i < virtualIndices.length; i++) {
+					const vch = virtualIndices[i];
+					if (!this._isChannelActive(vch, virtualRegisterState, state)) continue;
+					const underlyingAlpha = state.channelCurrentAlpha?.[vch] ?? 15;
+					if (underlyingAlpha > primaryAlpha || !primaryActive) {
+						selectedVch = vch;
+						break;
+					}
+				}
+				if (selectedVch === -1) {
+					selectedVch = primaryVch;
+				}
 			}
 
 			this._copyChannel(virtualRegisterState, selectedVch, this.hardwareRegisterState, hwCh);
