@@ -3,6 +3,7 @@
 	import IconCarbonTrashCan from '~icons/carbon/trash-can';
 	import IconCarbonDelete from '~icons/carbon/delete';
 	import IconCarbonAdd from '~icons/carbon/add';
+	import IconCarbonCopy from '~icons/carbon/copy';
 	import Input from '../Input/Input.svelte';
 	import RowResizeHandle from '../RowResizeHandle/RowResizeHandle.svelte';
 	import { settingsStore } from '../../stores/settings.svelte';
@@ -205,6 +206,13 @@
 		updateArraysAfterRowChange(rows.slice(0, rowsToKeep));
 	}
 
+	function duplicateRow(index: number) {
+		if (rows.length >= MAX_ROWS) return;
+		const newRows = [...rows];
+		newRows.splice(index + 1, 0, rows[index]);
+		updateArraysAfterRowChange(newRows);
+	}
+
 	function setLoop(index: number) {
 		loopRow = index;
 		updateTable({ loop: loopRow });
@@ -318,6 +326,17 @@
 		<Input class="w-48 text-xs" bind:value={name} />
 	</div>
 
+	<div class="mb-2 ml-2">
+		<button
+			class="flex cursor-pointer items-center gap-1 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] px-2 py-1 text-xs text-[var(--color-app-text-tertiary)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-green-400 disabled:cursor-not-allowed disabled:opacity-50"
+			onclick={addRow}
+			disabled={rows.length >= MAX_ROWS}
+			title="Add new row">
+			<IconCarbonAdd class="h-3.5 w-3.5" />
+			<span>Add new row</span>
+		</button>
+	</div>
+
 	<div class="flex items-start gap-2 overflow-x-auto">
 		<div class="relative flex flex-col">
 			{#if loopRow >= 0 && loopRow < rows.length && loopColumnRef && tableRef}
@@ -382,6 +401,15 @@
 										}}
 										title="Remove this row">
 										<IconCarbonTrashCan class="h-3.5 w-3.5" />
+									</button>
+									<button
+										class="flex cursor-pointer items-center justify-center rounded p-0.5 text-[var(--color-app-text-muted)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-blue-400"
+										onclick={(e) => {
+											e.stopPropagation();
+											duplicateRow(index);
+										}}
+										title="Duplicate this row">
+										<IconCarbonCopy class="h-3.5 w-3.5" />
 									</button>
 									{#if index < rows.length - 1}
 										<button

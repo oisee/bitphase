@@ -8,7 +8,34 @@
 
 A modern web-based chiptune tracker designed for creating music on retro sound chips. Currently supports the AY-3-8910 / YM2149F chip (used in ZX Spectrum and other 8-bit computers), with plans to support additional chips in the future.
 
-## Upcoming: Fill Column & Alpha Mask
+## Changelog
+
+### Pattern Editor Navigation
+- **Ctrl+Left / Ctrl+Right** — Jump between channels
+- **Ctrl+Up / Ctrl+Down** — Jump to first / last row (Home / End)
+
+### Natural Tuning Tables
+- Natural (just intonation) tuning now supports **all 12 root notes** (C through B)
+- Root note selector appears when Natural tuning table is selected
+- Uses just intonation ratios: 1, 16/15, 9/8, 6/5, 5/4, 4/3, 64/45, 3/2, 8/5, 5/3, 16/9, 15/8
+
+### Instrument Editor
+- **Duplicate row** button (copy icon) per row
+- **Add new row** button at the top of the table
+- Row actions always visible: delete, duplicate, delete-below
+
+### Table Editor (Arpeggios)
+- **Duplicate row** button (copy icon) per row
+- **Add new row** button at the top of the table
+
+### Resizable Right Panel
+- Drag the left edge of the right panel to resize
+- Panel width persisted across sessions (localStorage)
+
+### Persistent Settings
+- **Hex mode** toggle persisted across browser sessions (shared between Instruments and Tables views)
+
+### Upcoming: Fill Column & Alpha Mask
 
 The instrument system now includes an **alpha** field (0-15) per instrument row, visible as the **α** column in the instrument editor. This is the foundation for a fill column system where:
 

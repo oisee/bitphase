@@ -142,6 +142,68 @@ export class PatternNavigationService {
 		};
 	}
 
+	static moveToPrevChannel(state: NavigationState, context: NavigationContext): NavigationState {
+		const { currentPattern, converter, formatter, schema, getCellPositions } = context;
+		const genericPattern = converter.toGeneric(currentPattern);
+		const genericPatternRow = genericPattern.patternRows[state.selectedRow];
+		const genericChannels = genericPattern.channels.map(
+			(ch: GenericChannel) => ch.rows[state.selectedRow]
+		);
+		const rowString = formatter.formatRow(
+			genericPatternRow,
+			genericChannels,
+			state.selectedRow,
+			schema
+		);
+		const cellPositions = getCellPositions(rowString, state.selectedRow);
+		const hasGlobal = !!(schema.globalTemplate && schema.globalFields);
+		const channelCount = genericPattern.channels.length;
+		const totalSlots = (hasGlobal ? 1 : 0) + channelCount;
+		if (totalSlots <= 1) return state;
+
+		const slotForColumn: number[] = [];
+		for (let col = 0; col < cellPositions.length; col++) {
+			const cell = cellPositions[col];
+			if (!cell.fieldKey) {
+				slotForColumn[col] = -1;
+				continue;
+			}
+			const isGlobal = !!schema.globalFields?.[cell.fieldKey];
+			if (isGlobal) {
+				slotForColumn[col] = 0;
+			} else {
+				const channelIndex = PatternTemplateParser.calculateChannelIndexForField(
+					cell.fieldKey,
+					cell.charIndex,
+					rowString,
+					schema
+				);
+				slotForColumn[col] = (hasGlobal ? 1 : 0) + channelIndex;
+			}
+		}
+
+		const firstColumnForSlot: number[] = [];
+		for (let col = 0; col < cellPositions.length; col++) {
+			const slot = slotForColumn[col];
+			if (slot >= 0 && firstColumnForSlot[slot] === undefined) {
+				firstColumnForSlot[slot] = col;
+			}
+		}
+
+		const currentSlot =
+			state.selectedColumn >= 0 && state.selectedColumn < slotForColumn.length
+				? slotForColumn[state.selectedColumn]
+				: 0;
+		const prevSlot = currentSlot > 0 ? currentSlot - 1 : totalSlots - 1;
+		const targetColumn = firstColumnForSlot[prevSlot];
+		if (targetColumn === undefined) return state;
+
+		return {
+			...state,
+			selectedColumn: targetColumn
+		};
+	}
+
 	static moveToNextChannel(state: NavigationState, context: NavigationContext): NavigationState {
 		const { currentPattern, converter, formatter, schema, getCellPositions } = context;
 		const genericPattern = converter.toGeneric(currentPattern);

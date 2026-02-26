@@ -64,7 +64,7 @@
 		)
 	);
 
-	let asHex = $state(false);
+	let asHex = $state(localStorage.getItem('instrumentHexMode') === 'true');
 	let selectedInstrumentIndex = $state(0);
 	let instrumentEditorRef: any = $state(null);
 	let instrumentListScrollRef: HTMLDivElement | null = $state(null);
@@ -164,7 +164,7 @@
 		{
 			label: 'Hex',
 			icon: hexIcon,
-			onClick: () => (asHex = !asHex),
+			onClick: () => { asHex = !asHex; localStorage.setItem('instrumentHexMode', String(asHex)); },
 			class: asHex ? 'text-[var(--color-app-primary)]' : ''
 		},
 		{

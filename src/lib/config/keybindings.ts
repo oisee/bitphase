@@ -32,6 +32,10 @@ export const ACTION_END = 'end';
 export const ACTION_END_COLUMN = 'end-column';
 export const ACTION_OCTAVE_UP = 'octave-up';
 export const ACTION_OCTAVE_DOWN = 'octave-down';
+export const ACTION_JUMP_CHANNEL_LEFT = 'jump-channel-left';
+export const ACTION_JUMP_CHANNEL_RIGHT = 'jump-channel-right';
+export const ACTION_CURSOR_HOME = 'cursor-home';
+export const ACTION_CURSOR_END = 'cursor-end';
 export const ACTION_SELECT_INSTRUMENT_OR_TABLE_IN_EDITOR = 'select-instrument-or-table-in-editor';
 
 export interface BindableAction {
@@ -98,6 +102,26 @@ export const BINDABLE_ACTIONS: BindableAction[] = [
 		id: ACTION_END_COLUMN,
 		label: 'End (last column)',
 		defaultShortcut: 'Mod+End'
+	},
+	{
+		id: ACTION_JUMP_CHANNEL_LEFT,
+		label: 'Jump to previous channel',
+		defaultShortcut: 'Mod+ArrowLeft'
+	},
+	{
+		id: ACTION_JUMP_CHANNEL_RIGHT,
+		label: 'Jump to next channel',
+		defaultShortcut: 'Mod+ArrowRight'
+	},
+	{
+		id: ACTION_CURSOR_HOME,
+		label: 'Cursor to first row',
+		defaultShortcut: 'Mod+ArrowUp'
+	},
+	{
+		id: ACTION_CURSOR_END,
+		label: 'Cursor to last row',
+		defaultShortcut: 'Mod+ArrowDown'
 	},
 	{
 		id: ACTION_SELECT_INSTRUMENT_OR_TABLE_IN_EDITOR,
