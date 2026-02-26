@@ -36,6 +36,7 @@
 		noiseAdd: 0,
 		envelopeAdd: 0,
 		volume: 0,
+		alpha: 15,
 		loop: false,
 		amplitudeSliding: false,
 		amplitudeSlideUp: false,
@@ -125,6 +126,7 @@
 						noiseAdd: 0,
 						envelopeAdd: 0,
 						volume: 15,
+						alpha: 15,
 						loop: false,
 						amplitudeSliding: false,
 						amplitudeSlideUp: false,
@@ -180,7 +182,7 @@
 		const allowedPattern = asHex ? /[^0-9a-fA-F-]/g : /[^0-9-]/g;
 		text = text.replace(/\+/g, '').replace(allowedPattern, '');
 
-		if (field === 'volume') {
+		if (field === 'volume' || field === 'alpha') {
 			if (asHex) {
 				if (text.length > 1) {
 					text = text.substring(0, 1);
@@ -213,7 +215,7 @@
 		}
 
 		if (parsed !== null) {
-			if (field === 'volume') {
+			if (field === 'volume' || field === 'alpha') {
 				parsed = Math.max(0, Math.min(15, parsed));
 			}
 			updateRow(index, field, parsed);
@@ -444,6 +446,15 @@
 						</div>
 					</div>
 				{/if}
+				<div class="flex items-center justify-center py-1">
+					<button
+						class="flex cursor-pointer items-center justify-center rounded p-0.5 text-[var(--color-app-text-muted)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-green-400"
+						onclick={addRow}
+						title="Add new row">
+						<IconCarbonAdd class="mr-1 h-3.5 w-3.5" />
+						<span class="mr-1 text-xs">Add new row</span>
+					</button>
+				</div>
 				<table
 					bind:this={tableRef}
 					class="table-fixed border-collapse bg-[var(--color-app-surface)] font-mono text-xs select-none">
@@ -573,6 +584,13 @@
 							</th>
 							<th
 								class={isExpanded
+									? 'w-14 min-w-14 px-1'
+									: 'w-14 px-0.5 text-[0.65rem]'}
+								title="Alpha (transparency for fill layer)">
+								<span class={isExpanded ? 'text-xs' : 'text-[0.65rem]'}>α</span>
+							</th>
+							<th
+								class={isExpanded
 									? 'w-8 min-w-8 px-1'
 									: 'w-8 min-w-8 px-0.5 text-[0.65rem]'}
 								title="Amplitude Slide: ↑ up / ↓ down / blank off">
@@ -584,6 +602,7 @@
 						</tr>
 						{#if showVolumeGrid}
 							<tr>
+								<th></th>
 								<th></th>
 								<th></th>
 								<th></th>
@@ -794,6 +813,18 @@
 										onfocus={(e) => (e.target as HTMLInputElement).select()}
 										oninput={(e) => updateNumericField(index, 'volume', e)} />
 								</td>
+								<!-- Alpha -->
+								<td class={isExpanded ? 'w-12 min-w-12 px-1.5' : 'w-12 px-0.5'}>
+									<input
+										type="text"
+										class="w-full min-w-0 overflow-x-auto rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] {isExpanded
+											? 'px-2 py-1 text-xs'
+											: 'px-1 py-0.5 text-[0.65rem]'} text-[var(--color-app-text-secondary)] placeholder-[var(--color-app-text-muted)] focus:border-[var(--color-app-primary)] focus:outline-none"
+										value={formatNum(row.alpha ?? 15)}
+										onkeydown={(e) => handleNumericKeyDown(index, e)}
+										onfocus={(e) => (e.target as HTMLInputElement).select()}
+										oninput={(e) => updateNumericField(index, 'alpha', e)} />
+								</td>
 								<!-- Amplitude Slide (merged: off/up/down) -->
 								<td
 									class="w-8 min-w-8 {isExpanded
@@ -822,7 +853,7 @@
 					</tbody>
 					<tfoot>
 						<tr>
-							<td colspan="16" class="px-2 py-1">
+							<td colspan="17" class="px-2 py-1">
 								<div class="flex items-center justify-center">
 									<button
 										class="flex cursor-pointer items-center justify-center rounded p-0.5 text-[var(--color-app-text-muted)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-green-400"
@@ -835,7 +866,7 @@
 							</td>
 						</tr>
 						<tr>
-							<td colspan="16" class="border-t border-[var(--color-app-border)] p-0">
+							<td colspan="17" class="border-t border-[var(--color-app-border)] p-0">
 								<RowResizeHandle
 									rowCount={rows.length}
 									onRowCountChange={setRowCount}

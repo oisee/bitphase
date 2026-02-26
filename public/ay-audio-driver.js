@@ -483,6 +483,7 @@ class AYAudioDriver {
 				noiseAdd: 0,
 				envelopeAdd: 0,
 				volume: 15,
+				alpha: 15,
 				amplitudeSliding: false,
 				amplitudeSlideUp: false,
 				toneAccumulation: false,
