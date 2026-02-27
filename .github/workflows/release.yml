@@ -1,0 +1,168 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-web:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Update submodules (HTTPS for CI)
+        run: |
+          git config submodule.external/ayumi.url https://github.com/paator/ayumi.git
+          git submodule update --init --recursive external/ayumi
+
+      - name: Verify submodule
+        run: test -f external/ayumi/ayumi.c || (echo "Submodule external/ayumi not present" && exit 1)
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v12
+        with:
+          version: "3.1.45"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build
+        run: |
+          source $EMSDK/emsdk_env.sh
+          export PATH=$EMSDK/upstream/emscripten:$PATH
+          chmod +x build-wasm.sh
+          EMSDK=$EMSDK bash -c 'pnpm build'
+        shell: bash
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Create web zip
+        run: cd dist && zip -r ../bitphase-web.zip .
+
+      - name: Upload web zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bitphase-web
+          path: bitphase-web.zip
+
+  build-electron:
+    needs: build-web
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac
+          - os: ubuntu-latest
+            platform: linux
+          - os: windows-latest
+            platform: win
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Build Electron main process
+        run: pnpm electron:build-main
+
+      - name: Build Electron app (macOS)
+        if: matrix.platform == 'mac'
+        run: pnpm exec electron-builder --mac
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Electron app (Linux)
+        if: matrix.platform == 'linux'
+        run: pnpm exec electron-builder --linux
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Electron app (Windows)
+        if: matrix.platform == 'win'
+        run: pnpm exec electron-builder --win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts (macOS)
+        if: matrix.platform == 'mac'
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-mac
+          path: |
+            release/*.dmg
+
+      - name: Upload artifacts (Linux)
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-linux
+          path: |
+            release/*.AppImage
+
+      - name: Upload artifacts (Windows)
+        if: matrix.platform == 'win'
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-win
+          path: |
+            release/*.exe
+
+  create-release:
+    needs: [build-web, build-electron]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: List artifacts
+        run: find artifacts/ -type f
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          prerelease: true
+          files: |
+            artifacts/bitphase-web/*.zip
+            artifacts/electron-mac/*.dmg
+            artifacts/electron-linux/*.AppImage
+            artifacts/electron-win/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

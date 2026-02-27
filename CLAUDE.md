@@ -15,6 +15,9 @@ Bitphase is a chiptune tracker for creating music on retro sound chips. Built wi
 - `pnpm test:run` — Run tests once
 - `pnpm vitest run tests/path/to/file.test.ts` — Run a single test file
 - `pnpm build:wasm` — Rebuild WASM only (requires Emscripten SDK with `emcc` in PATH)
+- `pnpm electron:dev` — Build and launch Electron app
+- `pnpm electron:pack` — Build platform-native installer → `release/`
+- Electron build docs: [`docs/electron-build.md`](docs/electron-build.md)
 
 ## Architecture
 
