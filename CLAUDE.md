@@ -1,4 +1,23 @@
-Bitphase is a chiptune tracker for creating music on retro sound chips. Built with Svelte 5, TypeScript, Vite, and Tailwind 4.
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Overview
+
+Bitphase is a chiptune tracker for creating music on retro sound chips. Built with Svelte 5, TypeScript, Vite, and Tailwind 4. Currently supports AY-3-8910/YM2149F chip, with architecture designed for future chip support.
+
+## Commands
+
+- `pnpm dev` — Start dev server (builds WASM first)
+- `pnpm build` — Production build
+- `pnpm check` — TypeScript and Svelte type checking (run this to catch lint errors)
+- `pnpm test` — Run tests in watch mode (vitest)
+- `pnpm test:run` — Run tests once
+- `pnpm vitest run tests/path/to/file.test.ts` — Run a single test file
+- `pnpm build:wasm` — Rebuild WASM only (requires Emscripten SDK with `emcc` in PATH)
+- `pnpm electron:dev` — Build and launch Electron app
+- `pnpm electron:pack` — Build platform-native installer → `release/`
+- Electron build docs: [`docs/electron-build.md`](docs/electron-build.md)
 
 ## Architecture
 
