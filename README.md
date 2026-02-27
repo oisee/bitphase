@@ -100,6 +100,16 @@ Alpha values are stored in `.btp` files and default to 15 for older files and VT
 5. **Open your browser**
    Navigate to `http://localhost:5173` (or the port shown in the terminal)
 
+## Desktop App (Electron)
+
+Bitphase can be packaged as a standalone desktop app for macOS, Windows, and Linux. See **[docs/electron-build.md](docs/electron-build.md)** for full build instructions per platform.
+
+Quick version:
+```bash
+pnpm electron:dev   # Run in dev mode
+pnpm electron:pack  # Build installer for current platform
+```
+
 ## Available Scripts
 
 - `pnpm dev` - Build WASM and start development server with hot module replacement
@@ -109,6 +119,8 @@ Alpha values are stored in `.btp` files and default to 15 for older files and VT
 - `pnpm check` - Run TypeScript and Svelte type checking
 - `pnpm test` - Run tests in watch mode
 - `pnpm test:run` - Run tests once
+- `pnpm electron:dev` - Build and launch Electron app for development
+- `pnpm electron:pack` - Build platform-native installer (output in `release/`)
 
 ## Project Structure
 
