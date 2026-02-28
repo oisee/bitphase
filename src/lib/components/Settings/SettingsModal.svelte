@@ -21,6 +21,7 @@
 		volume: settingsStore.volume,
 		envelopeAsNote: settingsStore.envelopeAsNote,
 		autoEnterInstrument: settingsStore.autoEnterInstrument,
+		focusPatternEditorOnHover: settingsStore.focusPatternEditorOnHover,
 		patternEditorFontSize: settingsStore.patternEditorFontSize,
 		patternEditorFontFamily: settingsStore.patternEditorFontFamily,
 		uiFontFamily: settingsStore.uiFontFamily,

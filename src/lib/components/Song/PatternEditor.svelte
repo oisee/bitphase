@@ -1592,17 +1592,19 @@
 
 	function handleMouseEnter(event: MouseEvent): void {
 		if (canvas) {
-			canvas.focus();
-			const selection = window.getSelection();
-			if (selection) {
-				selection.removeAllRanges();
-			}
-			onfocus?.();
-
 			const rect = canvas.getBoundingClientRect();
 			const y = event.clientY - rect.top;
 			isHoveringLabel = y <= lineHeight;
 			canvas.style.cursor = isHoveringLabel ? 'pointer' : 'default';
+
+			if (settingsStore.focusPatternEditorOnHover) {
+				canvas.focus();
+				const selection = window.getSelection();
+				if (selection) {
+					selection.removeAllRanges();
+				}
+				onfocus?.();
+			}
 		}
 	}
 
@@ -1645,6 +1647,13 @@
 	function handleCanvasMouseDown(event: MouseEvent): void {
 		if (!canvas || !currentPattern || !renderer || !textParser) return;
 		if (event.button === 2) return;
+
+		canvas.focus();
+		const selection = window.getSelection();
+		if (selection) {
+			selection.removeAllRanges();
+		}
+		onfocus?.();
 
 		const rect = canvas.getBoundingClientRect();
 		const x = event.clientX - rect.left;

@@ -186,8 +186,9 @@ Performance optimization through memoization:
 ### Mouse Movement
 
 - **handleMouseMove(event)** - Updates cursor style when hovering channel labels
-- **handleMouseEnter()** - Focuses canvas and clears text selection
+- **handleMouseEnter(event)** - Updates cursor style when hovering channel labels. When "Focus pattern editor on hover" setting is enabled, also focuses canvas and invokes onfocus to switch active editor
 - **handleMouseLeave()** - Resets cursor to default
+- **handleCanvasMouseDown(event)** - On click: focuses canvas, clears text selection, and invokes onfocus callback to switch active editor (default behavior; when hover-to-focus is enabled, click still works as fallback)
 
 ### Mouse Clicks & Drag
 
