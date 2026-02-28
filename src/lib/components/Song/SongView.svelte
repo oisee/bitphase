@@ -400,7 +400,6 @@
 					<PatternOrder
 						bind:currentPatternOrderIndex={sharedPatternOrderIndex}
 						bind:selectedRow={sharedSelectedRow}
-						chipSchemas={chipProcessors.map((p) => p?.chip?.schema)}
 						canvasHeight={patternOrderHeight}
 						onMakeUnique={handleMakeUnique}
 						onPatternOrderEdited={async () => {
