@@ -35,7 +35,7 @@
 		PatternValueUpdates,
 		type GenericFieldUpdate
 	} from '../../services/pattern/editing/pattern-value-updates';
-	import { PatternDeleteHandler } from '../../services/pattern/editing/pattern-delete-handler';
+
 	import { EffectField } from '../../services/pattern/editing/effect-field';
 	import { undoRedoStore } from '../../stores/undo-redo.svelte';
 	import { editorStateStore } from '../../stores/editor-state.svelte';
@@ -2005,7 +2005,10 @@
 				};
 			},
 			tuningTable,
-			getOctave: () => editorStateStore.octave
+			getOctave: () => editorStateStore.octave,
+			converter,
+			formatter,
+			schema
 		};
 	}
 
@@ -2014,8 +2017,20 @@
 	}
 
 	function cutSelection(): void {
-		copySelection();
-		deleteSelection();
+		const patternId = patternOrder[currentPatternOrderIndex];
+		const originalPattern = findOrCreatePattern(patternId);
+
+		ClipboardService.cutSelection(createClipboardContext(), (updatedPattern) => {
+			recordBulkPatternEdit(originalPattern, updatedPattern);
+			updatePatternInArray(updatedPattern);
+		});
+
+		selectionStartRow = null;
+		selectionStartColumn = null;
+		selectionEndRow = null;
+		selectionEndColumn = null;
+		clearAllCaches();
+		draw();
 	}
 
 	function pasteSelection(): void {
@@ -2108,7 +2123,6 @@
 	function deleteSelection(): void {
 		const patternId = patternOrder[currentPatternOrderIndex];
 		const originalPattern = findOrCreatePattern(patternId);
-		let pattern = originalPattern;
 
 		const bounds = hasSelection()
 			? getSelectionBounds()
@@ -2120,29 +2134,11 @@
 				};
 		if (!bounds) return;
 
-		const { minRow, maxRow, minCol, maxCol } = bounds;
-
-		const cellsToDelete: Array<{ row: number; col: number }> = [];
-
-		for (let row = minRow; row <= maxRow && row < pattern.length; row++) {
-			const rowString = getPatternRowData(pattern, row);
-			const cellPositions = getCellPositions(rowString, row);
-			for (let col = minCol; col <= maxCol && col < cellPositions.length; col++) {
-				cellsToDelete.push({ row, col });
-			}
+		const updatedPattern = ClipboardService.bulkDelete(createClipboardContext(), bounds);
+		if (updatedPattern) {
+			recordBulkPatternEdit(originalPattern, updatedPattern);
+			updatePatternInArray(updatedPattern);
 		}
-
-		const { createEditingContext } = createClipboardContext();
-		for (const { row, col } of cellsToDelete) {
-			const context = createEditingContext(pattern, row, col);
-			const result = PatternDeleteHandler.handleDelete(context);
-			if (result) {
-				pattern = result.updatedPattern;
-			}
-		}
-
-		recordBulkPatternEdit(originalPattern, pattern);
-		updatePatternInArray(pattern);
 
 		selectionStartRow = null;
 		selectionStartColumn = null;

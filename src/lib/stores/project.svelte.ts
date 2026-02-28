@@ -70,7 +70,6 @@ class ProjectStore {
 			return [...songPatterns, pattern];
 		});
 	}
-
 }
 
 export const projectStore = new ProjectStore();

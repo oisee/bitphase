@@ -1,12 +1,18 @@
 import type { Pattern } from '../../models/song';
 import { PatternFieldDetection } from './editing/pattern-field-detection';
 import { PatternValueUpdates } from './editing/pattern-value-updates';
-import type { EditingContext } from './editing/editing-context';
+import { PatternDeleteHandler } from './editing/pattern-delete-handler';
+import type { EditingContext, FieldInfo } from './editing/editing-context';
 import { clipboardStore, type ClipboardCell } from '../../stores/clipboard.svelte';
 import {
 	envelopePeriodToNoteString,
 	noteStringToEnvelopePeriod
 } from '../../utils/envelope-note-conversion';
+import type { PatternConverter } from '../../chips/base/adapter';
+import type { PatternFormatter } from '../../chips/base/formatter-interface';
+import type { ChipSchema } from '../../chips/base/schema';
+import type { GenericPattern } from '../../models/song/generic';
+import { PatternTemplateParser } from './editing/pattern-template-parsing';
 
 export interface ClipboardContext {
 	pattern: Pattern;
@@ -24,11 +30,14 @@ export interface ClipboardContext {
 	createEditingContext: (pattern: Pattern, row: number, col: number) => EditingContext;
 	tuningTable?: number[];
 	getOctave?: () => number;
+	converter: PatternConverter;
+	formatter: PatternFormatter;
+	schema: ChipSchema;
 }
 
 export class ClipboardService {
 	static copySelection(context: ClipboardContext): void {
-		const { pattern, selectedRow, selectedColumn, hasSelection, getSelectionBounds } = context;
+		const { pattern, selectedRow, selectedColumn, hasSelection } = context;
 
 		if (hasSelection) {
 			this.copyMultipleCells(context);
@@ -38,35 +47,30 @@ export class ClipboardService {
 	}
 
 	private static copyMultipleCells(context: ClipboardContext): void {
-		const {
-			pattern,
-			getSelectionBounds,
-			getCellPositions,
-			getPatternRowData,
-			createEditingContext
-		} = context;
+		const { pattern, getSelectionBounds, getCellPositions, converter, formatter, schema } =
+			context;
 		const bounds = getSelectionBounds();
 		if (!bounds) return;
 
 		const { minRow, maxRow, minCol, maxCol } = bounds;
+		const genericPattern = converter.toGeneric(pattern);
 		const cells: ClipboardCell[] = [];
 
 		for (let row = minRow; row <= maxRow && row < pattern.length; row++) {
-			const rowString = getPatternRowData(pattern, row);
+			const rowString = this.formatGenericRow(genericPattern, row, formatter, schema);
 			const cellPositions = getCellPositions(rowString, row);
 
 			for (let col = minCol; col <= maxCol && col < cellPositions.length; col++) {
 				const cell = cellPositions[col];
 				if (!cell.fieldKey) continue;
 
-				const editingContext = createEditingContext(pattern, row, col);
-				const fieldInfo = PatternFieldDetection.detectFieldAtCursor(editingContext);
+				const fieldInfo = this.detectFieldDirect(cell, rowString, schema);
 				if (!fieldInfo) continue;
 
-				const field = PatternValueUpdates.getFieldDefinition(editingContext, cell.fieldKey);
+				const field = this.getFieldDef(schema, cell.fieldKey);
 				if (!field) continue;
 
-				const value = PatternValueUpdates.getFieldValue(editingContext, fieldInfo);
+				const value = PatternValueUpdates.getValueFromGeneric(genericPattern, row, fieldInfo);
 
 				cells.push({
 					row: row - minRow,
@@ -87,21 +91,21 @@ export class ClipboardService {
 		row: number,
 		col: number
 	): void {
-		const { getCellPositions, getPatternRowData, createEditingContext } = context;
-		const rowString = getPatternRowData(pattern, row);
+		const { getCellPositions, converter, formatter, schema } = context;
+		const genericPattern = converter.toGeneric(pattern);
+		const rowString = this.formatGenericRow(genericPattern, row, formatter, schema);
 		const cellPositions = getCellPositions(rowString, row);
 
 		const cell = cellPositions[col];
 		if (!cell.fieldKey) return;
 
-		const editingContext = createEditingContext(pattern, row, col);
-		const fieldInfo = PatternFieldDetection.detectFieldAtCursor(editingContext);
+		const fieldInfo = this.detectFieldDirect(cell, rowString, schema);
 		if (!fieldInfo) return;
 
-		const field = PatternValueUpdates.getFieldDefinition(editingContext, cell.fieldKey);
+		const field = this.getFieldDef(schema, cell.fieldKey);
 		if (!field) return;
 
-		const value = PatternValueUpdates.getFieldValue(editingContext, fieldInfo);
+		const value = PatternValueUpdates.getValueFromGeneric(genericPattern, row, fieldInfo);
 
 		clipboardStore.copy(
 			[
@@ -117,6 +121,170 @@ export class ClipboardService {
 			0,
 			0,
 			0
+		);
+	}
+
+	static cutSelection(
+		context: ClipboardContext,
+		onPatternUpdate: (pattern: Pattern) => void
+	): void {
+		const { pattern, hasSelection, getSelectionBounds, selectedRow, selectedColumn } = context;
+		const { getCellPositions, converter, formatter, schema } = context;
+
+		const bounds = hasSelection
+			? getSelectionBounds()
+			: { minRow: selectedRow, maxRow: selectedRow, minCol: selectedColumn, maxCol: selectedColumn };
+		if (!bounds) return;
+
+		const { minRow, maxRow, minCol, maxCol } = bounds;
+		const genericPattern = converter.toGeneric(pattern);
+		const clipboardCells: ClipboardCell[] = [];
+
+		interface DeletionOp {
+			row: number;
+			fieldInfo: FieldInfo;
+			field: { type: string; length: number; allowZeroValue?: boolean };
+		}
+		const deletionOps: DeletionOp[] = [];
+
+		for (let row = minRow; row <= maxRow && row < pattern.length; row++) {
+			const rowString = this.formatGenericRow(genericPattern, row, formatter, schema);
+			const cellPositions = getCellPositions(rowString, row);
+
+			for (let col = minCol; col <= maxCol && col < cellPositions.length; col++) {
+				const cell = cellPositions[col];
+				if (!cell.fieldKey) continue;
+
+				const fieldInfo = this.detectFieldDirect(cell, rowString, schema);
+				if (!fieldInfo) continue;
+
+				const field = this.getFieldDef(schema, cell.fieldKey);
+				if (!field) continue;
+
+				const value = PatternValueUpdates.getValueFromGeneric(genericPattern, row, fieldInfo);
+				clipboardCells.push({
+					row: row - minRow,
+					column: col - minCol,
+					fieldKey: cell.fieldKey,
+					fieldType: field.type,
+					value
+				});
+
+				deletionOps.push({ row, fieldInfo, field });
+			}
+		}
+
+		clipboardStore.copy(clipboardCells, 0, 0, maxRow - minRow, maxCol - minCol);
+
+		if (deletionOps.length > 0) {
+			for (const { row, fieldInfo, field } of deletionOps) {
+				this.applyDeleteToGeneric(genericPattern, row, fieldInfo, field, schema, context.tuningTable);
+			}
+			onPatternUpdate(converter.fromGeneric(genericPattern));
+		}
+	}
+
+	static bulkDelete(
+		context: ClipboardContext,
+		bounds: { minRow: number; maxRow: number; minCol: number; maxCol: number }
+	): Pattern | null {
+		const { pattern, getCellPositions, converter, formatter, schema } = context;
+		const genericPattern = converter.toGeneric(pattern);
+		let hasChanges = false;
+
+		for (let row = bounds.minRow; row <= bounds.maxRow && row < pattern.length; row++) {
+			const rowString = this.formatGenericRow(genericPattern, row, formatter, schema);
+			const cellPositions = getCellPositions(rowString, row);
+
+			for (let col = bounds.minCol; col <= bounds.maxCol && col < cellPositions.length; col++) {
+				const cell = cellPositions[col];
+				if (!cell.fieldKey) continue;
+
+				const fieldInfo = this.detectFieldDirect(cell, rowString, schema);
+				if (!fieldInfo) continue;
+
+				const field = this.getFieldDef(schema, cell.fieldKey);
+				if (!field) continue;
+
+				this.applyDeleteToGeneric(genericPattern, row, fieldInfo, field, schema, context.tuningTable);
+				hasChanges = true;
+			}
+		}
+
+		return hasChanges ? converter.fromGeneric(genericPattern) : null;
+	}
+
+	private static formatGenericRow(
+		generic: GenericPattern,
+		row: number,
+		formatter: PatternFormatter,
+		schema: ChipSchema
+	): string {
+		const patternRow = generic.patternRows[row];
+		const channels = generic.channels.map((ch) => ch.rows[row]);
+		return formatter.formatRow(patternRow, channels, row, schema);
+	}
+
+	private static detectFieldDirect(
+		cell: { fieldKey?: string; charIndex: number },
+		rowString: string,
+		schema: ChipSchema
+	): FieldInfo | null {
+		if (!cell.fieldKey) return null;
+
+		const field = schema.fields[cell.fieldKey] || schema.globalFields?.[cell.fieldKey];
+		if (!field) return null;
+
+		const isGlobal = !!schema.globalFields?.[cell.fieldKey];
+		const channelIndex = isGlobal
+			? -1
+			: PatternTemplateParser.calculateChannelIndexForField(
+					cell.fieldKey,
+					cell.charIndex,
+					rowString,
+					schema
+				);
+
+		const fieldStart = PatternTemplateParser.findFieldStartPositionInRowString(
+			rowString,
+			cell.fieldKey,
+			cell.charIndex,
+			schema
+		);
+		const charOffset = cell.charIndex - fieldStart;
+
+		return {
+			fieldKey: cell.fieldKey,
+			fieldType: field.type,
+			isGlobal,
+			channelIndex,
+			charOffset
+		};
+	}
+
+	private static getFieldDef(
+		schema: ChipSchema,
+		fieldKey: string
+	): { type: string; length: number; allowZeroValue?: boolean } | null {
+		const field = schema.fields[fieldKey] || schema.globalFields?.[fieldKey];
+		return field ? { type: field.type, length: field.length, allowZeroValue: field.allowZeroValue } : null;
+	}
+
+	private static applyDeleteToGeneric(
+		generic: GenericPattern,
+		row: number,
+		fieldInfo: FieldInfo,
+		field: { type: string; length: number; allowZeroValue?: boolean },
+		schema: ChipSchema,
+		tuningTable?: number[]
+	): void {
+		PatternDeleteHandler.deleteFieldInGeneric(
+			generic,
+			row,
+			fieldInfo,
+			field,
+			schema,
+			tuningTable
 		);
 	}
 

@@ -1,5 +1,7 @@
 import type { EditingContext, FieldInfo } from './editing-context';
 import type { Pattern } from '../../../models/song';
+import type { GenericPattern } from '../../../models/song/generic';
+import type { ChipSchema } from '../../../chips/base/schema';
 import { PatternFieldDetection } from './pattern-field-detection';
 import { PatternValueUpdates } from './pattern-value-updates';
 import { StringManipulation } from './string-manipulation';
@@ -89,6 +91,17 @@ export class PatternDeleteHandler {
 			return null;
 		}
 
+		if (currentValue === ZERO_VALUE) {
+			const updatedPattern = PatternValueUpdates.updateFieldValue(context, fieldInfo, 0);
+			return { updatedPattern, shouldMoveNext: false };
+		}
+
+		if (field.allowZeroValue) {
+			if (currentValue === 0) return null;
+			const updatedPattern = PatternValueUpdates.updateFieldValue(context, fieldInfo, 0);
+			return { updatedPattern, shouldMoveNext: false };
+		}
+
 		const strategy = FieldStrategyFactory.getStrategy(field.type);
 		const currentStr = strategy.format(currentValue, field.length, field.allowZeroValue);
 
@@ -97,11 +110,6 @@ export class PatternDeleteHandler {
 		}
 
 		const charAtOffset = currentStr[fieldInfo.charOffset];
-
-		if (currentValue === ZERO_VALUE) {
-			const updatedPattern = PatternValueUpdates.updateFieldValue(context, fieldInfo, 0);
-			return { updatedPattern, shouldMoveNext: false };
-		}
 
 		if (charAtOffset === '.' || charAtOffset === '0') {
 			return null;
@@ -156,5 +164,137 @@ export class PatternDeleteHandler {
 			newEffectObj
 		);
 		return { updatedPattern, shouldMoveNext: false };
+	}
+
+	static deleteFieldInGeneric(
+		generic: GenericPattern,
+		row: number,
+		fieldInfo: FieldInfo,
+		field: { type: string; length: number; allowZeroValue?: boolean },
+		schema: ChipSchema,
+		tuningTable?: number[]
+	): void {
+		if (field.type === 'note') {
+			if (fieldInfo.isGlobal) return;
+			this.setGenericValue(generic, row, fieldInfo, '---');
+			if (settingsStore.autoEnterInstrument) {
+				const instrumentFieldDef = schema.fields?.instrument;
+				if (instrumentFieldDef) {
+					const instrumentFieldInfo: FieldInfo = {
+						fieldKey: 'instrument',
+						fieldType: instrumentFieldDef.type,
+						isGlobal: false,
+						channelIndex: fieldInfo.channelIndex,
+						charOffset: 0
+					};
+					this.setGenericValue(generic, row, instrumentFieldInfo, 0);
+				}
+			}
+			return;
+		}
+
+		if (EffectField.isEffectField(fieldInfo.fieldKey)) {
+			this.deleteEffectFieldInGeneric(generic, row, fieldInfo);
+			return;
+		}
+
+		if (fieldInfo.fieldKey === 'envelopeValue' && tuningTable) {
+			this.setGenericValue(generic, row, fieldInfo, 0);
+			return;
+		}
+
+		if (field.type === 'hex' || field.type === 'dec' || field.type === 'symbol') {
+			this.deleteNumericFieldInGeneric(generic, row, fieldInfo, field);
+			return;
+		}
+
+		if (field.type === 'text') {
+			const currentValue = PatternValueUpdates.getValueFromGeneric(generic, row, fieldInfo);
+			const currentStr =
+				typeof currentValue === 'number' ? currentValue.toString() : String(currentValue);
+			const newStr = StringManipulation.replaceCharAtOffset(
+				currentStr,
+				fieldInfo.charOffset,
+				''
+			);
+			this.setGenericValue(generic, row, fieldInfo, newStr);
+			return;
+		}
+
+		this.setGenericValue(generic, row, fieldInfo, '');
+	}
+
+	private static deleteNumericFieldInGeneric(
+		generic: GenericPattern,
+		row: number,
+		fieldInfo: FieldInfo,
+		field: { type: string; length: number; allowZeroValue?: boolean }
+	): void {
+		const currentValue = PatternValueUpdates.getValueFromGeneric(generic, row, fieldInfo);
+		const ZERO_VALUE = -1;
+		if (!FieldStrategyFactory.isSupported(field.type)) return;
+
+		if (currentValue === ZERO_VALUE) {
+			this.setGenericValue(generic, row, fieldInfo, 0);
+			return;
+		}
+
+		if (field.allowZeroValue) {
+			if (currentValue === 0) return;
+			this.setGenericValue(generic, row, fieldInfo, 0);
+			return;
+		}
+
+		const strategy = FieldStrategyFactory.getStrategy(field.type);
+		const currentStr = strategy.format(currentValue, field.length, field.allowZeroValue);
+		if (fieldInfo.charOffset < 0 || fieldInfo.charOffset >= currentStr.length) return;
+		const charAtOffset = currentStr[fieldInfo.charOffset];
+		if (charAtOffset === '.' || charAtOffset === '0') return;
+		const replacementChar =
+			fieldInfo.fieldKey === 'instrument' || field.length === 1 ? '.' : '0';
+		const newStr = StringManipulation.replaceCharAtOffset(
+			currentStr,
+			fieldInfo.charOffset,
+			replacementChar
+		);
+		this.setGenericValue(
+			generic,
+			row,
+			fieldInfo,
+			strategy.parse(newStr, field.length, field.allowZeroValue)
+		);
+	}
+
+	private static deleteEffectFieldInGeneric(
+		generic: GenericPattern,
+		row: number,
+		fieldInfo: FieldInfo
+	): void {
+		const currentValue = PatternValueUpdates.getValueFromGeneric(generic, row, fieldInfo);
+		const currentStr = EffectField.formatValue(currentValue);
+		if (!currentStr) return;
+		if (fieldInfo.charOffset < 0 || fieldInfo.charOffset >= currentStr.length) return;
+		const charAtOffset = currentStr[fieldInfo.charOffset];
+		if (charAtOffset === '.' || (fieldInfo.charOffset > 0 && charAtOffset === '0')) return;
+		const replacementChar = fieldInfo.charOffset === 0 ? '.' : '0';
+		const newStr = StringManipulation.replaceCharAtOffset(
+			currentStr,
+			fieldInfo.charOffset,
+			replacementChar
+		);
+		this.setGenericValue(generic, row, fieldInfo, EffectField.parseValue(newStr));
+	}
+
+	private static setGenericValue(
+		generic: GenericPattern,
+		row: number,
+		fieldInfo: FieldInfo,
+		value: string | number | null | undefined | Record<string, unknown>
+	): void {
+		if (fieldInfo.isGlobal) {
+			generic.patternRows[row][fieldInfo.fieldKey] = value;
+		} else {
+			generic.channels[fieldInfo.channelIndex].rows[row][fieldInfo.fieldKey] = value;
+		}
 	}
 }
