@@ -32,6 +32,9 @@
 		onAction?: (data: { action: string }) => void;
 	} = $props();
 
+	const hideWebMenu = $derived(
+		settingsStore.menuMode === 'native' && !!window.electronAPI?.isElectron
+	);
 	const hasAYSong = $derived(projectStore.songs.some((song) => song.chipType === 'ay'));
 	function handleVolumeChange(event: Event) {
 		const target = event.target as HTMLInputElement;
@@ -130,16 +133,18 @@
 
 <div
 	class="flex w-full items-center border-b border-[var(--color-app-border)] bg-[var(--color-app-surface-hover)] px-2 text-center">
-	{#each menuItems as item}
-		<MenuButton
-			label={item.label}
-			items={item.items || []}
-			action={item.action}
-			{activeMenu}
-			onAction={handleAction}
-			onMenuOpen={handleMenuOpen}
-			onMenuClose={handleMenuClose} />
-	{/each}
+	{#if !hideWebMenu}
+		{#each menuItems as item}
+			<MenuButton
+				label={item.label}
+				items={item.items || []}
+				action={item.action}
+				{activeMenu}
+				onAction={handleAction}
+				onMenuOpen={handleMenuOpen}
+				onMenuClose={handleMenuClose} />
+		{/each}
+	{/if}
 
 	<div class="ml-auto flex items-center gap-1.5 min-[1880px]:gap-3">
 		<div class="flex items-center gap-1.5" title="Octave">

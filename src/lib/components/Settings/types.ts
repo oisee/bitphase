@@ -11,6 +11,7 @@ export interface Settings {
 	showInstrumentPreview: boolean;
 	debugMode: boolean;
 	selectionStyle: 'inverted' | 'filled';
+	menuMode: 'web' | 'native' | 'both';
 }
 
 export interface SettingsItem {

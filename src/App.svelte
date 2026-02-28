@@ -233,6 +233,18 @@
 
 	setContext('container', container);
 
+	$effect(() => {
+		if (!window.electronAPI) return;
+		return window.electronAPI.onMenuAction((action) => {
+			handleMenuAction({ action });
+		});
+	});
+
+	$effect(() => {
+		const showNative = settingsStore.menuMode !== 'web';
+		window.electronAPI?.setNativeMenu(showNative);
+	});
+
 	let enterPlayFromRowActive = $state(false);
 
 	function handleGlobalKeyDown(event: KeyboardEvent) {

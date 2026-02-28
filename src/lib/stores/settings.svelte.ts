@@ -16,6 +16,7 @@ class SettingsStore {
 	showInstrumentPreview = $state(true);
 	debugMode = $state(false);
 	selectionStyle = $state<'inverted' | 'filled'>('inverted');
+	menuMode = $state<'web' | 'native' | 'both'>('web');
 
 	init(): void {
 		const stored = localStorage.getItem(STORAGE_KEY);
