@@ -131,7 +131,8 @@ export class PatternService {
 		allPatterns: Pattern[][],
 		patternOrder: number[],
 		index: number,
-		getSchema: (songIndex: number) => ChipSchema | undefined
+		getSchema: (songIndex: number) => ChipSchema | undefined,
+		getEffectiveLabels?: (songIndex: number) => string[] | undefined
 	): {
 		newPatternsPerSong: Pattern[][];
 		newPatternOrder: number[];
@@ -144,7 +145,11 @@ export class PatternService {
 		newPatternOrder.splice(insertIndex, 0, newPatternId);
 
 		const newPatternsPerSong = allPatterns.map((songPatterns, songIndex) => {
-			const newPattern = this.createEmptyPattern(newPatternId, getSchema(songIndex));
+			const newPattern = this.createEmptyPattern(
+				newPatternId,
+				getSchema(songIndex),
+				getEffectiveLabels?.(songIndex)
+			);
 			const existing = songPatterns.find((p) => p.id === newPatternId);
 			if (existing) {
 				return songPatterns.map((p) => (p.id === newPatternId ? newPattern : p));
@@ -403,7 +408,8 @@ export class PatternService {
 		patternOrder: number[],
 		index: number,
 		newId: number,
-		getSchema: (songIndex: number) => ChipSchema | undefined
+		getSchema: (songIndex: number) => ChipSchema | undefined,
+		getEffectiveLabels?: (songIndex: number) => string[] | undefined
 	): {
 		newPatternsPerSong: Pattern[][];
 		newPatternOrder: number[];
@@ -419,7 +425,7 @@ export class PatternService {
 			const currentPattern = songPatterns.find((p) => p.id === patternOrder[index]);
 			const newPattern = currentPattern
 				? this.clonePattern(currentPattern, newId, getSchema(songIndex))
-				: this.createEmptyPattern(newId, getSchema(songIndex));
+				: this.createEmptyPattern(newId, getSchema(songIndex), getEffectiveLabels?.(songIndex));
 			return [...songPatterns, newPattern];
 		});
 
