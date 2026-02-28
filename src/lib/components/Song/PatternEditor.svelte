@@ -105,6 +105,7 @@
 		isActive = false,
 		isPlaybackMaster = false,
 		onfocus,
+		canFocusOnHover = () => false,
 		onaction,
 		initAllChips,
 		initAllChipsForPlayPattern,
@@ -120,6 +121,7 @@
 		isActive?: boolean;
 		isPlaybackMaster?: boolean;
 		onfocus?: () => void;
+		canFocusOnHover?: () => boolean;
 		onaction?: (data: { action: string }) => void;
 		initAllChips?: () => void;
 		initAllChipsForPlayPattern?: () => void;
@@ -448,6 +450,10 @@
 
 	export function focusCanvas(): void {
 		canvas?.focus();
+	}
+
+	export function getCanvas(): HTMLCanvasElement | undefined {
+		return canvas;
 	}
 
 	export function getSelectedFieldKey(): string | null {
@@ -1597,7 +1603,7 @@
 			isHoveringLabel = y <= lineHeight;
 			canvas.style.cursor = isHoveringLabel ? 'pointer' : 'default';
 
-			if (settingsStore.focusPatternEditorOnHover) {
+			if (canFocusOnHover()) {
 				canvas.focus();
 				const selection = window.getSelection();
 				if (selection) {

@@ -26,14 +26,6 @@ export const settingsItems: SettingsItem[] = [
 		category: 'general'
 	},
 	{
-		label: 'Focus pattern editor on hover',
-		description: 'Switch between chip editors when hovering over them (default: switch on click)',
-		type: 'toggle',
-		defaultValue: false,
-		setting: 'focusPatternEditorOnHover',
-		category: 'general'
-	},
-	{
 		label: 'Show Preview Playground',
 		description: 'Display the preview playground in the right panel',
 		type: 'toggle',

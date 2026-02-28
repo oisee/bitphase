@@ -24,6 +24,7 @@ Main canvas-based tracker interface for editing musical patterns. Handles render
 ### Callback Props
 
 - **onfocus**: `() => void` - Callback fired when editor gains focus
+- **canFocusOnHover**: `() => boolean` - Returns true when hover may focus this editor (e.g. when no pattern editor is focused); used to avoid accidental focus switch when moving between chip editors
 - **initAllChips**: `() => void` - Initializes all chip processors before playback
 - **getSpeedForChip**: `(chipIndex: number) => number | null` - Retrieves playback speed for specific chip index
 
@@ -186,9 +187,9 @@ Performance optimization through memoization:
 ### Mouse Movement
 
 - **handleMouseMove(event)** - Updates cursor style when hovering channel labels
-- **handleMouseEnter(event)** - Updates cursor style when hovering channel labels. When "Focus pattern editor on hover" setting is enabled, also focuses canvas and invokes onfocus to switch active editor
+- **handleMouseEnter(event)** - Updates cursor style when hovering channel labels. When canFocusOnHover() returns true (no pattern editor is focused), focuses canvas and invokes onfocus
 - **handleMouseLeave()** - Resets cursor to default
-- **handleCanvasMouseDown(event)** - On click: focuses canvas, clears text selection, and invokes onfocus callback to switch active editor (default behavior; when hover-to-focus is enabled, click still works as fallback)
+- **handleCanvasMouseDown(event)** - On click: focuses canvas, clears text selection, and invokes onfocus callback to switch active editor
 
 ### Mouse Clicks & Drag
 

@@ -7,7 +7,6 @@ class SettingsStore {
 	volume = $state(60);
 	envelopeAsNote = $state(false);
 	autoEnterInstrument = $state(false);
-	focusPatternEditorOnHover = $state(false);
 	patternEditorFontSize = $state(14);
 	patternEditorFontFamily = $state('monospace');
 	uiFontFamily = $state('Fira Code');

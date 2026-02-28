@@ -525,6 +525,8 @@
 										activeEditorIndex = i;
 										patternEditor = patternEditors[i];
 									}}
+									canFocusOnHover={() =>
+										!patternEditors.some((e) => e?.getCanvas?.() === document.activeElement)}
 									{onaction}
 									initAllChips={initAllChipsForPlayback}
 									{initAllChipsForPlayPattern}

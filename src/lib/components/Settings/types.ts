@@ -2,7 +2,6 @@ export interface Settings {
 	volume: number;
 	envelopeAsNote: boolean;
 	autoEnterInstrument: boolean;
-	focusPatternEditorOnHover: boolean;
 	patternEditorFontSize: number;
 	patternEditorFontFamily: string;
 	uiFontFamily: string;
