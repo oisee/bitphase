@@ -67,6 +67,7 @@
 	let asHex = $state(false);
 	let selectedInstrumentIndex = $state(0);
 	let instrumentEditorRef: any = $state(null);
+	let selectedInstrumentRowIndices = $state<number[]>([]);
 	let instrumentListScrollRef: HTMLDivElement | null = $state(null);
 	let instrumentsContainerRef: HTMLDivElement | null = $state(null);
 
@@ -590,7 +591,8 @@
 							instrument={instruments[selectedInstrumentIndex]}
 							{asHex}
 							{isExpanded}
-							onInstrumentChange={handleInstrumentChange} />
+							onInstrumentChange={handleInstrumentChange}
+							bind:selectedRowIndices={selectedInstrumentRowIndices} />
 					{/key}
 				{/if}
 			</div>

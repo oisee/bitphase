@@ -9,6 +9,9 @@ function keyFromEvent(event: KeyboardEvent): string {
 		}
 		return code;
 	}
+	if (event.code === 'Minus') {
+		return '-';
+	}
 	const key = event.key;
 	if (key.length === 1 && key >= 'A' && key <= 'Z') {
 		return key.toLowerCase();

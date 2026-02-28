@@ -11,18 +11,37 @@
 	import IconCarbonActivity from '~icons/carbon/activity';
 	import IconCarbonRepeat from '~icons/carbon/repeat';
 	import Input from '../../components/Input/Input.svelte';
+	import SelectableRowNumberCell from '../../components/RowEditorTable/SelectableRowNumberCell.svelte';
+	import {
+		ROW_SELECTION_STYLES,
+		computeSelectionFromClick,
+		filterValidSelection,
+		isRowSelected as checkRowSelected
+	} from '../../utils/row-selection';
+	import { keybindingsStore } from '../../stores/keybindings.svelte';
+	import { ShortcutString } from '../../utils/shortcut-string';
+	import {
+		ACTION_INCREMENT_VALUE,
+		ACTION_DECREMENT_VALUE,
+		ACTION_TRANSPOSE_OCTAVE_UP,
+		ACTION_TRANSPOSE_OCTAVE_DOWN
+	} from '../../config/keybindings';
 
 	let {
 		instrument,
 		asHex = false,
 		isExpanded = false,
-		onInstrumentChange
+		onInstrumentChange,
+		selectedRowIndices = $bindable([])
 	}: {
 		instrument: Instrument;
 		asHex: boolean;
 		isExpanded: boolean;
 		onInstrumentChange: (instrument: Instrument) => void;
+		selectedRowIndices?: number[];
 	} = $props();
+
+	let selectionAnchor = $state<number | null>(null);
 
 	const VOLUME_VALUES = Array.from({ length: 16 }, (_, i) => i);
 	const showVolumeGrid = $derived(isExpanded);
@@ -113,6 +132,24 @@
 		}
 	}
 
+	function isRowSelected(index: number): boolean {
+		return checkRowSelected(index, selectedRowIndices);
+	}
+
+	function handleRowSelect(index: number, event: MouseEvent) {
+		event.preventDefault();
+		event.stopPropagation();
+		const result = computeSelectionFromClick(
+			index,
+			event,
+			selectedRowIndices,
+			selectionAnchor
+		);
+		selectedRowIndices = result.indices;
+		selectionAnchor = result.anchor;
+		editorContainerRef?.focus();
+	}
+
 	function ensureNonEmptyRows(rowsArray: any[]): any[] {
 		return rowsArray.length === 0
 			? [
@@ -141,6 +178,7 @@
 	let name = $state(instrument.name);
 	let loopColumnRef: HTMLTableCellElement | null = $state(null);
 	let tableRef: HTMLTableElement | null = $state(null);
+	let editorContainerRef: HTMLDivElement | null = $state(null);
 	let lastInstrumentId = $state(instrument.id);
 	let lastSyncedName = $state(instrument.name);
 	let lastSyncedRows = $state([...instrument.rows]);
@@ -152,6 +190,28 @@
 
 	function updateRow(index: number, field: string, value: any) {
 		rows[index] = { ...rows[index], [field]: value };
+		rows = [...rows];
+		updateInstrument({ rows });
+	}
+
+	const NUMERIC_FIELDS = [
+		{ key: 'toneAdd', min: -4096, max: 4095 },
+		{ key: 'noiseAdd', min: -4096, max: 4095 },
+		{ key: 'envelopeAdd', min: -4096, max: 4095 },
+		{ key: 'volume', min: 0, max: 15 }
+	] as const;
+
+	function incrementSelectedRows(delta: number) {
+		if (selectedRowIndices.length === 0) return;
+		for (const index of selectedRowIndices) {
+			let updated = { ...rows[index] };
+			for (const { key, min, max } of NUMERIC_FIELDS) {
+				const current = key === 'envelopeAdd' ? (updated.envelopeAdd ?? 0) : updated[key];
+				const next = Math.max(min, Math.min(max, current + delta));
+				updated = { ...updated, [key]: next };
+			}
+			rows[index] = updated;
+		}
 		rows = [...rows];
 		updateInstrument({ rows });
 	}
@@ -352,6 +412,8 @@
 		if (instrument.id !== lastInstrumentId) {
 			lastInstrumentId = instrument.id;
 			syncFromInstrument();
+			selectedRowIndices = [];
+			selectionAnchor = null;
 		} else {
 			const rowsChanged =
 				instrument.rows.length !== lastSyncedRows.length ||
@@ -384,6 +446,13 @@
 	});
 
 	$effect(() => {
+		const validIndices = filterValidSelection(selectedRowIndices, rows.length);
+		if (validIndices.length !== selectedRowIndices.length) {
+			selectedRowIndices = validIndices;
+		}
+	});
+
+	$effect(() => {
 		const stop = () => {
 			isDragging = false;
 			dragType = null;
@@ -393,11 +462,74 @@
 		return () => window.removeEventListener('mouseup', stop);
 	});
 
+	$effect(() => {
+		const containerEl = editorContainerRef;
+		if (!containerEl) return;
+
+		function handleClickOutside(event: MouseEvent) {
+			const target = event.target as Node;
+			if (
+				selectedRowIndices.length > 0 &&
+				!containerEl!.contains(target)
+			) {
+				selectedRowIndices = [];
+				selectionAnchor = null;
+			}
+		}
+
+		function handleFocusOut(event: FocusEvent) {
+			const relatedTarget = event.relatedTarget as Node | null;
+			if (!relatedTarget) return;
+			if (containerEl!.contains(relatedTarget)) return;
+			if (selectedRowIndices.length > 0) {
+				selectedRowIndices = [];
+				selectionAnchor = null;
+			}
+		}
+
+		document.addEventListener('mousedown', handleClickOutside);
+		containerEl.addEventListener('focusout', handleFocusOut);
+		return () => {
+			document.removeEventListener('mousedown', handleClickOutside);
+			containerEl.removeEventListener('focusout', handleFocusOut);
+		};
+	});
+
+	$effect(() => {
+		const container = editorContainerRef;
+		if (!container) return;
+
+		function handleKeyDown(event: KeyboardEvent) {
+			if (selectedRowIndices.length === 0) return;
+			const shortcut = ShortcutString.fromEvent(event);
+			const action = keybindingsStore.getActionForShortcut(shortcut);
+			const delta =
+				action === ACTION_TRANSPOSE_OCTAVE_UP || action === ACTION_TRANSPOSE_OCTAVE_DOWN
+					? 10
+					: 1;
+			if (action === ACTION_INCREMENT_VALUE || action === ACTION_TRANSPOSE_OCTAVE_UP) {
+				event.preventDefault();
+				incrementSelectedRows(delta);
+			} else if (action === ACTION_DECREMENT_VALUE || action === ACTION_TRANSPOSE_OCTAVE_DOWN) {
+				event.preventDefault();
+				incrementSelectedRows(-delta);
+			}
+		}
+
+		container.addEventListener('keydown', handleKeyDown);
+		return () => container.removeEventListener('keydown', handleKeyDown);
+	});
+
 </script>
 
-{#snippet volumeCell(index: number, value: number, isSelected: boolean)}
+
+{#snippet volumeCell(index: number, value: number, isSelected: boolean, rowSelected: boolean)}
 	<td
-		class={`group h-8 w-6 min-w-6 cursor-pointer border border-[var(--color-app-border)] text-center text-[0.7rem] leading-none ${isSelected ? 'bg-[var(--color-app-surface-active)]' : 'bg-[var(--color-app-surface)] hover:bg-[var(--color-app-surface-secondary)]'}`}
+		class={`group h-8 w-6 min-w-6 cursor-pointer border border-[var(--color-app-border)] text-center text-[0.7rem] leading-none ${isSelected
+			? 'bg-[var(--color-app-surface-active)]'
+			: rowSelected
+				? ROW_SELECTION_STYLES.cell
+				: 'bg-[var(--color-app-surface)] hover:bg-[var(--color-app-surface-secondary)]'}`}
 		tabindex="-1"
 		title={String(value)}
 		onmousedown={() => beginDragVolume(index, value)}
@@ -412,7 +544,10 @@
 	</td>
 {/snippet}
 
-<div class="w-full overflow-x-auto">
+<div
+	class="w-full overflow-x-auto outline-none focus:outline-none"
+	bind:this={editorContainerRef}
+	tabindex="-1">
 	<div class="mt-2 ml-2 flex items-center gap-2">
 		<span class="w-10 shrink-0 text-xs text-[var(--color-app-text-muted)]">Name:</span>
 		<Input class="w-48 text-xs" bind:value={name} />
@@ -446,7 +581,7 @@
 				{/if}
 				<table
 					bind:this={tableRef}
-					class="table-fixed border-collapse bg-[var(--color-app-surface)] font-mono text-xs select-none">
+					class="row-editor-table table-fixed border-collapse bg-[var(--color-app-surface)] font-mono text-xs select-none">
 					<thead>
 						<tr>
 							<th class={isExpanded ? 'w-14 min-w-14 px-2 py-1.5' : 'px-1 py-1'}
@@ -605,13 +740,18 @@
 					</thead>
 					<tbody>
 						{#each rows as row, index}
-							<tr class={isExpanded ? 'h-8' : 'h-7'}>
+							{@const selected = isRowSelected(index)}
+							<tr
+								class="{isExpanded ? 'h-8' : 'h-7'} {selected ? ROW_SELECTION_STYLES.row : ''}">
+								<SelectableRowNumberCell
+									{index}
+									selected={selected}
+									sizeClass={isExpanded ? 'w-14 min-w-14 px-2 py-1.5' : 'px-1 py-1 text-[0.65rem]'}
+									onmousedown={(e) => handleRowSelect(index, e)} />
 								<td
-									class="border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] {isExpanded
-										? 'w-14 min-w-14 px-2 py-1.5'
-										: 'px-1 py-1 text-[0.65rem]'} text-right">{index}</td>
-								<td
-									class="border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] {isExpanded
+									class="border border-[var(--color-app-border)] {selected
+										? ROW_SELECTION_STYLES.cell
+										: 'bg-[var(--color-app-surface-secondary)]'} {isExpanded
 										? 'px-1.5'
 										: 'px-0.5'}">
 									<div
@@ -645,18 +785,22 @@
 									</div>
 								</td>
 								<td
-									class={isExpanded
+									class="{isExpanded
 										? 'w-6 cursor-pointer px-1.5 text-center text-sm'
-										: 'w-4 cursor-pointer px-0.5 text-center text-[0.65rem]'}
+										: 'w-4 cursor-pointer px-0.5 text-center text-[0.65rem]'} {selected
+										? ROW_SELECTION_STYLES.cell
+										: ''}"
 									onclick={() => setLoop(index)}>
 								</td>
 								<!-- Tone -->
 								<td
 									class="{isExpanded
 										? 'w-8 min-w-8 px-1'
-										: 'w-8 min-w-8 px-0.5'} cursor-pointer border border-[var(--color-app-border)] bg-[var(--color-app-surface)] text-center {row.tone
-										? 'bg-green-900/30 text-green-400'
-										: 'text-[var(--color-app-text-muted)]'}"
+										: 'w-8 min-w-8 px-0.5'} cursor-pointer border border-[var(--color-app-border)] text-center {selected
+										? ROW_SELECTION_STYLES.cell
+										: row.tone
+											? 'bg-green-900/30 text-green-400'
+											: 'bg-[var(--color-app-surface)] text-[var(--color-app-text-muted)]'}"
 									tabindex="-1"
 									onmousedown={() => beginDragBoolean(index, 'tone')}
 									onmouseover={() => dragOverBoolean(index, 'tone')}
@@ -667,9 +811,11 @@
 								<td
 									class="{isExpanded
 										? 'w-8 min-w-8 px-1'
-										: 'w-8 min-w-8 px-0.5'} cursor-pointer border border-[var(--color-app-border)] bg-[var(--color-app-surface)] text-center {row.noise
-										? 'bg-green-900/30 text-green-400'
-										: 'text-[var(--color-app-text-muted)]'}"
+										: 'w-8 min-w-8 px-0.5'} cursor-pointer border border-[var(--color-app-border)] text-center {selected
+										? ROW_SELECTION_STYLES.cell
+										: row.noise
+											? 'bg-green-900/30 text-green-400'
+											: 'bg-[var(--color-app-surface)] text-[var(--color-app-text-muted)]'}"
 									tabindex="-1"
 									onmousedown={() => beginDragBoolean(index, 'noise')}
 									onmouseover={() => dragOverBoolean(index, 'noise')}
@@ -680,9 +826,11 @@
 								<td
 									class="{isExpanded
 										? 'w-8 min-w-8 px-1'
-										: 'w-8 min-w-8 px-0.5'} cursor-pointer border border-[var(--color-app-border)] bg-[var(--color-app-surface)] text-center {row.envelope
-										? 'bg-green-900/30 text-green-400'
-										: 'text-[var(--color-app-text-muted)]'}"
+										: 'w-8 min-w-8 px-0.5'} cursor-pointer border border-[var(--color-app-border)] text-center {selected
+										? ROW_SELECTION_STYLES.cell
+										: row.envelope
+											? 'bg-green-900/30 text-green-400'
+											: 'bg-[var(--color-app-surface)] text-[var(--color-app-text-muted)]'}"
 									tabindex="-1"
 									onmousedown={() => beginDragBoolean(index, 'envelope')}
 									onmouseover={() => dragOverBoolean(index, 'envelope')}
@@ -693,10 +841,11 @@
 								<td
 									class="{isExpanded
 										? 'w-8 min-w-8 px-1'
-										: 'w-8 min-w-8 px-0.5'} cursor-pointer border border-[var(--color-app-border)] bg-[var(--color-app-surface)] text-center {(row.retriggerEnvelope ??
-									false)
-										? 'bg-green-900/30 text-green-400'
-										: 'text-[var(--color-app-text-muted)]'}"
+										: 'w-8 min-w-8 px-0.5'} cursor-pointer border border-[var(--color-app-border)] text-center {selected
+										? ROW_SELECTION_STYLES.cell
+										: (row.retriggerEnvelope ?? false)
+											? 'bg-green-900/30 text-green-400'
+											: 'bg-[var(--color-app-surface)] text-[var(--color-app-text-muted)]'}"
 									tabindex="-1"
 									title="Retrigger envelope when this row is played"
 									onmousedown={() => beginDragBoolean(index, 'retriggerEnvelope')}
@@ -708,7 +857,9 @@
 								<td class={isExpanded ? 'w-16 min-w-16 px-1.5' : 'w-12 px-0.5'}>
 									<input
 										type="text"
-										class="w-full min-w-0 overflow-x-auto rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] {isExpanded
+										class="w-full min-w-0 overflow-x-auto rounded border border-[var(--color-app-border)] {selected
+											? ROW_SELECTION_STYLES.input
+											: 'bg-[var(--color-app-surface)]'} {isExpanded
 											? 'px-2 py-1 text-xs'
 											: 'px-1 py-0.5 text-[0.65rem]'} text-[var(--color-app-text-secondary)] placeholder-[var(--color-app-text-muted)] focus:border-[var(--color-app-primary)] focus:outline-none"
 										value={formatNum(row.toneAdd)}
@@ -720,8 +871,12 @@
 								<td
 									class="{isExpanded
 										? 'w-8 min-w-8 px-1'
-										: 'px-1.5'} cursor-pointer border border-[var(--color-app-border)] bg-[var(--color-app-surface)] text-center {row.toneAccumulation
-										? 'bg-[var(--color-app-primary)]/30 text-[var(--color-app-primary)]'
+										: 'px-1.5'} cursor-pointer border border-[var(--color-app-border)] text-center {selected
+										? ROW_SELECTION_STYLES.cell
+										: row.toneAccumulation
+											? 'bg-[var(--color-app-primary)]/30'
+											: 'bg-[var(--color-app-surface)]'} {row.toneAccumulation
+										? 'text-[var(--color-app-primary)]'
 										: 'text-[var(--color-app-text-muted)]'}"
 									tabindex="-1"
 									onmousedown={() => beginDragBoolean(index, 'toneAccumulation')}
@@ -733,7 +888,9 @@
 								<td class={isExpanded ? 'w-16 min-w-16 px-1.5' : 'w-12 px-0.5'}>
 									<input
 										type="text"
-										class="w-full min-w-0 overflow-x-auto rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] {isExpanded
+										class="w-full min-w-0 overflow-x-auto rounded border border-[var(--color-app-border)] {selected
+											? ROW_SELECTION_STYLES.input
+											: 'bg-[var(--color-app-surface)]'} {isExpanded
 											? 'px-2 py-1 text-xs'
 											: 'px-1 py-0.5 text-[0.65rem]'} text-[var(--color-app-text-secondary)] placeholder-[var(--color-app-text-muted)] focus:border-[var(--color-app-primary)] focus:outline-none"
 										value={formatNum(row.noiseAdd)}
@@ -745,8 +902,12 @@
 								<td
 									class="{isExpanded
 										? 'w-8 min-w-8 px-1'
-										: 'px-1.5'} cursor-pointer border border-[var(--color-app-border)] bg-[var(--color-app-surface)] text-center {row.noiseAccumulation
-										? 'bg-[var(--color-app-primary)]/30 text-[var(--color-app-primary)]'
+										: 'px-1.5'} cursor-pointer border border-[var(--color-app-border)] text-center {selected
+										? ROW_SELECTION_STYLES.cell
+										: row.noiseAccumulation
+											? 'bg-[var(--color-app-primary)]/30'
+											: 'bg-[var(--color-app-surface)]'} {row.noiseAccumulation
+										? 'text-[var(--color-app-primary)]'
 										: 'text-[var(--color-app-text-muted)]'}"
 									tabindex="-1"
 									onmousedown={() => beginDragBoolean(index, 'noiseAccumulation')}
@@ -758,7 +919,9 @@
 								<td class={isExpanded ? 'w-16 min-w-16 px-1.5' : 'w-12 px-0.5'}>
 									<input
 										type="text"
-										class="w-full min-w-0 overflow-x-auto rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] {isExpanded
+										class="w-full min-w-0 overflow-x-auto rounded border border-[var(--color-app-border)] {selected
+											? ROW_SELECTION_STYLES.input
+											: 'bg-[var(--color-app-surface)]'} {isExpanded
 											? 'px-2 py-1 text-xs'
 											: 'px-1 py-0.5 text-[0.65rem]'} text-[var(--color-app-text-secondary)] placeholder-[var(--color-app-text-muted)] focus:border-[var(--color-app-primary)] focus:outline-none"
 										value={formatNum(row.envelopeAdd ?? 0)}
@@ -771,8 +934,12 @@
 								<td
 									class="{isExpanded
 										? 'w-8 min-w-8 px-1'
-										: 'px-1.5'} cursor-pointer border border-[var(--color-app-border)] bg-[var(--color-app-surface)] text-center {row.envelopeAccumulation
-										? 'bg-[var(--color-app-primary)]/30 text-[var(--color-app-primary)]'
+										: 'px-1.5'} cursor-pointer border border-[var(--color-app-border)] text-center {selected
+										? ROW_SELECTION_STYLES.cell
+										: row.envelopeAccumulation
+											? 'bg-[var(--color-app-primary)]/30'
+											: 'bg-[var(--color-app-surface)]'} {row.envelopeAccumulation
+										? 'text-[var(--color-app-primary)]'
 										: 'text-[var(--color-app-text-muted)]'}"
 									tabindex="-1"
 									onmousedown={() =>
@@ -786,7 +953,9 @@
 								<td class={isExpanded ? 'w-12 min-w-12 px-1.5' : 'w-12 px-0.5'}>
 									<input
 										type="text"
-										class="w-full min-w-0 overflow-x-auto rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] {isExpanded
+										class="w-full min-w-0 overflow-x-auto rounded border border-[var(--color-app-border)] {selected
+											? ROW_SELECTION_STYLES.input
+											: 'bg-[var(--color-app-surface)]'} {isExpanded
 											? 'px-2 py-1 text-xs'
 											: 'px-1 py-0.5 text-[0.65rem]'} text-[var(--color-app-text-secondary)] placeholder-[var(--color-app-text-muted)] focus:border-[var(--color-app-primary)] focus:outline-none"
 										value={formatNum(row.volume)}
@@ -798,12 +967,13 @@
 								<td
 									class="w-8 min-w-8 {isExpanded
 										? 'px-1'
-										: 'px-0.5'} cursor-pointer border border-[var(--color-app-border)] bg-[var(--color-app-surface)] text-center {row.amplitudeSliding &&
-									row.amplitudeSlideUp
-										? 'bg-green-900/30 text-green-400'
-										: row.amplitudeSliding
-											? 'bg-red-900/30 text-red-400'
-											: 'text-[var(--color-app-text-muted)]'}"
+										: 'px-0.5'} cursor-pointer border border-[var(--color-app-border)] text-center {selected
+										? ROW_SELECTION_STYLES.cell
+										: row.amplitudeSliding && row.amplitudeSlideUp
+											? 'bg-green-900/30 text-green-400'
+											: row.amplitudeSliding
+												? 'bg-red-900/30 text-red-400'
+												: 'bg-[var(--color-app-surface)] text-[var(--color-app-text-muted)]'}"
 									onclick={() => cycleAmplitudeSlide(index)}
 									title={row.amplitudeSliding
 										? row.amplitudeSlideUp
@@ -849,7 +1019,7 @@
 
 			{#if showVolumeGrid}
 				<table
-					class="table-fixed border-collapse bg-[var(--color-app-surface)] font-mono text-xs select-none">
+					class="row-editor-table table-fixed border-collapse bg-[var(--color-app-surface)] font-mono text-xs select-none">
 					<thead>
 						<tr>
 							<th class="px-2 py-1.5">row</th>
@@ -870,12 +1040,16 @@
 					</thead>
 					<tbody>
 						{#each rows as row, index}
-							<tr class="h-8">
+							{@const selected = isRowSelected(index)}
+							<tr
+								class="h-8 {selected ? ROW_SELECTION_STYLES.row : ''}">
 								<td
-									class="border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] px-2 text-right"
+									class="border border-[var(--color-app-border)] px-2 text-right {selected
+										? ROW_SELECTION_STYLES.rowNumber
+										: 'bg-[var(--color-app-surface-secondary)]'}"
 									>{index}</td>
 								{#each VOLUME_VALUES as v}
-									{@render volumeCell(index, v, v === row.volume)}
+									{@render volumeCell(index, v, v === row.volume, selected)}
 								{/each}
 							</tr>
 						{/each}

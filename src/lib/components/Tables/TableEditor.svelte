@@ -5,19 +5,39 @@
 	import IconCarbonAdd from '~icons/carbon/add';
 	import Input from '../Input/Input.svelte';
 	import RowResizeHandle from '../RowResizeHandle/RowResizeHandle.svelte';
+	import SelectableRowNumberCell from '../RowEditorTable/SelectableRowNumberCell.svelte';
+	import {
+		ROW_SELECTION_STYLES,
+		computeSelectionFromClick,
+		filterValidSelection,
+		isRowSelected as checkRowSelected
+	} from '../../utils/row-selection';
+	import { keybindingsStore } from '../../stores/keybindings.svelte';
+	import { ShortcutString } from '../../utils/shortcut-string';
+	import {
+		ACTION_INCREMENT_VALUE,
+		ACTION_DECREMENT_VALUE,
+		ACTION_TRANSPOSE_OCTAVE_UP,
+		ACTION_TRANSPOSE_OCTAVE_DOWN
+	} from '../../config/keybindings';
 	import { settingsStore } from '../../stores/settings.svelte';
 
 	let {
 		table,
 		asHex = false,
 		isExpanded = false,
-		onTableChange
+		onTableChange,
+		selectedRowIndices = $bindable([])
 	}: {
 		table: Table;
 		asHex: boolean;
 		isExpanded: boolean;
 		onTableChange: (table: Table) => void;
+		selectedRowIndices?: number[];
 	} = $props();
+
+	let selectionAnchor = $state<number | null>(null);
+	let editorContainerRef: HTMLDivElement | null = $state(null);
 
 	const PITCH_VALUES = Array.from({ length: 23 }, (_, i) => i - 11);
 	const SHIFT_VALUES = Array.from({ length: 15 }, (_, i) => i - 7);
@@ -87,6 +107,14 @@
 		pitches[index] = offsetToPitch(newOffset);
 		shifts[index] = Math.trunc((newOffset - pitches[index]) / 12);
 		rows = [...rows];
+	}
+
+	function incrementSelectedRows(delta: number) {
+		if (selectedRowIndices.length === 0) return;
+		for (const index of selectedRowIndices) {
+			adjustRowOffset(index, rows[index] + delta);
+		}
+		updateTable({ rows });
 	}
 
 	function formatNum(value: number): string {
@@ -210,6 +238,24 @@
 		updateTable({ loop: loopRow });
 	}
 
+	function isRowSelected(index: number): boolean {
+		return checkRowSelected(index, selectedRowIndices);
+	}
+
+	function handleRowSelect(index: number, event: MouseEvent) {
+		event.preventDefault();
+		event.stopPropagation();
+		const result = computeSelectionFromClick(
+			index,
+			event,
+			selectedRowIndices,
+			selectionAnchor
+		);
+		selectedRowIndices = result.indices;
+		selectionAnchor = result.anchor;
+		editorContainerRef?.focus();
+	}
+
 	export function addRowExternal() {
 		addRow();
 	}
@@ -246,6 +292,8 @@
 		if (table.id !== lastTableId) {
 			lastTableId = table.id;
 			syncFromTable();
+			selectedRowIndices = [];
+			selectionAnchor = null;
 		} else {
 			const rowsChanged =
 				table.rows.length !== lastSyncedRows.length ||
@@ -293,11 +341,80 @@
 		window.addEventListener('mouseup', stop);
 		return () => window.removeEventListener('mouseup', stop);
 	});
+
+	$effect(() => {
+		const validIndices = filterValidSelection(selectedRowIndices, rows.length);
+		if (validIndices.length !== selectedRowIndices.length) {
+			selectedRowIndices = validIndices;
+		}
+	});
+
+	$effect(() => {
+		const containerEl = editorContainerRef;
+		if (!containerEl) return;
+
+		function handleClickOutside(event: MouseEvent) {
+			const target = event.target as Node;
+			if (
+				selectedRowIndices.length > 0 &&
+				!containerEl!.contains(target)
+			) {
+				selectedRowIndices = [];
+				selectionAnchor = null;
+			}
+		}
+
+		function handleFocusOut(event: FocusEvent) {
+			const relatedTarget = event.relatedTarget as Node | null;
+			if (!relatedTarget) return;
+			if (containerEl!.contains(relatedTarget)) return;
+			if (selectedRowIndices.length > 0) {
+				selectedRowIndices = [];
+				selectionAnchor = null;
+			}
+		}
+
+		document.addEventListener('mousedown', handleClickOutside);
+		containerEl.addEventListener('focusout', handleFocusOut);
+		return () => {
+			document.removeEventListener('mousedown', handleClickOutside);
+			containerEl.removeEventListener('focusout', handleFocusOut);
+		};
+	});
+
+	$effect(() => {
+		const container = editorContainerRef;
+		if (!container) return;
+
+		function handleKeyDown(event: KeyboardEvent) {
+			if (selectedRowIndices.length === 0) return;
+			const shortcut = ShortcutString.fromEvent(event);
+			const action = keybindingsStore.getActionForShortcut(shortcut);
+			const delta =
+				action === ACTION_TRANSPOSE_OCTAVE_UP || action === ACTION_TRANSPOSE_OCTAVE_DOWN
+					? 10
+					: 1;
+			if (action === ACTION_INCREMENT_VALUE || action === ACTION_TRANSPOSE_OCTAVE_UP) {
+				event.preventDefault();
+				incrementSelectedRows(delta);
+			} else if (action === ACTION_DECREMENT_VALUE || action === ACTION_TRANSPOSE_OCTAVE_DOWN) {
+				event.preventDefault();
+				incrementSelectedRows(-delta);
+			}
+		}
+
+		container.addEventListener('keydown', handleKeyDown);
+		return () => container.removeEventListener('keydown', handleKeyDown);
+	});
 </script>
 
-{#snippet valueCell(mode: 'pitch' | 'shift', index: number, value: number, isSelected: boolean)}
+{#snippet valueCell(mode: 'pitch' | 'shift', index: number, value: number, isSelected: boolean, rowSelected: boolean)}
 	<td
-		class={`group h-8 w-6 min-w-6 cursor-pointer border border-[var(--color-app-border)] text-center text-[0.7rem] leading-none ${isSelected ? 'bg-[var(--color-app-surface-active)]' : 'bg-[var(--color-app-surface)] hover:bg-[var(--color-app-surface-secondary)]'}`}
+		class={`group h-8 w-6 min-w-6 cursor-pointer border border-[var(--color-app-border)] text-center text-[0.7rem] leading-none ${isSelected
+			? 'bg-[var(--color-app-surface-active)]'
+			: rowSelected
+				? ROW_SELECTION_STYLES.cell
+				: 'bg-[var(--color-app-surface)] hover:bg-[var(--color-app-surface-secondary)]'}`}
 		tabindex="0"
 		title={String(value)}
 		onmousedown={() => beginDrag(mode, index, value)}
@@ -312,7 +429,10 @@
 	</td>
 {/snippet}
 
-<div class="w-full overflow-x-auto">
+<div
+	class="w-full overflow-x-auto outline-none focus:outline-none"
+	bind:this={editorContainerRef}
+	tabindex="-1">
 	<div class="mt-2 mb-2 ml-2 flex items-center gap-2">
 		<span class="text-xs text-[var(--color-app-text-muted)]">Name:</span>
 		<Input class="w-48 text-xs" bind:value={name} />
@@ -342,7 +462,7 @@
 			{/if}
 			<table
 				bind:this={tableRef}
-				class="table-fixed border-collapse bg-[var(--color-app-surface)] font-mono text-xs select-none">
+				class="row-editor-table table-fixed border-collapse bg-[var(--color-app-surface)] font-mono text-xs select-none">
 				<thead>
 					<tr>
 						<th class="px-2 py-1.5">row</th>
@@ -368,11 +488,17 @@
 				</thead>
 				<tbody>
 					{#each rows as offset, index}
-						<tr class="h-8">
+						{@const selected = isRowSelected(index)}
+						<tr class="h-8 {selected ? ROW_SELECTION_STYLES.row : ''}">
+							<SelectableRowNumberCell
+								{index}
+								{selected}
+								sizeClass="px-2 py-1.5"
+								onmousedown={(e) => handleRowSelect(index, e)} />
 							<td
-								class="border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] px-2 py-1.5 text-right"
-								>{index}</td>
-							<td class="border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] px-1.5">
+								class="border border-[var(--color-app-border)] {selected
+									? ROW_SELECTION_STYLES.cell
+									: 'bg-[var(--color-app-surface-secondary)]'} px-1.5">
 								<div class="flex items-center justify-center gap-1">
 									<button
 										class="flex cursor-pointer items-center justify-center rounded p-0.5 text-[var(--color-app-text-muted)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-red-400"
@@ -397,14 +523,18 @@
 								</div>
 							</td>
 							<td
-								class="w-6 cursor-pointer px-1.5 text-center text-sm"
+								class="w-6 cursor-pointer px-1.5 text-center text-sm {selected
+									? ROW_SELECTION_STYLES.cell
+									: ''}"
 								onclick={() => setLoop(index)}>
 							</td>
 							<td class="w-14 px-1.5">
 								<input
 									type="text"
 									bind:this={offsetInputRefs[index]}
-									class="w-full min-w-0 overflow-x-auto rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-2 py-1 text-xs text-[var(--color-app-text-secondary)] placeholder-[var(--color-app-text-muted)] focus:border-[var(--color-app-primary)] focus:outline-none"
+									class="w-full min-w-0 overflow-x-auto rounded border border-[var(--color-app-border)] {selected
+										? ROW_SELECTION_STYLES.input
+										: 'bg-[var(--color-app-surface)]'} px-2 py-1 text-xs text-[var(--color-app-text-secondary)] placeholder-[var(--color-app-text-muted)] focus:border-[var(--color-app-primary)] focus:outline-none"
 									value={formatOffset(offset)}
 									onkeydown={(e) => handleOffsetKeyDown(index, e)}
 									onfocus={(e) => (e.target as HTMLInputElement).select()}
@@ -412,7 +542,7 @@
 							</td>
 							{#if showOffsetGrid}
 								{#each PITCH_VALUES as p}
-									{@render valueCell('pitch', index, p, p === pitches[index])}
+									{@render valueCell('pitch', index, p, p === pitches[index], selected)}
 								{/each}
 							{/if}
 						</tr>
@@ -461,7 +591,7 @@
 		</div>
 
 		{#if showOctaveGrid}
-			<table class="table-fixed border-collapse bg-[var(--color-app-surface)] font-mono text-xs select-none">
+			<table class="row-editor-table table-fixed border-collapse bg-[var(--color-app-surface)] font-mono text-xs select-none">
 				<thead>
 					<tr>
 						<th class="px-2 py-1.5">row</th>
@@ -477,12 +607,15 @@
 				</thead>
 				<tbody>
 					{#each rows as _, index}
-						<tr class="h-8">
-							<td
-								class="border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] px-2 py-1.5 text-right"
-								>{index}</td>
+						{@const selected = isRowSelected(index)}
+						<tr class="h-8 {selected ? ROW_SELECTION_STYLES.row : ''}">
+							<SelectableRowNumberCell
+								{index}
+								{selected}
+								sizeClass="px-2 py-1.5"
+								onmousedown={(e) => handleRowSelect(index, e)} />
 							{#each SHIFT_VALUES as s}
-								{@render valueCell('shift', index, s, s === shifts[index])}
+								{@render valueCell('shift', index, s, s === shifts[index], selected)}
 							{/each}
 						</tr>
 					{/each}

@@ -145,3 +145,7 @@ html {
 	scrollbar-color: var(--color-app-border) var(--color-app-background);
 	background: var(--color-app-background);
 }
+
+.row-editor-table [tabindex]:focus {
+	outline: none;
+}

@@ -113,6 +113,7 @@
 
 	let asHex = $state(false);
 	let selectedTableIndex = $state(0);
+	let selectedTableRowIndices = $state<number[]>([]);
 	let tableEditor: TableEditor | null = $state(null);
 	let tableListScrollRef: HTMLDivElement | null = $state(null);
 
@@ -499,7 +500,8 @@
 							table={tables[selectedTableIndex]}
 							{asHex}
 							{isExpanded}
-							onTableChange={handleTableChange} />
+							onTableChange={handleTableChange}
+							bind:selectedRowIndices={selectedTableRowIndices} />
 					{/key}
 				{/if}
 			</div>
