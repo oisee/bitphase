@@ -92,6 +92,11 @@ export function generateNaturalTuningTable(rootSemitone: number): number[] {
 	return result;
 }
 
+export function getNaturalChipFrequency(rootSemitone: number, a4Hz: number = 440): number {
+	const rootFreqHz = a4Hz * Math.pow(2, (rootSemitone - A4_NOTE_INDEX) / 12);
+	return Math.round(rootFreqHz * 16 * NATURAL_BASE_PERIOD);
+}
+
 export function generate12TETTuningTable(chipFrequencyHz: number, a4Hz: number = 440): number[] {
 	const result: number[] = [];
 	for (let i = 0; i < TABLE_LENGTH; i++) {

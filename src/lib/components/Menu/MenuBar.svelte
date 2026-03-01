@@ -20,6 +20,7 @@
 	import { editorStateStore } from '../../stores/editor-state.svelte';
 	import Input from '../Input/Input.svelte';
 	import Checkbox from '../Checkbox/Checkbox.svelte';
+	import IconCarbonTimer from '~icons/carbon/timer';
 	import { autoEnvStore, AUTO_ENV_PRESETS } from '../../stores/auto-env.svelte';
 	import { projectStore } from '../../stores/project.svelte';
 
@@ -33,6 +34,29 @@
 	} = $props();
 
 	const hasAYSong = $derived(projectStore.songs.some((song) => song.chipType === 'ay'));
+
+	const speed = $derived(projectStore.songs[0]?.initialSpeed ?? 3);
+
+	function setSpeed(value: number) {
+		const clamped = Math.max(1, Math.min(255, value));
+		for (const song of projectStore.songs) {
+			song.initialSpeed = clamped;
+		}
+		projectStore.settings.initialSpeed = clamped;
+	}
+
+	function commitSpeed(e: Event) {
+		const val = parseInt((e.target as HTMLInputElement).value, 10);
+		if (!isNaN(val)) setSpeed(val);
+	}
+
+	function incrementSpeed() {
+		if (speed < 255) setSpeed(speed + 1);
+	}
+
+	function decrementSpeed() {
+		if (speed > 1) setSpeed(speed - 1);
+	}
 	function handleVolumeChange(event: Event) {
 		const target = event.target as HTMLInputElement;
 		settingsStore.set('volume', Number(target.value));
@@ -228,6 +252,49 @@
 						class="flex h-3 w-4 cursor-pointer items-center justify-center transition-colors hover:bg-[var(--color-app-surface-hover)]"
 						onclick={decrementStep}
 						title="Decrement step">
+						<IconCarbonChevronDown
+							class="h-2.5 w-2.5 text-[var(--color-app-text-muted)]" />
+					</button>
+				</div>
+			</div>
+		</div>
+		<div class="flex items-center gap-1.5" title="Speed">
+			<IconCarbonTimer class="h-3.5 w-3.5 shrink-0 text-[var(--color-app-text-muted)]" />
+			<label
+				for="speed-input"
+				class="hidden text-xs font-medium text-[var(--color-app-text-tertiary)] min-[1880px]:inline"
+				>Speed:</label>
+			<div
+				class="flex items-center rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)]">
+				<Input
+					value={speed}
+					id="speed-input"
+					type="number"
+					min={1}
+					max={255}
+					class="h-6 w-10 border-0 bg-transparent text-center font-mono text-xs focus:ring-0"
+					onblur={commitSpeed}
+					onkeydown={(e: KeyboardEvent) => {
+						if (e.key === 'Enter') {
+							e.preventDefault();
+							commitSpeed(e);
+							(e.target as HTMLInputElement)?.blur();
+						}
+					}} />
+				<div class="flex flex-col border-l border-[var(--color-app-border)]">
+					<button
+						type="button"
+						class="flex h-3 w-4 cursor-pointer items-center justify-center border-b border-[var(--color-app-border)] transition-colors hover:bg-[var(--color-app-surface-hover)]"
+						onclick={incrementSpeed}
+						title="Increment speed">
+						<IconCarbonChevronUp
+							class="h-2.5 w-2.5 text-[var(--color-app-text-muted)]" />
+					</button>
+					<button
+						type="button"
+						class="flex h-3 w-4 cursor-pointer items-center justify-center transition-colors hover:bg-[var(--color-app-surface-hover)]"
+						onclick={decrementSpeed}
+						title="Decrement speed">
 						<IconCarbonChevronDown
 							class="h-2.5 w-2.5 text-[var(--color-app-text-muted)]" />
 					</button>

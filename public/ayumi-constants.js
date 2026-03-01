@@ -23,6 +23,11 @@ export function getPanSettingsForLayout(layout) {
 			panB = center + sep;
 			panC = center;
 			break;
+		case 'BAC':
+			panA = center;
+			panB = center - sep;
+			panC = center + sep;
+			break;
 		case 'CAB':
 			panA = center;
 			panB = center + sep;

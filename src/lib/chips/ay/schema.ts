@@ -2,7 +2,8 @@ import type { ChipSchema } from '../base/schema';
 import {
 	PT3TuneTables,
 	generate12TETTuningTable,
-	generateNaturalTuningTable
+	generateNaturalTuningTable,
+	getNaturalChipFrequency
 } from '../../models/pt3/tuning-tables';
 
 export const AY_CHIP_SCHEMA: ChipSchema = {
@@ -113,10 +114,22 @@ export const AY_CHIP_SCHEMA: ChipSchema = {
 			options: [
 				{ label: 'Sinclair QL (0.75 MHz)', value: 750000 },
 				{ label: 'Amstrad CPC (1 MHz)', value: 1000000 },
-				{ label: 'ZX Spectrum (1.7734 MHz)', value: 1773400 },
+				{ label: 'Natural C (1.507 MHz)', value: 1506963 },
+				{ label: 'Natural C# (1.597 MHz)', value: 1596572 },
+				{ label: 'Natural D (1.692 MHz)', value: 1691509 },
 				{ label: 'Pentagon (1.75 MHz)', value: 1750000 },
+				{ label: 'ZX Spectrum / Scorpion (1.7734 MHz)', value: 1773400 },
 				{ label: 'MSX (1.7897 MHz)', value: 1789700 },
-				{ label: 'Atari ST (2 MHz)', value: 2000000 }
+				{ label: 'Natural D# (1.792 MHz)', value: 1792091 },
+				{ label: 'Natural E (1.899 MHz)', value: 1898655 },
+				{ label: 'Atari ST (2 MHz)', value: 2000000 },
+				{ label: 'Natural F (2.012 MHz)', value: 2011555 },
+				{ label: 'Natural F# (2.131 MHz)', value: 2131168 },
+				{ label: 'Natural G (2.258 MHz)', value: 2257894 },
+				{ label: 'Natural G# (2.392 MHz)', value: 2392155 },
+				{ label: 'Natural A (2.534 MHz)', value: 2534400 },
+				{ label: 'Natural A# (2.685 MHz)', value: 2685103 },
+				{ label: 'Natural B (2.845 MHz)', value: 2844768 }
 			],
 			defaultValue: 1773400,
 			group: 'chip',
@@ -142,6 +155,7 @@ export const AY_CHIP_SCHEMA: ChipSchema = {
 			options: [
 				{ label: 'ABC', value: 'ABC' },
 				{ label: 'ACB', value: 'ACB' },
+				{ label: 'BAC', value: 'BAC' },
 				{ label: 'CAB', value: 'CAB' },
 				{ label: 'Mono', value: 'mono' }
 			],
