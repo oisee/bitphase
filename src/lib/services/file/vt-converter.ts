@@ -148,7 +148,7 @@ class VT2Converter {
 						envelopeAdd: line.noiseAdd,
 						envelopeAccumulation: line.noiseAccumulation || false,
 						retriggerEnvelope: false,
-						alpha: 15
+						alpha: line.volume > 0 || line.envelope ? 15 : 0
 					});
 				}),
 				loopPoint,
@@ -284,7 +284,7 @@ class VT2Converter {
 						toneAccumulation: line.toneAccumulation || false,
 						noiseAccumulation: line.noiseAccumulation || false,
 						retriggerEnvelope: false,
-						alpha: 15
+						alpha: line.volume > 0 || line.envelope ? 15 : 0
 					});
 				}),
 				loopPoint,
@@ -506,7 +506,7 @@ class VT2Converter {
 						toneAccumulation: line.toneAccumulation || false,
 						noiseAccumulation: line.noiseAccumulation || false,
 						retriggerEnvelope: false,
-						alpha: 15
+						alpha: line.volume > 0 || line.envelope ? 15 : 0
 					});
 				}),
 				loopPoint,

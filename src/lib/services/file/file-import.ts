@@ -200,7 +200,7 @@ function reconstructInstrumentRow(data: any): InstrumentRow {
 		envelopeAdd: data.envelopeAdd ?? 0,
 		envelopeAccumulation: data.envelopeAccumulation ?? false,
 		volume: data.volume ?? 0,
-		alpha: data.alpha ?? 15,
+		alpha: data.alpha ?? ((data.volume ?? 0) > 0 || (data.envelope ?? false) ? 15 : 0),
 		loop: data.loop ?? false,
 		amplitudeSliding: data.amplitudeSliding ?? false,
 		amplitudeSlideUp: data.amplitudeSlideUp ?? false,
@@ -256,7 +256,7 @@ export class FileImportService {
 		try {
 			const input = document.createElement('input');
 			input.type = 'file';
-			input.accept = '.pt3,.vt2';
+			input.accept = '.pt3,.vt2,.txt';
 			input.style.display = 'none';
 
 			document.body.appendChild(input);
