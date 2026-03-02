@@ -56,6 +56,25 @@ Create a looping instrument on the primary channel with volume=0 throughout. Set
 
 Alpha values are stored in `.btp` files and default to 15 for older files and VT2/PT3 imports. Single-channel playback (no virtual channels) is unaffected by alpha.
 
+### Clips & Fluff Engine
+
+Bitphase now includes a **clip capture** system and the **Fluffenfall** register-transform engine.
+
+**Clips** are captured AY register streams — snapshots of what the chip is doing each frame during song playback. You can capture a clip from any song, store it in the project, and trigger it during playback via the worklet.
+
+**Fluff** transforms operate on clip data at the register level — routing tone/envelope/noise between channels, shifting octaves, adjusting volumes, duplicating or skipping frames. Three built-in presets are included:
+
+- **GoRound** — Cycles channels A→B→C at a configurable speed (arpeggiated stereo effect)
+- **Syncopa** — Rhythmic pattern using frame duplication and skipping
+- **OctavedGoRound** — Channel rotation with alternating octave shifts
+
+Clips and fluff transforms are saved with `.btp` project files (backward compatible — older files load with an empty clip list).
+
+**Testing the fluff engine:**
+```bash
+pnpm vitest run tests/lib/fluff/    # 39 unit tests — identity, rotation, routing, presets
+```
+
 ## Prerequisites
 
 - **Node.js** (v18 or higher)
@@ -99,6 +118,10 @@ Alpha values are stored in `.btp` files and default to 15 for older files and VT
 
 5. **Open your browser**
    Navigate to `http://localhost:5173` (or the port shown in the terminal)
+
+## Roadmap
+
+See **[docs/GenPlan.md](docs/GenPlan.md)** for the development roadmap (Electron improvements, auto-updater, settings persistence, etc.).
 
 ## Desktop App (Electron)
 
@@ -147,13 +170,16 @@ bitphase/
 │       │   ├── Theme/
 │       │   └── ...
 │       ├── config/      # App configuration (menu, settings, themes)
-│       ├── models/      # Domain models (Project, Song, etc.)
+│       ├── fluff/       # Fluffenfall register-transform engine
+│       │   └── presets/ # Built-in fluff patterns (GoRound, Syncopa, etc.)
+│       ├── models/      # Domain models (Project, Song, Clip, etc.)
 │       │   ├── pt3/     # PT3 tuning tables
 │       │   └── song/    # Song model utilities
 │       ├── services/    # Business logic services
 │       │   ├── app/     # Menu actions and app context
 │       │   ├── audio/   # Audio service and chip processors
 │       │   ├── backup/  # Autobackup
+│       │   ├── clip/    # Clip capture and fluff-on-clip
 │       │   ├── file/    # Import/export functionality
 │       │   ├── modal/   # Modal service
 │       │   ├── pattern/ # Pattern editing (incl. editing/ subdir)

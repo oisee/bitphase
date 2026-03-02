@@ -78,7 +78,12 @@ type WorkletCommand =
 			type: 'set_virtual_channel_config';
 			virtualChannelMap: Record<number, number>;
 			hwChannelCount: number;
-	  };
+	  }
+	| { type: 'load_clip'; clipId: string; frames: unknown[]; loopPoint: number }
+	| { type: 'remove_clip'; clipId: string }
+	| { type: 'start_clip'; clipId: string; channelIndex: number }
+	| { type: 'stop_clip'; clipId: string }
+	| { type: 'stop_all_clips' };
 
 export class AYProcessor
 	implements
@@ -382,5 +387,25 @@ export class AYProcessor
 			virtualChannelMap,
 			hwChannelCount
 		});
+	}
+
+	sendLoadClip(clipId: string, frames: unknown[], loopPoint: number): void {
+		this.sendCommand({ type: 'load_clip', clipId, frames, loopPoint });
+	}
+
+	sendRemoveClip(clipId: string): void {
+		this.sendCommand({ type: 'remove_clip', clipId });
+	}
+
+	sendStartClip(clipId: string, channelIndex: number): void {
+		this.sendCommand({ type: 'start_clip', clipId, channelIndex });
+	}
+
+	sendStopClip(clipId: string): void {
+		this.sendCommand({ type: 'stop_clip', clipId });
+	}
+
+	sendStopAllClips(): void {
+		this.sendCommand({ type: 'stop_all_clips' });
 	}
 }

@@ -111,6 +111,19 @@ export const settingsItems: SettingsItem[] = [
 		category: 'appearance'
 	},
 	{
+		label: 'Menu Mode (Electron)',
+		description: 'Choose which menu to display when running inside Electron',
+		type: 'select',
+		defaultValue: 'web',
+		setting: 'menuMode',
+		category: 'general',
+		options: [
+			{ value: 'web', label: 'Web Menu' },
+			{ value: 'native', label: 'Native Menu' },
+			{ value: 'both', label: 'Both' }
+		]
+	},
+	{
 		label: 'Selection Style',
 		description:
 			'Inverted uses a negative filter for high visibility; Filled uses a semi-transparent overlay',

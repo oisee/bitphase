@@ -29,7 +29,8 @@
 		showOscilloscopes: settingsStore.showOscilloscopes,
 		showInstrumentPreview: settingsStore.showInstrumentPreview,
 		debugMode: settingsStore.debugMode,
-		selectionStyle: settingsStore.selectionStyle
+		selectionStyle: settingsStore.selectionStyle,
+		menuMode: settingsStore.menuMode
 	};
 	let tempSettings = $state<Settings>({ ...currentSettings });
 	let activeTabId = $state(initialTabId || 'general');

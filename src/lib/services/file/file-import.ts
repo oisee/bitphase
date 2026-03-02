@@ -15,6 +15,7 @@ import {
 } from '../../models/song';
 import type { ChipSchema } from '../../chips/base/schema';
 import { computeEffectiveChannelLabels } from '../../models/virtual-channels';
+import { Clip } from '../../models/clip';
 
 function reconstructProject(data: any, getChip: (chipType: string) => Chip | null): Project {
 	const songs = data.songs?.map((songData: any) => reconstructSong(songData, getChip)) || [];
@@ -42,6 +43,8 @@ function reconstructProject(data: any, getChip: (chipType: string) => Chip | nul
 		instruments = [new Instrument('01', [], 0, 'Instrument 01')];
 	}
 
+	const clips = data.clips?.map((clipData: any) => reconstructClip(clipData)) || [];
+
 	return new Project(
 		data.name || '',
 		data.author || '',
@@ -50,7 +53,8 @@ function reconstructProject(data: any, getChip: (chipType: string) => Chip | nul
 		data.patternOrder || [0],
 		tables.length > 0 ? tables : [new Table(0, [], 0, 'Table 1')],
 		patternOrderColors,
-		instruments
+		instruments,
+		clips
 	);
 }
 
@@ -207,6 +211,42 @@ function reconstructInstrumentRow(data: any): InstrumentRow {
 		toneAccumulation: data.toneAccumulation ?? false,
 		noiseAccumulation: data.noiseAccumulation ?? false,
 		retriggerEnvelope: data.retriggerEnvelope ?? false
+	});
+}
+
+function reconstructClip(data: any): Clip {
+	const frames = (data.frames || []).map((f: any) => ({
+		a: {
+			p: f.a?.p ?? 0,
+			v: f.a?.v ?? 0,
+			e: f.a?.e ?? false,
+			t: f.a?.t ?? false,
+			n: f.a?.n ?? false
+		},
+		b: {
+			p: f.b?.p ?? 0,
+			v: f.b?.v ?? 0,
+			e: f.b?.e ?? false,
+			t: f.b?.t ?? false,
+			n: f.b?.n ?? false
+		},
+		c: {
+			p: f.c?.p ?? 0,
+			v: f.c?.v ?? 0,
+			e: f.c?.e ?? false,
+			t: f.c?.t ?? false,
+			n: f.c?.n ?? false
+		},
+		e: { p: f.e?.p ?? 0, f: f.e?.f ?? 0 },
+		n: { p: f.n?.p ?? 0 }
+	}));
+
+	return new Clip(data.name || 'Clip', frames, {
+		id: data.id,
+		loopPoint: data.loopPoint ?? -1,
+		sourceChannelCount: data.sourceChannelCount ?? 3,
+		chipClock: data.chipClock ?? 1773400,
+		interruptFrequency: data.interruptFrequency ?? 50
 	});
 }
 

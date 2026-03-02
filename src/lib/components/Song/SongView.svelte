@@ -19,6 +19,8 @@
 	import IconCarbonDataTable from '~icons/carbon/data-table';
 	import IconCarbonWaveform from '~icons/carbon/waveform';
 	import IconCarbonInformationSquare from '~icons/carbon/information-square';
+	import IconCarbonShuffle from '~icons/carbon/shuffle';
+	import FluffView from '../Fluff/FluffView.svelte';
 	import IconCarbonChevronUp from '~icons/carbon/chevron-up';
 	import IconCarbonChevronDown from '~icons/carbon/chevron-down';
 	import IconCarbonClose from '~icons/carbon/close';
@@ -303,6 +305,7 @@
 	const rightPanelTabs = [
 		{ id: 'instruments', label: 'Instruments', icon: IconCarbonWaveform },
 		{ id: 'tables', label: 'Tables', icon: IconCarbonDataTable },
+		{ id: 'fluff', label: 'Fluff', icon: IconCarbonShuffle },
 		{ id: 'details', label: 'Details', icon: IconCarbonInformationSquare }
 	];
 
@@ -577,6 +580,8 @@
 							<InstrumentsView
 								bind:isExpanded={isRightPanelExpanded}
 								chip={chipProcessors[0].chip} />
+						{:else if tabId === 'fluff'}
+							<FluffView />
 						{:else if tabId === 'details'}
 							<DetailsView
 								{chipProcessors}

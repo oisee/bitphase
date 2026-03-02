@@ -18,6 +18,7 @@ Bitphase is a chiptune tracker for creating music on retro sound chips. Built wi
 - `pnpm electron:dev` — Build and launch Electron app
 - `pnpm electron:pack` — Build platform-native installer → `release/`
 - Electron build docs: [`docs/electron-build.md`](docs/electron-build.md)
+- Roadmap / open tasks: [`docs/GenPlan.md`](docs/GenPlan.md)
 
 ## Architecture
 
@@ -26,8 +27,12 @@ Bitphase is a chiptune tracker for creating music on retro sound chips. Built wi
 - `src/lib/chips/` — Chip implementations. Each chip has: `schema.ts`, `adapter.ts`, `renderer.ts`, `types.ts`
   - `base/` — Base interfaces and generic definitions
   - `ay/` — AY-3-8910 implementation
-- `src/lib/models/` — Domain models: `project.ts`, `song.ts`, `project-fields.ts`
-- `src/lib/services/` — Business logic: `audio/`, `file/` (import/export), `pattern/` (editing, navigation, clipboard), `project/`, `modal/`
+- `src/lib/fluff/` — Fluffenfall transform engine (chip-agnostic register-level transforms)
+  - `apply-fluff.ts` — Core engine: 9 routing functions + `applyFluff()`
+  - `chip-frame.ts`, `fluff-frame.ts`, `fluff-pattern.ts` — Data types
+  - `presets/` — Built-in transform patterns (go-round, syncopa, octaved-go-round)
+- `src/lib/models/` — Domain models: `project.ts`, `song.ts`, `clip.ts`, `project-fields.ts`
+- `src/lib/services/` — Business logic: `audio/`, `clip/` (capture, fluff-on-clip), `file/` (import/export), `pattern/` (editing, navigation, clipboard), `project/`, `modal/`
 - `src/lib/stores/` — Reactive state using `.svelte.ts` files with `$state` rune
 - `src/lib/ui-rendering/` — Canvas-based renderers for pattern editor and order list
 - `src/lib/components/` — UI components organized by feature
@@ -40,6 +45,8 @@ Bitphase is a chiptune tracker for creating music on retro sound chips. Built wi
 - **Chip abstraction**: Never hardcode chip-specific features in generic code. Use `src/lib/chips/base/schema.ts` for generic definitions. Chips implement adapters and renderers extending base classes. AY-specific code must stay in `src/lib/chips/ay/`.
 - **State management**: Svelte 5 runes (`$state`, `$derived`, `$effect`) in `.svelte.ts` files. Do not use writable stores.
 - **Pattern editing**: Field-based editing system in `src/lib/services/pattern/editing/` with strategies per field type.
+- **Fluff engine**: `src/lib/fluff/` operates on `ChipFrame` (register-level data), chip-agnostic. Routing functions transform between tone/envelope/noise domains. Presets generate `FluffPattern[]`. Used via `applyFluff(frames, patterns, options)`.
+- **Clips**: `Clip` model stores captured `ChipFrame[]` arrays. `ClipCaptureService` runs offline render to capture register state. `ClipPlayer` in worklet applies clip frames during playback. Clips serialize with projects in `.btp` files.
 - **Path alias**: `@` maps to `./src` (configured in both vite and vitest).
 
 ## Code Style

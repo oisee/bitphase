@@ -1,0 +1,11 @@
+export type { ChipFrame, ChipChannel, ChipEnvelope, ChipNoise, ToneChannelKey, ChannelKey } from './chip-frame';
+export { createEmptyChipFrame, chipFrameFromRegisters, cloneChipFrame, TONE_CHANNEL_KEYS, CHANNEL_KEYS } from './chip-frame';
+export type { FluffFrame, FluffToneChannel, FluffEnvelopeChannel, FluffNoiseChannel, FluffGlobal } from './fluff-frame';
+export { createIdentityFluffFrame } from './fluff-frame';
+export type { FluffPattern } from './fluff-pattern';
+export { createFluffPattern } from './fluff-pattern';
+export { applyFluff } from './apply-fluff';
+export type { ApplyFluffOptions } from './apply-fluff';
+export { createGoRound } from './presets/go-round';
+export { createSyncopa } from './presets/syncopa';
+export { createOctavedGoRound } from './presets/octaved-go-round';

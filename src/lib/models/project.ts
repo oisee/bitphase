@@ -1,4 +1,5 @@
 import { Song, Instrument } from './song';
+import type { Clip } from './clip';
 
 class Project {
 	constructor(
@@ -9,7 +10,8 @@ class Project {
 		public patternOrder: number[] = [0],
 		public tables: Table[] = [new Table(0, [], 0, 'Table 1')],
 		public patternOrderColors: Record<number, string> = {},
-		public instruments: Instrument[] = [new Instrument('01', [], 0, 'Instrument 01')]
+		public instruments: Instrument[] = [new Instrument('01', [], 0, 'Instrument 01')],
+		public clips: Clip[] = []
 	) {}
 }
 

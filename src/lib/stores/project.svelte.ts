@@ -1,5 +1,7 @@
 import type { Song, Instrument, Pattern } from '../models/song';
+import type { Clip } from '../models/clip';
 import { Project, Table } from '../models/project';
+import { clipStore } from './clips.svelte';
 
 class ProjectStore {
 	songs = $state<Song[]>([]);
@@ -27,6 +29,7 @@ class ProjectStore {
 		this.patternOrderColors = project.patternOrderColors ?? {};
 		this.tables = project.tables;
 		this.instruments = project.instruments;
+		clipStore.loadClips(project.clips ?? []);
 	}
 
 	getCurrentProject(): Project {
@@ -42,7 +45,8 @@ class ProjectStore {
 			this.patternOrder,
 			this.tables,
 			this.patternOrderColors,
-			this.instruments
+			this.instruments,
+			clipStore.clips
 		);
 	}
 

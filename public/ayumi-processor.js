@@ -12,11 +12,13 @@ import AYAudioDriver from './ay-audio-driver.js';
 import AyumiEngine from './ayumi-engine.js';
 import AYChipRegisterState from './ay-chip-register-state.js';
 import VirtualChannelMixer from './virtual-channel-mixer.js';
+import ClipPlayer from './clip-player.js';
 
 class AyumiProcessor extends AudioWorkletProcessor {
 	constructor() {
 		super();
 		this.initialized = false;
+		this.clipPlayer = new ClipPlayer();
 		this.state = new AyumiState();
 		this.audioDriver = null;
 		this.patternProcessor = null;
@@ -116,6 +118,21 @@ class AyumiProcessor extends AudioWorkletProcessor {
 			break;
 		case 'set_virtual_channel_config':
 			this.handleSetVirtualChannelConfig(data);
+			break;
+		case 'load_clip':
+			this.clipPlayer.loadClip(data.clipId, data.frames, data.loopPoint);
+			break;
+		case 'remove_clip':
+			this.clipPlayer.removeClip(data.clipId);
+			break;
+		case 'start_clip':
+			this.clipPlayer.startClip(data.clipId, data.channelIndex ?? 0);
+			break;
+		case 'stop_clip':
+			this.clipPlayer.stopClip(data.clipId);
+			break;
+		case 'stop_all_clips':
+			this.clipPlayer.stopAll();
 			break;
 		}
 	}
@@ -539,6 +556,7 @@ class AyumiProcessor extends AudioWorkletProcessor {
 		this.state.currentPattern = null;
 		this.pendingNextPattern = null;
 		this.nextPatternRequested = false;
+		this.clipPlayer.stopAll();
 		this.handleStopPreview();
 	}
 
@@ -690,6 +708,10 @@ class AyumiProcessor extends AudioWorkletProcessor {
 					this.patternProcessor.processSlides();
 
 				this.enforceMuteState();
+
+				if (this.clipPlayer.hasActiveClips()) {
+					this.clipPlayer.applyClips(this.registerState);
+				}
 
 				this._applyRegisterStateToEngine();
 
