@@ -548,7 +548,7 @@ export class FileImportService {
 		try {
 			const input = document.createElement('input');
 			input.type = 'file';
-			input.accept = '.pt3,.vt2,.taym,.psg,.ftm,.0cc,.dnm,.cop,.etc,.saa,.sng,.m';
+			input.accept = '.pt3,.vt2,.txt,.taym,.psg,.ftm,.0cc,.dnm,.cop,.etc,.saa,.sng,.m';
 			input.style.display = 'none';
 
 			document.body.appendChild(input);
@@ -581,7 +581,7 @@ export class FileImportService {
 						const isEtracker = isEtrackerBuffer(buffer);
 						if (!isPT3 && !isVT2 && !isTaym && !isPsg && !isFtm && !isEtracker) {
 							throw new Error(
-								'Unknown format. Expected PT3, VT2, TAYM, PSG, FTM, 0CC, DNM or E-Tracker module (.pt3, .vt2, .taym, .psg, .ftm, .0cc, .dnm, .cop, .etc, .saa, .sng, .m).'
+								'Unknown format. Expected PT3, VT2, TAYM, PSG, FTM, 0CC, DNM or E-Tracker module (.pt3, .vt2, .txt, .taym, .psg, .ftm, .0cc, .dnm, .cop, .etc, .saa, .sng, .m).'
 							);
 						}
 						const project = isEtracker

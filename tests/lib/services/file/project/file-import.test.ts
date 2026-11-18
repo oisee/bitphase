@@ -569,4 +569,12 @@ describe('FileImportService', () => {
 		expect(saved.songs[0]?.schema).toBeUndefined();
 		expect(saved.songs[0]?.tuningTable).toEqual([100]);
 	});
+
+	it('offers .txt files in the module picker', async () => {
+		const result = FileImportService.importModule();
+		const input = document.body.querySelector<HTMLInputElement>('input[type="file"]')!;
+		expect(input.accept.split(',')).toContain('.txt');
+		input.oncancel?.(new Event('cancel'));
+		await expect(result).resolves.toBeNull();
+	});
 });
