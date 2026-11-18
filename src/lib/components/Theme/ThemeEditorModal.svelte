@@ -1,8 +1,9 @@
 <script lang="ts">
 	import type { Theme, ThemeColors } from '../../types/theme';
 	import { themeStore } from '../../stores/theme.svelte';
-	import { themeService } from '../../services/theme/theme-service';
+	import { mergeThemeColors, themeService } from '../../services/theme/theme-service';
 	import Button from '../Button/Button.svelte';
+	import { ModalPanel } from '../ModalPanel';
 	import Input from '../Input/Input.svelte';
 	import HexColorInput from '../Input/HexColorInput.svelte';
 	import { FormField } from '../FormField';
@@ -22,7 +23,7 @@
 	}>();
 
 	let editedTheme = $state<Theme>({ ...theme });
-	let editedColors = $state<ThemeColors>({ ...theme.colors });
+	let editedColors = $state<ThemeColors>(mergeThemeColors({ ...theme.colors }));
 
 	const colorLabels: Record<string, string> = {
 		patternBg: 'Pattern Background',
@@ -64,6 +65,7 @@
 		appBorderHover: 'Border 2',
 		appPrimary: 'Primary 1',
 		appPrimaryHover: 'Primary 2',
+		appOnPrimary: 'On primary text',
 		appSecondary: 'Secondary 1',
 		appSecondaryHover: 'Secondary 2'
 	};
@@ -88,51 +90,7 @@
 	$effect(() => {
 		editedTheme.colors = editedColors;
 
-		const colors = editedColors;
-
-		const previewColors: ThemeColors = {
-			patternBg: colors.patternBg,
-			patternText: colors.patternText,
-			patternEmpty: colors.patternEmpty,
-			patternEmptySelected: colors.patternEmptySelected,
-			patternNote: colors.patternNote,
-			patternInstrument: colors.patternInstrument,
-			patternEffect: colors.patternEffect,
-			patternEnvelope: colors.patternEnvelope,
-			patternNoise: colors.patternNoise,
-			patternSelected: colors.patternSelected,
-			patternCellSelected: colors.patternCellSelected,
-			patternRowNum: colors.patternRowNum,
-			patternAlternate: colors.patternAlternate,
-			patternAlternateEmpty: colors.patternAlternateEmpty,
-			patternTable: colors.patternTable,
-			patternRowNumAlternate: colors.patternRowNumAlternate,
-			patternNoteOff: colors.patternNoteOff,
-			patternTableOff: colors.patternTableOff,
-			patternChannelSeparator: colors.patternChannelSeparator,
-			orderBg: colors.orderBg,
-			orderText: colors.orderText,
-			orderEmpty: colors.orderEmpty,
-			orderSelected: colors.orderSelected,
-			orderHovered: colors.orderHovered,
-			orderAlternate: colors.orderAlternate,
-			orderBorder: colors.orderBorder,
-			appBackground: colors.appBackground,
-			appSurface: colors.appSurface,
-			appSurfaceSecondary: colors.appSurfaceSecondary,
-			appSurfaceHover: colors.appSurfaceHover,
-			appSurfaceActive: colors.appSurfaceActive,
-			appTextPrimary: colors.appTextPrimary,
-			appTextSecondary: colors.appTextSecondary,
-			appTextTertiary: colors.appTextTertiary,
-			appTextMuted: colors.appTextMuted,
-			appBorder: colors.appBorder,
-			appBorderHover: colors.appBorderHover,
-			appPrimary: colors.appPrimary,
-			appPrimaryHover: colors.appPrimaryHover,
-			appSecondary: colors.appSecondary,
-			appSecondaryHover: colors.appSecondaryHover
-		};
+		const previewColors: ThemeColors = { ...editedColors };
 
 		if (rafId !== null) {
 			cancelAnimationFrame(rafId);
@@ -185,18 +143,17 @@
 		tabindex="-1"
 		onkeydown={handleKeyDown}>
 		<div
-			class="pointer-events-auto max-h-[90vh] w-[400px] overflow-y-auto rounded-sm border border-[var(--color-app-border)] bg-[var(--color-app-surface)] shadow-xl"
+			class="pointer-events-auto rounded-sm border border-[var(--color-app-border)] bg-[var(--color-app-surface)] shadow-xl"
 			role="presentation"
 			onclick={(e) => e.stopPropagation()}
 			onkeydown={(e) => e.stopPropagation()}>
-			<div
-				class="border-b border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-4 py-3">
-				<h2 class="text-sm font-bold text-[var(--color-app-text-primary)]">
-					{isNew ? 'Create Theme' : 'Edit Theme'}
-				</h2>
-			</div>
-
-			<div class="overflow-y-auto p-4">
+			<ModalPanel
+				title={isNew ? 'Create Theme' : 'Edit Theme'}
+				width="w-[400px]"
+				maxHeightClass="max-h-[90vh]"
+				scrollMode="panel"
+				class="border-0 shadow-none">
+				{#snippet children()}
 				<FormField label="Theme Name">
 					<Input bind:value={editedTheme.name} />
 				</FormField>
@@ -239,13 +196,13 @@
 						{/each}
 					</div>
 				</div>
-			</div>
+				{/snippet}
 
-			<div
-				class="flex justify-end gap-2 border-t border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-4 py-3">
-				<Button variant="secondary" onclick={handleCancel}>Cancel</Button>
-				<Button variant="primary" onclick={handleSave}>Save</Button>
-			</div>
+				{#snippet footer()}
+					<Button variant="secondary" onclick={handleCancel}>Cancel</Button>
+					<Button variant="primary" onclick={handleSave}>Save</Button>
+				{/snippet}
+			</ModalPanel>
 		</div>
 	</div>
 </Portal>

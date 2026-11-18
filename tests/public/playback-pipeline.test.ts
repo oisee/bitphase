@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import AyumiState from '../../public/ayumi-state.js';
-import AYAudioDriver from '../../public/ay-audio-driver.js';
-import AYChipRegisterState from '../../public/ay-chip-register-state.js';
-import TrackerPatternProcessor from '../../public/tracker-pattern-processor.js';
+import { legacyInstruments } from '../helpers/instrument-fixtures.ts';
+import AyumiState from '../../public/ay/ayumi-state.js';
+import AYAudioDriver from '../../public/ay/ay-audio-driver.js';
+import AYChipRegisterState from '../../public/ay/ay-chip-register-state.js';
+import TrackerPatternProcessor from '../../public/tracker/tracker-pattern-processor.js';
 
 function runOneTick(
 	state: AyumiState,
@@ -11,16 +12,11 @@ function runOneTick(
 	driver: AYAudioDriver,
 	registerState: AYChipRegisterState
 ) {
-	if (state.currentTick === 0) {
-		processor.parsePatternRow(pattern, state.currentRow, registerState);
+	if (state.timeline.currentTick === 0) {
+		processor.parsePatternRow(pattern, state.timeline.currentRow, registerState);
 		processor.processSpeedTable();
 	}
-	processor.processTables();
-	processor.processEffectTables();
-	processor.processArpeggio();
-	driver.processInstruments(state, registerState);
-	processor.processVibrato();
-	processor.processSlides();
+	processor.processTrackerTick(registerState);
 	state.advancePosition();
 }
 
@@ -28,13 +24,13 @@ describe('playback pipeline', () => {
 	it('processPatternRow then processInstruments: note + instrument 01 yields correct register state', () => {
 		const state = new AyumiState();
 		state.setTuningTable([1000, 900, 800]);
-		state.setInstruments([
+		state.setInstruments(legacyInstruments([
 			{
 				id: '01',
 				rows: [{ tone: true, volume: 15, noise: false, envelope: false }],
 				loop: 0
 			}
-		]);
+		]));
 		state.channelInstruments = [0, -1, -1];
 		state.channelSoundEnabled = [false, false, false];
 		state.channelMuted = [false, false, false];
@@ -80,9 +76,9 @@ describe('playback pipeline', () => {
 	it('note off then processInstruments: channel stays silent', () => {
 		const state = new AyumiState();
 		state.setTuningTable([1000]);
-		state.setInstruments([
+		state.setInstruments(legacyInstruments([
 			{ id: '01', rows: [{ tone: true, volume: 15, noise: false, envelope: false }], loop: 0 }
-		]);
+		]));
 		state.channelInstruments = [0, -1, -1];
 		state.channelSoundEnabled = [true, false, false];
 		state.channelMuted = [false, false, false];
@@ -114,9 +110,9 @@ describe('playback pipeline', () => {
 	it('muted channel: processPatternRow and processInstruments keep volume 0 and mixer off', () => {
 		const state = new AyumiState();
 		state.setTuningTable([1000]);
-		state.setInstruments([
+		state.setInstruments(legacyInstruments([
 			{ id: '01', rows: [{ tone: true, volume: 15, noise: false, envelope: false }], loop: 0 }
-		]);
+		]));
 		state.channelInstruments = [0, 0, 0];
 		state.channelSoundEnabled = [true, true, true];
 		state.channelMuted = [false, true, false];
@@ -164,20 +160,20 @@ describe('playback pipeline', () => {
 		it('advancePosition + processTables + parsePatternRow + processInstruments over several ticks', () => {
 			const state = new AyumiState();
 			state.setTuningTable([1000, 900, 800]);
-			state.setInstruments([
+			state.setInstruments(legacyInstruments([
 				{
 					id: '01',
 					rows: [{ tone: true, volume: 15, noise: false, envelope: false }],
 					loop: 0
 				}
-			]);
+			]));
 			state.setPatternOrder([0]);
 			state.channelInstruments = [0, -1, -1];
 			state.channelMuted = [false, false, false];
 			state.channelEnvelopeEnabled = [false, false, false];
-			state.currentSpeed = 2;
-			state.currentTick = 0;
-			state.currentRow = 0;
+			state.timeline.currentSpeed = 2;
+			state.timeline.currentTick = 0;
+			state.timeline.currentRow = 0;
 			state.channelPatternVolumes = [15, 15, 15];
 			state.envelopeEffectTable = -1;
 			state.channelToneAccumulator = [0, 0, 0];
@@ -213,45 +209,45 @@ describe('playback pipeline', () => {
 			const processor = new TrackerPatternProcessor(state, driver, port);
 
 			runOneTick(state, pattern, processor, driver, registerState);
-			expect(state.currentRow).toBe(0);
-			expect(state.currentTick).toBe(1);
+			expect(state.timeline.currentRow).toBe(0);
+			expect(state.timeline.currentTick).toBe(1);
 			expect(state.channelSoundEnabled[0]).toBe(true);
 			expect(registerState.channels[0].volume).toBeGreaterThan(0);
 
 			runOneTick(state, pattern, processor, driver, registerState);
-			expect(state.currentRow).toBe(1);
-			expect(state.currentTick).toBe(0);
+			expect(state.timeline.currentRow).toBe(1);
+			expect(state.timeline.currentTick).toBe(0);
 
 			runOneTick(state, pattern, processor, driver, registerState);
-			expect(state.currentRow).toBe(1);
-			expect(state.currentTick).toBe(1);
+			expect(state.timeline.currentRow).toBe(1);
+			expect(state.timeline.currentTick).toBe(1);
 
 			runOneTick(state, pattern, processor, driver, registerState);
-			expect(state.currentRow).toBe(2);
-			expect(state.currentTick).toBe(0);
+			expect(state.timeline.currentRow).toBe(2);
+			expect(state.timeline.currentTick).toBe(0);
 
 			runOneTick(state, pattern, processor, driver, registerState);
-			expect(state.currentRow).toBe(2);
-			expect(state.currentTick).toBe(1);
+			expect(state.timeline.currentRow).toBe(2);
+			expect(state.timeline.currentTick).toBe(1);
 			expect(state.channelSoundEnabled[0]).toBe(true);
 			expect(state.channelBaseNotes[0]).toBe(1);
 
 			runOneTick(state, pattern, processor, driver, registerState);
-			expect(state.currentRow).toBe(0);
-			expect(state.currentTick).toBe(0);
-			expect(state.currentPatternOrderIndex).toBe(0);
+			expect(state.timeline.currentRow).toBe(0);
+			expect(state.timeline.currentTick).toBe(0);
+			expect(state.timeline.currentPatternOrderIndex).toBe(0);
 		});
 
 		it('tick loop wraps to next order when advancing past last row', () => {
 			const state = new AyumiState();
 			state.setTuningTable([1000]);
-			state.setInstruments([
+			state.setInstruments(legacyInstruments([
 				{ id: '01', rows: [{ tone: true, volume: 15, noise: false, envelope: false }], loop: 0 }
-			]);
+			]));
 			state.setPatternOrder([0, 1]);
-			state.currentSpeed = 1;
-			state.currentTick = 0;
-			state.currentRow = 0;
+			state.timeline.currentSpeed = 1;
+			state.timeline.currentTick = 0;
+			state.timeline.currentRow = 0;
 			state.channelInstruments = [-1, -1, -1];
 			state.channelMuted = [false, false, false];
 			state.channelPatternVolumes = [15, 15, 15];
@@ -276,12 +272,54 @@ describe('playback pipeline', () => {
 			const processor = new TrackerPatternProcessor(state, driver, { postMessage: vi.fn() });
 
 			runOneTick(state, pattern, processor, driver, registerState);
-			expect(state.currentRow).toBe(1);
-			expect(state.currentTick).toBe(0);
+			expect(state.timeline.currentRow).toBe(1);
+			expect(state.timeline.currentTick).toBe(0);
 
 			runOneTick(state, pattern, processor, driver, registerState);
-			expect(state.currentRow).toBe(0);
-			expect(state.currentPatternOrderIndex).toBe(1);
+			expect(state.timeline.currentRow).toBe(0);
+			expect(state.timeline.currentPatternOrderIndex).toBe(1);
+		});
+
+		it('tick loop wraps to loop marker at song end', () => {
+			const state = new AyumiState();
+			state.setTuningTable([1000]);
+			state.setInstruments(legacyInstruments([
+				{ id: '01', rows: [{ tone: true, volume: 15, noise: false, envelope: false }], loop: 0 }
+			]));
+			state.setPatternOrder([0, 1, 2], 1);
+			state.timeline.currentSpeed = 1;
+			state.timeline.currentTick = 0;
+			state.timeline.currentRow = 0;
+			state.channelInstruments = [-1, -1, -1];
+			state.channelMuted = [false, false, false];
+			state.channelPatternVolumes = [15, 15, 15];
+			state.envelopeEffectTable = -1;
+
+			const pattern = makePattern([
+				[
+					{ note: { name: 0, octave: 0 }, effects: [null] },
+					{ note: { name: 0, octave: 0 }, effects: [null] },
+					{ note: { name: 0, octave: 0 }, effects: [null] }
+				],
+				[
+					{ note: { name: 0, octave: 0 }, effects: [null] },
+					{ note: { name: 0, octave: 0 }, effects: [null] },
+					{ note: { name: 0, octave: 0 }, effects: [null] }
+				]
+			]);
+			state.setPattern(pattern, 2);
+
+			const registerState = new AYChipRegisterState();
+			const driver = new AYAudioDriver();
+			const processor = new TrackerPatternProcessor(state, driver, { postMessage: vi.fn() });
+
+			runOneTick(state, pattern, processor, driver, registerState);
+			expect(state.timeline.currentRow).toBe(1);
+			expect(state.timeline.currentTick).toBe(0);
+
+			runOneTick(state, pattern, processor, driver, registerState);
+			expect(state.timeline.currentRow).toBe(0);
+			expect(state.timeline.currentPatternOrderIndex).toBe(1);
 		});
 	});
 });

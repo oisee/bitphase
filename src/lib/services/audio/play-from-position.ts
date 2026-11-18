@@ -1,10 +1,32 @@
 import type { Pattern } from '../../models/song';
-import type { ChipSchema, ChipField } from '../../chips/base/schema';
+import type { Table } from '../../models/project';
+import type { ChipSchema, ChipField, StickyEffectCommand } from '../../chips/base/schema';
+import { readLastSpeedCommandOnRow, resolveSpeedCommand } from './playback-speed';
 
-export interface CatchUpSegment {
-	pattern: Pattern;
-	patternOrderIndex: number;
-	numRows: number;
+const DETUNE_EFFECT_TYPE = 'D'.charCodeAt(0);
+const VOLUME_SLIDE_EFFECT = 8;
+
+export type PlaybackEffectCommand = {
+	effect: number;
+	delay: number;
+	parameter: number;
+	tableIndex?: number;
+	patternRowFields?: Record<string, number>;
+};
+
+export interface GlobalStickyCarry {
+	fieldKey: string;
+	commands: PlaybackEffectCommand[];
+}
+
+export interface PlaybackCarryState {
+	channelFields?: Array<Record<string, unknown>>;
+	globalFields?: Record<string, unknown>;
+	channelStickyEffects?: PlaybackEffectCommand[][];
+	globalStickyEffects?: GlobalStickyCarry;
+	speed?: number;
+	speedTable?: number;
+	speedTablePosition?: number;
 }
 
 function toNum(v: unknown): number {
@@ -13,11 +35,7 @@ function toNum(v: unknown): number {
 	return Number.isNaN(n) ? NaN : n;
 }
 
-function isGlobalFieldValueSet(
-	key: string,
-	value: unknown,
-	field: ChipField
-): boolean {
+function isGlobalFieldValueSet(key: string, value: unknown, field: ChipField): boolean {
 	if (value === undefined || value === null) return false;
 	const n = toNum(value);
 	if (Number.isNaN(n)) return false;
@@ -26,11 +44,7 @@ function isGlobalFieldValueSet(
 	return true;
 }
 
-function isChannelFieldValueSet(
-	key: string,
-	value: unknown,
-	field: ChipField
-): boolean {
+function isChannelFieldValueSet(key: string, value: unknown, field: ChipField): boolean {
 	if (value === undefined || value === null) return false;
 	if (field.type === 'note' || key === 'note') {
 		const note = value as { name?: number } | undefined;
@@ -45,101 +59,231 @@ function isChannelFieldValueSet(
 	return true;
 }
 
-function positionAfter(
-	aOrder: number,
-	aRow: number,
-	bOrder: number,
-	bRow: number
-): boolean {
-	return aOrder > bOrder || (aOrder === bOrder && aRow > bRow);
+type EffectSlot = {
+	effect?: unknown;
+	delay?: unknown;
+	parameter?: unknown;
+	tableIndex?: unknown;
+};
+
+function readEffectCommand(slot: unknown): PlaybackEffectCommand | null {
+	if (!slot || typeof slot !== 'object') return null;
+	const effect = slot as EffectSlot;
+	const effectType = toNum(effect.effect);
+	if (Number.isNaN(effectType) || effectType === 0) return null;
+	const parameter = toNum(effect.parameter);
+	const delay = toNum(effect.delay);
+	const tableIndex = toNum(effect.tableIndex);
+	const command: PlaybackEffectCommand = {
+		effect: effectType,
+		delay: Number.isNaN(delay) ? 0 : delay,
+		parameter: Number.isNaN(parameter) ? 0 : parameter & 0xff
+	};
+	if (!Number.isNaN(tableIndex) && tableIndex >= 0) {
+		command.tableIndex = tableIndex;
+	}
+	return command;
 }
 
-export function computeStateHorizon(
+function stickyChannelGroup(
+	command: StickyEffectCommand,
+	schema: ChipSchema,
+	channelIndex: number
+): string | null {
+	if (command.effect === DETUNE_EFFECT_TYPE) return 'detune';
+	if (command.effect === VOLUME_SLIDE_EFFECT) return 'volume-slide';
+	return schema.stickyChannelEffectGroup?.(command, channelIndex) ?? null;
+}
+
+function readStickyGroupsOnRow(
+	effects: unknown,
+	schema: ChipSchema,
+	channelIndex: number
+): Map<string, PlaybackEffectCommand> {
+	const found = new Map<string, PlaybackEffectCommand>();
+	if (!Array.isArray(effects)) return found;
+	for (const slot of effects) {
+		const command = readEffectCommand(slot);
+		if (!command) continue;
+		const group = stickyChannelGroup(command, schema, channelIndex);
+		if (!group) continue;
+		found.set(group, command);
+	}
+	return found;
+}
+
+function isPersistChannelField(key: string, field: ChipField): boolean {
+	if (field.usedForBacktracking !== true) return false;
+	if (field.type === 'note' || key === 'note') return false;
+	return true;
+}
+
+export function collectPlaybackCarry(
 	patternOrder: number[],
 	getPattern: (patternId: number) => Pattern | undefined,
 	targetOrderIndex: number,
 	targetRow: number,
-	schema: ChipSchema
-): { orderIndex: number; row: number } | null {
-	const channelCount = schema.channelLabels?.length ?? 0;
+	schema: ChipSchema,
+	tables?: Table[],
+	hardwareChannelIndex?: (channelIndex: number) => number
+): PlaybackCarryState | null {
+	if (targetOrderIndex < 0) return null;
+	const targetPatternId = patternOrder[targetOrderIndex];
+	const targetPattern = targetPatternId === undefined ? undefined : getPattern(targetPatternId);
+	const channelCount = Math.max(
+		schema.channelLabels?.length ?? 0,
+		targetPattern?.channels?.length ?? 0
+	);
+	if (channelCount <= 0) return null;
+
 	const channelFieldEntries = schema.fields
-		? Object.entries(schema.fields).filter(
-				([_, f]) => f.usedForBacktracking === true
-			)
+		? Object.entries(schema.fields).filter(([key, field]) => isPersistChannelField(key, field))
 		: [];
 	const globalFieldEntries = schema.globalFields
 		? Object.entries(schema.globalFields).filter(
-				([_, f]) => f.usedForBacktracking === true
+				([_, field]) => field.usedForBacktracking === true
 			)
 		: [];
 
-	let horizonOrderIndex = -1;
-	let horizonRow = -1;
+	const channelFields = Array.from(
+		{ length: channelCount },
+		() => ({}) as Record<string, unknown>
+	);
+	const globalFields: Record<string, unknown> = {};
+	const trackGlobalSticky = Boolean(schema.readGlobalStickyRow);
+	let speed: number | undefined;
+	let speedTable: number | undefined;
+	let speedTablePosition: number | undefined;
+	const channelStickyFound = Array.from({ length: channelCount }, () => new Set<string>());
+	const channelSticky: PlaybackEffectCommand[][] = Array.from({ length: channelCount }, () => []);
+	const sharedSticky = new Map<
+		string,
+		{ channel: number; command: PlaybackEffectCommand; rowKey: string }
+	>();
+	const globalStickyGroups = new Set<string>();
+	const globalSticky: PlaybackEffectCommand[] = [];
+	let globalStickyFieldKey: string | undefined;
+	let globalStickyClosed = false;
 
 	for (let orderIndex = targetOrderIndex; orderIndex >= 0; orderIndex--) {
 		const patternId = patternOrder[orderIndex];
-		const pattern = getPattern(patternId);
-		if (!pattern || !pattern.channels?.length || !pattern.patternRows) continue;
-
+		const pattern = patternId === undefined ? undefined : getPattern(patternId);
+		if (!pattern?.channels?.length) continue;
 		const rowStart = orderIndex === targetOrderIndex ? targetRow - 1 : pattern.length - 1;
-		const rowEnd = 0;
-
-		for (let rowIndex = rowStart; rowIndex >= rowEnd; rowIndex--) {
-			if (rowIndex < 0 || rowIndex >= pattern.patternRows.length) continue;
-
-			const patternRow = pattern.patternRows[rowIndex] as Record<string, unknown> | undefined;
+		for (let rowIndex = rowStart; rowIndex >= 0; rowIndex--) {
+			const patternRow = pattern.patternRows?.[rowIndex] as
+				| Record<string, unknown>
+				| undefined;
+			const channelRows: Array<Record<string, unknown> | undefined> = [];
+			for (let ch = 0; ch < pattern.channels.length; ch++) {
+				channelRows.push(
+					pattern.channels[ch]?.rows?.[rowIndex] as Record<string, unknown> | undefined
+				);
+			}
+			const globalStickyRow =
+				trackGlobalSticky && patternRow
+					? schema.readGlobalStickyRow!(patternRow, channelRows)
+					: undefined;
+			if (globalStickyRow?.fieldKey) globalStickyFieldKey = globalStickyRow.fieldKey;
+			if (
+				globalStickyRow?.group &&
+				!globalStickyGroups.has(globalStickyRow.group) &&
+				(!globalStickyClosed || globalStickyRow.survivesClose)
+			) {
+				const command = readEffectCommand(globalStickyRow.effect);
+				if (command) {
+					if (globalStickyRow.commandFields) {
+						command.patternRowFields = globalStickyRow.commandFields;
+					}
+					globalStickyGroups.add(globalStickyRow.group);
+					globalSticky.push(command);
+				}
+			}
+			if (!globalStickyClosed && globalStickyRow?.closesEarlierGroups) {
+				globalStickyClosed = true;
+			}
 			for (const [key, field] of globalFieldEntries) {
+				if (key in globalFields) continue;
+				if (globalStickyRow?.skipFieldKeys?.includes(key)) continue;
 				const value = patternRow?.[key];
-				if (isGlobalFieldValueSet(key, value, field)) {
-					if (
-						horizonOrderIndex < 0 ||
-						positionAfter(orderIndex, rowIndex, horizonOrderIndex, horizonRow)
-					) {
-						horizonOrderIndex = orderIndex;
-						horizonRow = rowIndex;
+				if (!isGlobalFieldValueSet(key, value, field)) continue;
+				globalFields[key] = value;
+			}
+			if (speed === undefined && speedTable === undefined) {
+				const command = readLastSpeedCommandOnRow(pattern.channels, rowIndex);
+				if (command) {
+					const resolved = resolveSpeedCommand(command, tables);
+					if (resolved) {
+						speed = resolved.speed;
+						speedTable = resolved.speedTable;
+						speedTablePosition = resolved.speedTablePosition;
 					}
 				}
 			}
-
 			for (let ch = 0; ch < channelCount && ch < pattern.channels.length; ch++) {
-				const channel = pattern.channels[ch];
-				const row = channel.rows?.[rowIndex] as Record<string, unknown> | undefined;
+				const row = channelRows[ch];
 				if (!row) continue;
-
+				const carryForChannel = channelFields[ch];
 				for (const [key, field] of channelFieldEntries) {
+					if (key in carryForChannel) continue;
 					const value = row[key];
-					if (isChannelFieldValueSet(key, value, field)) {
-						if (
-							horizonOrderIndex < 0 ||
-							positionAfter(orderIndex, rowIndex, horizonOrderIndex, horizonRow)
-						) {
-							horizonOrderIndex = orderIndex;
-							horizonRow = rowIndex;
+					if (!isChannelFieldValueSet(key, value, field)) continue;
+					carryForChannel[key] = value;
+				}
+				const foundGroups = channelStickyFound[ch];
+				if (!foundGroups) continue;
+				const stickyOnRow = readStickyGroupsOnRow(
+					row.effects,
+					schema,
+					hardwareChannelIndex?.(ch) ?? ch
+				);
+				const rowKey = `${orderIndex}:${rowIndex}`;
+				for (const [group, command] of stickyOnRow) {
+					if (schema.stickyChannelEffectIsShared?.(group)) {
+						const existing = sharedSticky.get(group);
+						if (!existing || (existing.rowKey === rowKey && ch > existing.channel)) {
+							sharedSticky.set(group, { channel: ch, command, rowKey });
 						}
+						continue;
 					}
+					if (foundGroups.has(group)) continue;
+					foundGroups.add(group);
+					channelSticky[ch]?.push(command);
 				}
 			}
 		}
 	}
-
-	if (horizonOrderIndex < 0 || horizonRow < 0) return null;
-	return { orderIndex: horizonOrderIndex, row: horizonRow };
-}
-
-export function buildCatchUpSegmentsToHorizon(
-	patternOrder: number[],
-	getPattern: (patternId: number) => Pattern | undefined,
-	horizonOrderIndex: number,
-	horizonRow: number
-): CatchUpSegment[] {
-	const segments: CatchUpSegment[] = [];
-	for (let i = 0; i <= horizonOrderIndex; i++) {
-		const patternId = patternOrder[i];
-		const pattern = getPattern(patternId);
-		if (!pattern) continue;
-		const numRows =
-			i === horizonOrderIndex ? horizonRow + 1 : pattern.length;
-		segments.push({ pattern, patternOrderIndex: i, numRows });
+	for (const { channel, command } of sharedSticky.values()) {
+		channelSticky[channel]?.push(command);
 	}
-	return segments;
+	globalSticky.reverse();
+
+	const hasChannelFields = channelFields.some((fields) => Object.keys(fields).length > 0);
+	const hasGlobalFields = Object.keys(globalFields).length > 0;
+	const hasChannelSticky = channelSticky.some((commands) => commands.length > 0);
+	const hasGlobalSticky = globalSticky.length > 0 && globalStickyFieldKey !== undefined;
+	if (
+		!hasChannelFields &&
+		!hasGlobalFields &&
+		!hasChannelSticky &&
+		!hasGlobalSticky &&
+		speed === undefined &&
+		speedTable === undefined
+	) {
+		return null;
+	}
+
+	const carry: PlaybackCarryState = {};
+	if (hasChannelFields) carry.channelFields = channelFields;
+	if (hasGlobalFields) carry.globalFields = globalFields;
+	if (hasChannelSticky) carry.channelStickyEffects = channelSticky;
+	if (hasGlobalSticky && globalStickyFieldKey) {
+		carry.globalStickyEffects = { fieldKey: globalStickyFieldKey, commands: globalSticky };
+	}
+	if (speed !== undefined) carry.speed = speed;
+	if (speedTable !== undefined) {
+		carry.speedTable = speedTable;
+		carry.speedTablePosition = speedTablePosition ?? 0;
+	}
+	return carry;
 }

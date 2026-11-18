@@ -1,6 +1,10 @@
 import type { ChipSchema, ChipField } from '../chips/base/schema';
 import { getDefaultForFieldType } from '../chips/base/schema';
-import { computeEffectiveChannelLabels } from './virtual-channels';
+import {
+	applySharedEffectColumnCounts,
+	getSharedEffectColumnCounts
+} from '../chips/base/channel-effect-columns';
+import { computeEffectiveChannelLabels, type VirtualChannelRoleMap } from './virtual-channels';
 
 enum NoteName {
 	None = 0,
@@ -16,7 +20,8 @@ enum NoteName {
 	GSharp,
 	A,
 	ASharp,
-	B
+	B,
+	Release
 }
 
 enum EffectType {
@@ -27,9 +32,12 @@ enum EffectType {
 	SamplePosition = 4,
 	OrnamentPosition = 5,
 	OnOff = 6,
+	NoteDelay = 7,
+	VolumeSlide = 8,
 	Speed = 'S'.charCodeAt(0),
+	SongEnd = 'Q'.charCodeAt(0),
 	Vibrato = 'V'.charCodeAt(0),
-	AutoEnvelope = 'E'.charCodeAt(0),
+	ChipSpecific = 'E'.charCodeAt(0),
 	Detune = 'D'.charCodeAt(0)
 }
 
@@ -45,14 +53,17 @@ class Note {
 
 class Instrument {
 	id: string;
-	rows: InstrumentRow[] = [];
-	loop: number = 0;
+	chipType: string;
 	name: string = '';
+	color?: string;
+	macros?: Record<
+		string,
+		{ values: (boolean | number | string)[]; loop: number; release?: number }
+	>;
 
-	constructor(id: string, rows: InstrumentRow[], loop: number = 0, name: string = '') {
+	constructor(id: string, name: string = '', chipType: string = 'ay') {
 		this.id = id;
-		this.rows = rows;
-		this.loop = loop;
+		this.chipType = chipType;
 		this.name = name || `Instrument ${id}`;
 	}
 }
@@ -127,12 +138,16 @@ class PatternRow {
 class Channel {
 	rows: Row[];
 	label: string;
+	effectColumnCount: number;
 
 	constructor(rowCount: number, label: string, fields?: Record<string, ChipField>) {
 		this.rows = Array.from({ length: rowCount }, () => new Row(fields));
 		this.label = label;
+		this.effectColumnCount = 1;
 	}
 }
+
+export const DEFAULT_PATTERN_LENGTH = 64;
 
 class Pattern {
 	id: number;
@@ -142,7 +157,7 @@ class Pattern {
 
 	constructor(
 		id: number,
-		length: number = 64,
+		length: number = DEFAULT_PATTERN_LENGTH,
 		schema?: ChipSchema,
 		effectiveChannelLabels?: string[]
 	) {
@@ -161,7 +176,7 @@ class Pattern {
 class Song {
 	public patterns: Pattern[];
 	public tuningTable: number[];
-	public initialSpeed: number;
+	public defaultPatternLength: number;
 	public chipType?: string;
 	public chipVariant?: string;
 	public chipFrequency?: number;
@@ -169,36 +184,50 @@ class Song {
 	public tuningTableIndex?: number;
 	public a4TuningHz?: number;
 	public virtualChannelMap: Record<number, number> = {};
-	private schema?: ChipSchema;
+	public virtualChannelRoles: VirtualChannelRoleMap = {};
+	#schema?: ChipSchema;
 
 	constructor(schema?: ChipSchema) {
-		this.schema = schema;
-		this.initialSpeed = 3;
-		this.patterns = [new Pattern(0, 64, schema)];
+		this.#schema = schema;
+		this.defaultPatternLength = DEFAULT_PATTERN_LENGTH;
+		this.patterns = [new Pattern(0, this.defaultPatternLength, schema)];
 		this.tuningTable = [];
 		this.interruptFrequency = 50;
 	}
 
 	setSchema(schema: ChipSchema): void {
-		this.schema = schema;
+		this.#schema = schema;
 	}
 
 	getSchema(): ChipSchema | undefined {
-		return this.schema;
+		return this.#schema;
 	}
 
 	getEffectiveChannelLabels(): string[] {
-		const hwLabels = this.schema?.channelLabels ?? ['A', 'B', 'C'];
+		const hwLabels = this.#schema?.channelLabels ?? ['A', 'B', 'C'];
 		return computeEffectiveChannelLabels(hwLabels, this.virtualChannelMap);
 	}
 
 	addPattern(): Pattern {
 		const newId = this.patterns.length;
 		const effectiveLabels = this.getEffectiveChannelLabels();
-		const pattern = new Pattern(newId, 64, this.schema, effectiveLabels);
+		const pattern = new Pattern(
+			newId,
+			this.defaultPatternLength,
+			this.#schema,
+			effectiveLabels
+		);
+		if (this.patterns.length > 0) {
+			applySharedEffectColumnCounts(pattern, getSharedEffectColumnCounts(this.patterns));
+		}
 		this.patterns.push(pattern);
 		return pattern;
 	}
+}
+
+export function tempoForInterruptFrequency(interruptFrequency: number): number {
+	const hz = interruptFrequency > 0 ? interruptFrequency : 50;
+	return Math.min(255, Math.max(1, Math.round(hz * 2.5)));
 }
 
 export {

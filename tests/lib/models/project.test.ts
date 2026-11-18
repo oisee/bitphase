@@ -14,6 +14,7 @@ describe('Project', () => {
 			expect(project.loopPointId).toBe(0);
 			expect(project.patternOrder).toEqual([0]);
 			expect(project.tables).toHaveLength(1);
+			expect(project.instruments).toHaveLength(0);
 		});
 
 		it('should create project with custom values', () => {
@@ -39,6 +40,12 @@ describe('Table', () => {
 			expect(table.rows).toEqual([1, 2, 3]);
 			expect(table.loop).toBe(1);
 			expect(table.name).toBe('Table 1');
+			expect(table.additive).toBe(false);
+		});
+
+		it('should create table with additive mode', () => {
+			const table = new Table(0, [1], 0, 'Slide', true);
+			expect(table.additive).toBe(true);
 		});
 
 		it('should create table with custom name', () => {

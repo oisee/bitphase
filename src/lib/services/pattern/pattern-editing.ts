@@ -1,9 +1,10 @@
-import type { Pattern } from '../../models/song';
-import type { EditingContext, FieldInfo } from './editing/editing-context';
+import type { EditingContext, FieldInfo, PatternEditingResult } from './editing/editing-context';
 import { PatternFieldDetection } from './editing/pattern-field-detection';
 import { PatternNoteInput } from './editing/pattern-note-input';
+import { PatternEnvelopeNoteInput } from './editing/pattern-envelope-note-input';
 import { PatternFieldInput } from './editing/pattern-field-input';
 import { PatternDeleteHandler } from './editing/pattern-delete-handler';
+import { editorStateStore } from '../../stores/editor-state.svelte';
 
 export type { EditingContext, FieldInfo } from './editing/editing-context';
 
@@ -14,10 +15,12 @@ export class PatternEditingService {
 
 	static handleKeyInput(
 		context: EditingContext,
-		key: string
-	): { updatedPattern: Pattern; shouldMoveNext: boolean } | null {
+		key: string,
+		code: string
+	): PatternEditingResult | null {
 		if (key === 'Delete' || key === 'Backspace') {
-			return PatternDeleteHandler.handleDelete(context);
+			const result = PatternDeleteHandler.handleDelete(context);
+			return result ? { ...result, shouldPreview: false } : null;
 		}
 
 		const fieldInfo = this.getFieldAtCursor(context);
@@ -27,9 +30,9 @@ export class PatternEditingService {
 
 		switch (fieldInfo.fieldType) {
 			case 'note':
-				return PatternNoteInput.handleNoteInput(context, fieldInfo, key);
+				return PatternNoteInput.handleNoteInput(context, fieldInfo, key, code);
 			case 'hex':
-				return PatternFieldInput.handleHexInput(context, fieldInfo, key);
+				return PatternFieldInput.handleHexInput(context, fieldInfo, key, code);
 			case 'dec':
 				return PatternFieldInput.handleDecInput(context, fieldInfo, key);
 			case 'symbol':
@@ -39,5 +42,23 @@ export class PatternEditingService {
 			default:
 				return null;
 		}
+	}
+
+	static handleMidiNote(context: EditingContext, midiNote: number): PatternEditingResult | null {
+		const fieldInfo = this.getFieldAtCursor(context);
+		if (!fieldInfo) {
+			return null;
+		}
+		if (fieldInfo.fieldType === 'note') {
+			return PatternNoteInput.handleMidiNoteInput(context, fieldInfo, midiNote);
+		}
+		if (
+			fieldInfo.fieldKey === 'envelopeValue' &&
+			context.tuningTable &&
+			editorStateStore.envelopeAsNote
+		) {
+			return PatternEnvelopeNoteInput.handleMidiNoteInput(context, fieldInfo, midiNote);
+		}
+		return null;
 	}
 }

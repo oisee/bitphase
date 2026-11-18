@@ -4,12 +4,22 @@ import type { PatternFormatter } from '../../chips/base/formatter-interface';
 import type { PatternConverter } from '../../chips/base/adapter';
 import type { GenericChannel } from '../../models/song/generic';
 import { PatternTemplateParser } from './editing/pattern-template-parsing';
+import { getPatternEffectColumnCounts } from '../../chips/base/channel-effect-columns';
+import { rowSlots, slotIndexForCell } from '../../chips/base/global-anchors';
 
 export interface NavigationState {
 	selectedRow: number;
 	currentPatternOrderIndex: number;
 	selectedColumn: number;
 }
+
+export interface ChannelMoveResult extends NavigationState {
+	wrapped: boolean;
+}
+
+export type PatternEditorDirection = 'previous' | 'next';
+
+export type PatternEditorLanding = 'first-column' | 'last-column' | 'last-channel';
 
 export interface NavigationContext {
 	patterns: Pattern[];
@@ -30,38 +40,54 @@ export class PatternNavigationService {
 		context: NavigationContext,
 		delta: number
 	): NavigationState {
-		const { currentPattern, patternOrder, patterns } = context;
-		const newRow = state.selectedRow + delta;
+		if (delta === 0) return state;
 
-		if (newRow >= 0 && newRow < currentPattern.length) {
-			return {
-				...state,
-				selectedRow: newRow
-			};
-		}
+		let orderIndex = state.currentPatternOrderIndex;
+		let row = state.selectedRow;
+		let remaining = delta;
 
-		if (delta < 0 && state.currentPatternOrderIndex > 0) {
-			const newOrderIndex = state.currentPatternOrderIndex - 1;
-			const prevPatternId = patternOrder[newOrderIndex];
-			const prevPattern = patterns.find((p) => p.id === prevPatternId);
-			if (prevPattern) {
-				return {
-					...state,
-					currentPatternOrderIndex: newOrderIndex,
-					selectedRow: prevPattern.length - 1
-				};
+		while (remaining !== 0) {
+			const pattern = PatternNavigationService.patternAtOrder(context, orderIndex);
+			if (!pattern || pattern.length <= 0) return state;
+			if (row < 0) row = 0;
+			if (row >= pattern.length) row = pattern.length - 1;
+
+			if (remaining > 0) {
+				const room = pattern.length - 1 - row;
+				if (remaining <= room) {
+					row += remaining;
+					break;
+				}
+				const next = PatternNavigationService.patternAtOrder(context, orderIndex + 1);
+				if (!next || next.length <= 0) {
+					row = pattern.length - 1;
+					break;
+				}
+				remaining -= room + 1;
+				orderIndex += 1;
+				row = 0;
+				continue;
 			}
+
+			if (-remaining <= row) {
+				row += remaining;
+				break;
+			}
+			const previous = PatternNavigationService.patternAtOrder(context, orderIndex - 1);
+			if (!previous || previous.length <= 0) {
+				row = 0;
+				break;
+			}
+			remaining += row + 1;
+			orderIndex -= 1;
+			row = previous.length - 1;
 		}
 
-		if (delta > 0 && state.currentPatternOrderIndex < patternOrder.length - 1) {
-			return {
-				...state,
-				currentPatternOrderIndex: state.currentPatternOrderIndex + 1,
-				selectedRow: 0
-			};
-		}
-
-		return state;
+		return {
+			...state,
+			currentPatternOrderIndex: orderIndex,
+			selectedRow: row
+		};
 	}
 
 	static moveColumn(state: NavigationState, context: NavigationContext): NavigationState {
@@ -88,6 +114,19 @@ export class PatternNavigationService {
 		}
 
 		return state;
+	}
+
+	static columnOverflow(
+		state: NavigationState,
+		context: NavigationContext,
+		delta: number
+	): PatternEditorDirection | null {
+		if (delta === 0) return null;
+		const count = PatternNavigationService.cellCount(state, context);
+		const next = state.selectedColumn + delta;
+		if (next < 0) return 'previous';
+		if (next >= count) return 'next';
+		return null;
 	}
 
 	static moveColumnByDelta(
@@ -142,69 +181,50 @@ export class PatternNavigationService {
 		};
 	}
 
-	static moveToPrevChannel(state: NavigationState, context: NavigationContext): NavigationState {
-		const { currentPattern, converter, formatter, schema, getCellPositions } = context;
-		const genericPattern = converter.toGeneric(currentPattern);
-		const genericPatternRow = genericPattern.patternRows[state.selectedRow];
-		const genericChannels = genericPattern.channels.map(
-			(ch: GenericChannel) => ch.rows[state.selectedRow]
-		);
-		const rowString = formatter.formatRow(
-			genericPatternRow,
-			genericChannels,
-			state.selectedRow,
-			schema
-		);
-		const cellPositions = getCellPositions(rowString, state.selectedRow);
-		const hasGlobal = !!(schema.globalTemplate && schema.globalFields);
-		const channelCount = genericPattern.channels.length;
-		const totalSlots = (hasGlobal ? 1 : 0) + channelCount;
-		if (totalSlots <= 1) return state;
-
-		const slotForColumn: number[] = [];
-		for (let col = 0; col < cellPositions.length; col++) {
-			const cell = cellPositions[col];
-			if (!cell.fieldKey) {
-				slotForColumn[col] = -1;
-				continue;
-			}
-			const isGlobal = !!schema.globalFields?.[cell.fieldKey];
-			if (isGlobal) {
-				slotForColumn[col] = 0;
-			} else {
-				const channelIndex = PatternTemplateParser.calculateChannelIndexForField(
-					cell.fieldKey,
-					cell.charIndex,
-					rowString,
-					schema
-				);
-				slotForColumn[col] = (hasGlobal ? 1 : 0) + channelIndex;
-			}
-		}
-
-		const firstColumnForSlot: number[] = [];
-		for (let col = 0; col < cellPositions.length; col++) {
-			const slot = slotForColumn[col];
-			if (slot >= 0 && firstColumnForSlot[slot] === undefined) {
-				firstColumnForSlot[slot] = col;
-			}
-		}
-
-		const currentSlot =
-			state.selectedColumn >= 0 && state.selectedColumn < slotForColumn.length
-				? slotForColumn[state.selectedColumn]
-				: 0;
-		const prevSlot = currentSlot > 0 ? currentSlot - 1 : totalSlots - 1;
-		const targetColumn = firstColumnForSlot[prevSlot];
-		if (targetColumn === undefined) return state;
-
-		return {
-			...state,
-			selectedColumn: targetColumn
-		};
+	static moveToNextChannel(
+		state: NavigationState,
+		context: NavigationContext
+	): ChannelMoveResult {
+		return PatternNavigationService.moveToAdjacentChannel(state, context, 1);
 	}
 
-	static moveToNextChannel(state: NavigationState, context: NavigationContext): NavigationState {
+	static moveToPreviousChannel(
+		state: NavigationState,
+		context: NavigationContext
+	): ChannelMoveResult {
+		return PatternNavigationService.moveToAdjacentChannel(state, context, -1);
+	}
+
+	private static patternAtOrder(
+		context: NavigationContext,
+		orderIndex: number
+	): Pattern | undefined {
+		if (orderIndex < 0 || orderIndex >= context.patternOrder.length) return undefined;
+		const patternId = context.patternOrder[orderIndex];
+		return context.patterns.find((pattern) => pattern.id === patternId);
+	}
+
+	private static cellCount(state: NavigationState, context: NavigationContext): number {
+		const { currentPattern, converter, formatter, schema, getCellPositions } = context;
+		const genericPattern = converter.toGeneric(currentPattern);
+		const genericPatternRow = genericPattern.patternRows[state.selectedRow];
+		const genericChannels = genericPattern.channels.map(
+			(ch: GenericChannel) => ch.rows[state.selectedRow]
+		);
+		const rowString = formatter.formatRow(
+			genericPatternRow,
+			genericChannels,
+			state.selectedRow,
+			schema
+		);
+		return getCellPositions(rowString, state.selectedRow).length;
+	}
+
+	private static moveToAdjacentChannel(
+		state: NavigationState,
+		context: NavigationContext,
+		direction: 1 | -1
+	): ChannelMoveResult {
 		const { currentPattern, converter, formatter, schema, getCellPositions } = context;
 		const genericPattern = converter.toGeneric(currentPattern);
 		const genericPatternRow = genericPattern.patternRows[state.selectedRow];
@@ -218,11 +238,13 @@ export class PatternNavigationService {
 			schema
 		);
 		const cellPositions = getCellPositions(rowString, state.selectedRow);
-		const hasGlobal = !!(schema.globalTemplate && schema.globalFields);
 		const channelCount = genericPattern.channels.length;
-		const totalSlots = (hasGlobal ? 1 : 0) + channelCount;
-		if (totalSlots <= 1) return state;
+		const virtualChannelMap = formatter.virtualChannelMap;
+		const slots = rowSlots(schema, channelCount, virtualChannelMap);
+		const totalSlots = slots.length;
+		if (totalSlots <= 1) return { ...state, wrapped: true };
 
+		const effectColumnCounts = getPatternEffectColumnCounts(currentPattern);
 		const slotForColumn: number[] = [];
 		for (let col = 0; col < cellPositions.length; col++) {
 			const cell = cellPositions[col];
@@ -231,17 +253,17 @@ export class PatternNavigationService {
 				continue;
 			}
 			const isGlobal = !!schema.globalFields?.[cell.fieldKey];
-			if (isGlobal) {
-				slotForColumn[col] = 0;
-			} else {
-				const channelIndex = PatternTemplateParser.calculateChannelIndexForField(
-					cell.fieldKey,
-					cell.charIndex,
-					rowString,
-					schema
-				);
-				slotForColumn[col] = (hasGlobal ? 1 : 0) + channelIndex;
-			}
+			const channelIndex = isGlobal
+				? -1
+				: PatternTemplateParser.calculateChannelIndexForField(
+						cell.fieldKey,
+						cell.charIndex,
+						rowString,
+						schema,
+						effectColumnCounts,
+						virtualChannelMap
+					);
+			slotForColumn[col] = slotIndexForCell(slots, cell.fieldKey, isGlobal, channelIndex);
 		}
 
 		const firstColumnForSlot: number[] = [];
@@ -256,13 +278,21 @@ export class PatternNavigationService {
 			state.selectedColumn >= 0 && state.selectedColumn < slotForColumn.length
 				? slotForColumn[state.selectedColumn]
 				: 0;
-		const nextSlot = currentSlot >= 0 ? (currentSlot + 1) % totalSlots : 0;
+		const rawNext = currentSlot >= 0 ? currentSlot + direction : direction > 0 ? 0 : -1;
+		const wrapped = currentSlot >= 0 && (rawNext < 0 || rawNext >= totalSlots);
+		const nextSlot =
+			currentSlot >= 0
+				? (rawNext + totalSlots) % totalSlots
+				: direction > 0
+					? 0
+					: totalSlots - 1;
 		const targetColumn = firstColumnForSlot[nextSlot];
-		if (targetColumn === undefined) return state;
+		if (targetColumn === undefined) return { ...state, wrapped: false };
 
 		return {
 			...state,
-			selectedColumn: targetColumn
+			selectedColumn: targetColumn,
+			wrapped
 		};
 	}
 }

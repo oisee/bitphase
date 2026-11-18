@@ -70,6 +70,18 @@ describe('VirtualChannelService', () => {
 			]);
 		});
 
+		it('should refuse a ninth virtual channel on the same hardware channel', () => {
+			const labels = ['A', 'B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'C'];
+			const song = createSong({ 1: 8 });
+			song.patterns = [new Pattern(0, 64, AY_CHIP_SCHEMA, labels)];
+
+			const result = VirtualChannelService.addVirtualChannel(song, 1, song.patterns);
+
+			expect(result).toBeNull();
+			expect(song.virtualChannelMap).toEqual({ 1: 8 });
+			expect(song.patterns[0].channels).toHaveLength(10);
+		});
+
 		it('should update all patterns', () => {
 			const song = createSong();
 			song.patterns.push(new Pattern(1, 32, AY_CHIP_SCHEMA));
@@ -147,6 +159,26 @@ describe('VirtualChannelService', () => {
 			const result = VirtualChannelService.removeVirtualChannel(song, 1, song.patterns);
 
 			expect(result!.updatedMap).toEqual({});
+		});
+
+		it('shifts a timer role onto the column that remains after a removal', () => {
+			const song = createSong({ 1: 3 });
+			song.virtualChannelRoles = { 1: { 2: 'timer' } };
+			song.patterns = [new Pattern(0, 64, AY_CHIP_SCHEMA, ['A', 'B1', 'B2', 'B3', 'C'])];
+
+			const result = VirtualChannelService.removeVirtualChannel(song, 1, song.patterns, 2);
+
+			expect(result!.updatedRoles).toEqual({ 1: { 1: 'timer' } });
+		});
+
+		it('clears a timer role when the hardware channel collapses to one column', () => {
+			const song = createSong({ 0: 2 });
+			song.virtualChannelRoles = { 0: { 1: 'timer' } };
+			song.patterns = [new Pattern(0, 64, AY_CHIP_SCHEMA, ['A1', 'A2', 'B', 'C'])];
+
+			const result = VirtualChannelService.removeVirtualChannel(song, 0, song.patterns, 1);
+
+			expect(result!.updatedRoles).toEqual({});
 		});
 
 		it('should keep map entry when going from 3 to 2 virtual channels', () => {

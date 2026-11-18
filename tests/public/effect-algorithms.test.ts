@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import EffectAlgorithms from '../../public/effect-algorithms.js';
+import EffectAlgorithms from '../../public/tracker/effect-algorithms.js';
 
 describe('EffectAlgorithms', () => {
 	describe('initSlide', () => {
@@ -93,18 +93,13 @@ describe('EffectAlgorithms', () => {
 			expect(r.enabled).toBe(true);
 		});
 
-		it('when last param (Y) is 0 and delay > 0, uses delay as on duration (6.X0 style)', () => {
-			const r = EffectAlgorithms.initOnOff(0x30, 3);
-			expect(r.onDuration).toBe(3);
-			expect(r.offDuration).toBe(0);
-			expect(r.counter).toBe(3);
-			expect(r.enabled).toBe(true);
-		});
-
-		it('when Y is 0 and delay 0, on duration from high nibble', () => {
-			const r = EffectAlgorithms.initOnOff(0x30, 0);
-			expect(r.onDuration).toBe(3);
-			expect(r.offDuration).toBe(0);
+		it('6.60 starts on and 6.06 starts off', () => {
+			const onOnly = EffectAlgorithms.initOnOff(0x60);
+			expect(onOnly.counter).toBe(6);
+			expect(onOnly.enabled).toBe(true);
+			const offOnly = EffectAlgorithms.initOnOff(0x06);
+			expect(offOnly.counter).toBe(6);
+			expect(offOnly.enabled).toBe(false);
 		});
 	});
 
@@ -122,6 +117,17 @@ describe('EffectAlgorithms', () => {
 			const r2 = EffectAlgorithms.processOnOffCounter(1, 3, 2, false);
 			expect(r2.enabled).toBe(true);
 			expect(r2.counter).toBe(3);
+		});
+
+		it('holds the new phase when that duration is 0', () => {
+			const offHold = EffectAlgorithms.processOnOffCounter(1, 6, 0, true);
+			expect(offHold.enabled).toBe(false);
+			expect(offHold.counter).toBe(0);
+			expect(EffectAlgorithms.processOnOffCounter(0, 6, 0, false)).toEqual(offHold);
+			const onHold = EffectAlgorithms.processOnOffCounter(1, 0, 6, false);
+			expect(onHold.enabled).toBe(true);
+			expect(onHold.counter).toBe(0);
+			expect(EffectAlgorithms.processOnOffCounter(0, 0, 6, true)).toEqual(onHold);
 		});
 	});
 
@@ -258,6 +264,10 @@ describe('EffectAlgorithms', () => {
 			expect(EffectAlgorithms.SPEED).toBe('S'.charCodeAt(0));
 		});
 
+		it('SONG_END is char code of Q', () => {
+			expect(EffectAlgorithms.SONG_END).toBe('Q'.charCodeAt(0));
+		});
+
 		it('AUTO_ENVELOPE is char code of E', () => {
 			expect(EffectAlgorithms.AUTO_ENVELOPE).toBe('E'.charCodeAt(0));
 		});
@@ -331,7 +341,9 @@ describe('EffectAlgorithms', () => {
 		});
 
 		it('AUTO_ENVELOPE resets nothing', () => {
-			const resets = EffectAlgorithms.getEffectActivationResets(EffectAlgorithms.AUTO_ENVELOPE);
+			const resets = EffectAlgorithms.getEffectActivationResets(
+				EffectAlgorithms.AUTO_ENVELOPE
+			);
 			expect(resets.portamento).toBeUndefined();
 			expect(resets.slide).toBeUndefined();
 		});

@@ -2,39 +2,61 @@ import { Project } from '../../models/project';
 import { Pattern } from '../../models/song';
 import { undoRedoStore } from '../../stores/undo-redo.svelte';
 import ConfirmModal from '../../components/Modal/ConfirmModal.svelte';
+import ImportOptionsModal from '../../components/Modal/ImportOptionsModal.svelte';
+import {
+	needsAlphaOpaqueChoice,
+	setAlphaOpaqueSilence
+} from '../file/project/file-import';
 import SettingsModal from '../../components/Settings/SettingsModal.svelte';
 import AboutModal from '../../components/Modal/AboutModal.svelte';
 import EffectsModal from '../../components/Modal/EffectsModal.svelte';
 import UserScriptsModal from '../../components/Modal/UserScriptsModal.svelte';
+import TransposeSongModal from '../../components/Modal/TransposeSongModal.svelte';
 import WavExportSettingsModal from '../../components/Modal/WavExportSettingsModal.svelte';
 import ProgressModal from '../../components/Modal/ProgressModal.svelte';
 import {
 	ACTION_APPLY_SCRIPT,
+	ACTION_TRANSPOSE_SONG,
 	ACTION_PLAY_FROM_BEGINNING,
 	ACTION_PLAY_FROM_CURSOR,
 	ACTION_PLAY_FROM_ROW,
 	ACTION_PLAY_PATTERN,
 	ACTION_TOGGLE_AUTO_ENVELOPE,
 	ACTION_TOGGLE_ENVELOPE_AS_NOTE,
-	ACTION_TOGGLE_PLAYBACK
+	ACTION_TOGGLE_PLAYBACK,
+	ACTION_TOGGLE_EXPAND_PANEL
 } from '../../config/keybindings';
 import { autoEnvStore } from '../../stores/auto-env.svelte';
 import { editorStateStore } from '../../stores/editor-state.svelte';
 import { loadDemoProject } from '../../config/demo-songs';
-import { getChipByType } from '../../chips/registry';
 import { AY_CHIP } from '../../chips/ay';
+import { NES_CHIP } from '../../chips/nes';
+import { SAA_CHIP } from '../../chips/saa';
+import type { Chip } from '../../chips/types';
 import type { MenuActionContext } from './menu-action-context';
+import { projectStore } from '../../stores/project.svelte';
+import { settingsStore } from '../../stores/settings.svelte';
+import { pianoRollConflictStore } from '../../stores/piano-roll-conflicts.svelte';
+import { SongTransposeService } from '../song/song-transpose-service';
 
-function addChipProcessorsForProject(
-	container: MenuActionContext['container'],
-	songs: { chipType?: string }[]
-): Promise<void> {
-	return (async () => {
-		for (const song of songs) {
-			const chip = song.chipType ? getChipByType(song.chipType) : null;
-			await container.audioService.addChipProcessor(chip ?? AY_CHIP);
-		}
-	})();
+async function createNewSongFromMenu(ctx: MenuActionContext, chip: Chip): Promise<void> {
+	ctx.playbackStore.isPlaying = false;
+	ctx.container.audioService.stop();
+	const project = ctx.getCurrentProject();
+	const newSong = await ctx.projectService.createNewSong(chip, project.songs);
+	newSong.defaultPatternLength = projectStore.getDefaultPatternLength();
+	if (project.patternOrder.length > 0) {
+		const refPatterns = project.songs[0]?.patterns ?? [];
+		const schema = chip.schema;
+		const uniquePatternIds = [...new Set(project.patternOrder)];
+		newSong.patterns = uniquePatternIds.map((id) => {
+			const refPattern = refPatterns.find((p) => p.id === id);
+			const length = refPattern?.length ?? newSong.defaultPatternLength;
+			return new Pattern(id, length, schema);
+		});
+	}
+	ctx.addSong(newSong);
+	ctx.resetPatternEditor();
 }
 
 function dispatchEditorKey(
@@ -127,6 +149,16 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
 				return;
 			}
 
+			if (data.action === 'insert-pattern-row') {
+				dispatchEditorKey(ctx.getPatternEditor, 'i', { ctrlKey: true, code: 'KeyI' });
+				return;
+			}
+
+			if (data.action === 'remove-pattern-row') {
+				dispatchEditorKey(ctx.getPatternEditor, 'r', { ctrlKey: true, code: 'KeyR' });
+				return;
+			}
+
 			if (data.action === 'playFromBeginning' || data.action === ACTION_PLAY_FROM_BEGINNING) {
 				if (ctx.playbackStore.isPlaying) {
 					ctx.playbackStore.isPlaying = false;
@@ -179,7 +211,8 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
 				ctx.playbackStore.isPlaying = false;
 				ctx.container.audioService.stop();
 				await ctx.clearAutobackup();
-				const newProject = await ctx.projectService.resetProject(AY_CHIP);
+				const newProject = await ctx.projectService.resetProject();
+				pianoRollConflictStore.clear();
 				ctx.applyProject(newProject);
 				ctx.resetPatternEditor();
 				return;
@@ -187,7 +220,7 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
 
 			if (data.action === 'remove-song' && typeof data.songIndex === 'number') {
 				const index = data.songIndex;
-				if (ctx.getSongsLength() <= 1 || index < 0 || index >= ctx.getSongsLength()) return;
+				if (index < 0 || index >= ctx.getSongsLength()) return;
 				const confirmed = await ctx.open(ConfirmModal, {
 					message: `Remove song (${index + 1})? This cannot be undone.`
 				});
@@ -203,28 +236,17 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
 			}
 
 			if (data.action === 'new-song-ay') {
-				ctx.playbackStore.isPlaying = false;
-				ctx.container.audioService.stop();
-				const project = ctx.getCurrentProject();
-				const newSong = await ctx.projectService.createNewSong(AY_CHIP, project.songs);
-				if (project.songs.length > 0 && project.patternOrder.length > 0) {
-					const refSong = project.songs[0] as unknown as {
-						patterns: { id: number; length: number }[];
-					};
-					const schema =
-						ctx.container.audioService.chipProcessors[0].chip.schema ??
-						newSong.getSchema();
-					const uniquePatternIds = [...new Set(project.patternOrder)];
-					newSong.patterns = uniquePatternIds.map((id) => {
-						const refPattern = refSong.patterns.find(
-							(p: { id: number }) => p.id === id
-						);
-						const length = refPattern?.length ?? 64;
-						return new Pattern(id, length, schema);
-					});
-				}
-				ctx.addSong(newSong);
-				ctx.resetPatternEditor();
+				await createNewSongFromMenu(ctx, AY_CHIP);
+				return;
+			}
+
+			if (data.action === 'new-song-nes') {
+				await createNewSongFromMenu(ctx, NES_CHIP);
+				return;
+			}
+
+			if (data.action === 'new-song-saa') {
+				await createNewSongFromMenu(ctx, SAA_CHIP);
 				return;
 			}
 
@@ -233,8 +255,25 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
 				return;
 			}
 
+			if (data.action === 'edit-view-tracker') {
+				editorStateStore.setEditView('tracker');
+				return;
+			}
+
+			if (data.action === 'edit-view-piano-roll') {
+				if (settingsStore.experimentalFeatures) {
+					editorStateStore.setEditView('piano-roll');
+				}
+				return;
+			}
+
 			if (data.action === 'appearance') {
 				await ctx.open(SettingsModal, { initialTabId: 'appearance' });
+				return;
+			}
+
+			if (data.action === 'documentation') {
+				window.open('/docs/', '_blank', 'noopener,noreferrer');
 				return;
 			}
 
@@ -250,10 +289,23 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
 
 			if (data.action === ACTION_APPLY_SCRIPT) {
 				const hasSelection = patternEditor?.hasSelection?.() ?? false;
-				const result = await ctx.open(UserScriptsModal, { hasSelection });
+				const song = ctx.getCurrentProject().songs[ctx.getActiveSongIndex()];
+				const result = await ctx.open(UserScriptsModal, {
+					hasSelection,
+					schema: song?.getSchema(),
+					channelLabels: song?.getEffectiveChannelLabels()
+				});
 				if (result && patternEditor?.applyScript) {
 					patternEditor.applyScript(result);
 				}
+				return;
+			}
+
+			if (data.action === ACTION_TRANSPOSE_SONG) {
+				if (ctx.playbackStore.isPlaying) return;
+				const semitones = await ctx.open(TransposeSongModal, {});
+				if (typeof semitones !== 'number' || semitones === 0) return;
+				SongTransposeService.applyToSong(ctx.getActiveSongIndex(), semitones);
 				return;
 			}
 
@@ -267,7 +319,19 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
 				return;
 			}
 
+			if (data.action === ACTION_TOGGLE_EXPAND_PANEL) {
+				ctx.toggleExpandPanel();
+				return;
+			}
+
 			if (data.action === 'save' || data.action === 'save-as') {
+				if (pianoRollConflictStore.hasNotes) {
+					const confirmed = await ctx.open(ConfirmModal, {
+						message:
+							'Some overlapping notes are marked in red. Only the highest note is kept in the song, so the red notes will not be saved. Save anyway?'
+					});
+					if (!confirmed) return;
+				}
 				await ctx.handleFileExport(data.action, ctx.getCurrentProject());
 				return;
 			}
@@ -295,14 +359,55 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
 				return;
 			}
 
+			if (data.action === 'export-taym' || data.action === 'export-taym-zip') {
+				await ctx.open(ProgressModal, {
+					project: ctx.getCurrentProject(),
+					exportType: 'taym'
+				});
+				return;
+			}
+
+			if (data.action === 'export-psg-zip') {
+				await ctx.open(ProgressModal, {
+					project: ctx.getCurrentProject(),
+					exportType: 'psg'
+				});
+				return;
+			}
+
+			if (data.action === 'export-sndh') {
+				await ctx.open(ProgressModal, {
+					project: ctx.getCurrentProject(),
+					exportType: 'sndh'
+				});
+				return;
+			}
+
+			if (data.action === 'export-vgm') {
+				await ctx.open(ProgressModal, {
+					project: ctx.getCurrentProject(),
+					exportType: 'vgm'
+				});
+				return;
+			}
+
+			if (data.action === 'export-nsf') {
+				await ctx.open(ProgressModal, {
+					project: ctx.getCurrentProject(),
+					exportType: 'nsf'
+				});
+				return;
+			}
+
 			if (data.action.startsWith('open-demo:')) {
 				const path = data.action.slice('open-demo:'.length);
 				const project = await loadDemoProject(path);
 				if (project) {
 					ctx.playbackStore.isPlaying = false;
 					ctx.container.audioService.stop();
-					ctx.container.audioService.clearChipProcessors();
-					await addChipProcessorsForProject(ctx.container, project.songs);
+					await ctx.projectService.restoreChipProcessorsForSongs(project.songs);
+					ctx.syncChipProcessors();
+					pianoRollConflictStore.clear();
 					ctx.applyProject(project);
 					ctx.resetPatternEditor();
 				}
@@ -311,10 +416,17 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
 
 			const importedProject = await ctx.handleFileImport(data.action);
 			if (importedProject) {
+				if (needsAlphaOpaqueChoice(importedProject)) {
+					const choice = (await ctx.open(ImportOptionsModal, {})) as
+						| { alphaOpaqueSilence: boolean }
+						| undefined;
+					setAlphaOpaqueSilence(importedProject, choice?.alphaOpaqueSilence === true);
+				}
 				ctx.playbackStore.isPlaying = false;
 				ctx.container.audioService.stop();
-				ctx.container.audioService.clearChipProcessors();
-				await addChipProcessorsForProject(ctx.container, importedProject.songs);
+				await ctx.projectService.restoreChipProcessorsForSongs(importedProject.songs);
+				ctx.syncChipProcessors();
+				pianoRollConflictStore.clear();
 				ctx.applyProject(importedProject);
 				ctx.resetPatternEditor();
 			}

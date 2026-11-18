@@ -2,103 +2,141 @@ import type { Chip } from '../types';
 import type { Pattern, Instrument } from '../../models/song';
 import type { Table } from '../../models/project';
 import type {
-	ChipProcessor,
+	MixerWorkletSlotProcessor,
 	SettingsSubscriber,
 	TuningTableSupport,
 	InstrumentSupport,
 	PreviewNoteSupport
 } from '../base/processor';
 import type { ChipSettings } from '../../services/audio/chip-settings';
-import type { CatchUpSegment } from '../../services/audio/play-from-position';
+import type { PlaybackCarryState } from '../../services/audio/play-from-position';
+import { MixerWorkletBridge } from '../../services/audio/mixer-worklet-bridge';
+import { isValidInstrumentSampleByteLength } from '../../utils/audio-sample-decode';
+import { normalizeSamplePlaybackBounds } from './sample-region';
+import type { AyTimerPwmSweepShape } from './instrument';
 
-type PositionUpdateMessage = {
-	type: 'position_update';
-	currentRow: number;
-	currentPatternOrderIndex?: number;
+type WorkletInstrument = {
+	id: string;
+	chipType: string;
+	name: string;
+	macros?: Record<
+		string,
+		{ values: (boolean | number | string)[]; loop: number; release?: number }
+	>;
+	timerMacros?: Record<
+		string,
+		{ values: (boolean | number | string)[]; loop: number; release?: number }
+	>;
+	timerPwmDuty?: number;
+	timerPwmSweepMin?: number;
+	timerPwmSweep?: number;
+	timerPwmPreserveOnNewNote?: boolean;
+	timerPwmReverseSweep?: boolean;
+	timerPwmSweepStartPhase?: number;
+	timerPwmSweepShape?: AyTimerPwmSweepShape;
+	sampleData?: number[];
+	sampleRate?: number;
+	sampleStart?: number;
+	sampleEnd?: number;
+	sampleLoopStart?: number;
+	sampleLength?: number;
+	sampleLoopEnabled?: boolean;
+	sampleLoop?: number;
 };
 
-type RequestPatternMessage = {
-	type: 'request_pattern';
-	patternOrderIndex: number;
-};
-
-type ChannelWaveformMessage = {
-	type: 'channel_waveform';
-	channels: Float32Array[];
-};
-
-type WorkletMessage =
-	| PositionUpdateMessage
-	| RequestPatternMessage
-	| SpeedUpdateMessage
-	| ChannelWaveformMessage;
-
-interface SpeedUpdateMessage {
-	type: 'speed_update';
-	speed: number;
+function copyMacroForWorklet(macro: {
+	values: (boolean | number | string)[];
+	loop: number;
+	release?: number;
+}): { values: (boolean | number | string)[]; loop: number; release?: number } {
+	return {
+		values: [...macro.values],
+		loop: macro.loop,
+		...(typeof macro.release === 'number' && macro.release >= 0
+			? { release: macro.release }
+			: {})
+	};
 }
 
-type PlayFromPositionCommand = {
-	type: 'play_from_position';
-	catchUpSegments: CatchUpSegment[];
-	startPattern: Pattern;
-	startPatternOrderIndex: number;
-	startRow: number;
-	speed: number | null;
-};
-
-type WorkletCommand =
-	| { type: 'init'; wasmBuffer: ArrayBuffer }
-	| { type: 'play'; initialSpeed?: number }
-	| { type: 'play_from_row'; row: number; patternOrderIndex?: number; speed?: number | null }
-	| PlayFromPositionCommand
-	| { type: 'stop' }
-	| { type: 'update_order'; order: number[] }
-	| { type: 'init_pattern'; pattern: Pattern; patternOrderIndex: number }
-	| { type: 'init_tuning_table'; tuningTable: number[] }
-	| { type: 'init_speed'; speed: number }
-	| { type: 'set_pattern_data'; pattern: Pattern; patternOrderIndex: number }
-	| { type: 'init_tables'; tables: Table[] }
-	| { type: 'init_instruments'; instruments: Instrument[] }
-	| { type: 'update_ay_frequency'; aymFrequency: number }
-	| { type: 'update_int_frequency'; intFrequency: number }
-	| { type: 'update_chip_variant'; chipVariant: string }
-	| { type: 'update_stereo_layout'; stereoLayout: string }
-	| { type: 'set_channel_mute'; channelIndex: number; muted: boolean }
-	| {
-			type: 'change_pattern_during_playback';
-			row: number;
-			patternOrderIndex?: number;
-			pattern?: Pattern;
-			speed?: number | null;
-	  }
-	| { type: 'preview_row'; pattern: Pattern; rowIndex: number; instrument?: Instrument }
-	| { type: 'stop_preview'; channel?: number }
-	| {
-			type: 'set_virtual_channel_config';
-			virtualChannelMap: Record<number, number>;
-			hwChannelCount: number;
-	  };
+export function sanitizeInstrumentForWorklet(instrument: Instrument): WorkletInstrument {
+	const extended = instrument as WorkletInstrument;
+	const sampleData =
+		extended.sampleData?.length && isValidInstrumentSampleByteLength(extended.sampleData.length)
+			? extended.sampleData.map((value) => value & 0xff)
+			: undefined;
+	return {
+		id: instrument.id,
+		chipType: instrument.chipType,
+		name: instrument.name,
+		macros: instrument.macros
+			? Object.fromEntries(
+					Object.entries(instrument.macros).map(([id, macro]) => [
+						id,
+						copyMacroForWorklet(macro)
+					])
+				)
+			: undefined,
+		timerMacros: extended.timerMacros
+			? Object.fromEntries(
+					Object.entries(extended.timerMacros).map(([id, macro]) => [
+						id,
+						copyMacroForWorklet(macro)
+					])
+				)
+			: undefined,
+		timerPwmDuty: extended.timerPwmDuty,
+		timerPwmSweepMin: extended.timerPwmSweepMin,
+		timerPwmSweep: extended.timerPwmSweep,
+		timerPwmPreserveOnNewNote: extended.timerPwmPreserveOnNewNote,
+		timerPwmSweepStartPhase: extended.timerPwmSweepStartPhase,
+		timerPwmSweepShape: extended.timerPwmSweepShape,
+		timerPwmReverseSweep: extended.timerPwmReverseSweep,
+		...(sampleData?.length
+			? (() => {
+					const bounds = normalizeSamplePlaybackBounds({
+						sampleData,
+						sampleStart: extended.sampleStart,
+						sampleEnd: extended.sampleEnd,
+						sampleLoopStart: extended.sampleLoopStart,
+						sampleLength: extended.sampleLength,
+						sampleLoop: extended.sampleLoop
+					});
+					return {
+						sampleData,
+						sampleRate: extended.sampleRate,
+						sampleStart: bounds?.start ?? 0,
+						sampleEnd: bounds?.end ?? sampleData.length - 1,
+						sampleLoopStart: bounds?.loopStart ?? 0,
+						sampleLoopEnabled: extended.sampleLoopEnabled !== false
+					};
+				})()
+			: {})
+	};
+}
 
 export class AYProcessor
 	implements
-		ChipProcessor,
+		MixerWorkletSlotProcessor,
 		SettingsSubscriber,
 		TuningTableSupport,
 		InstrumentSupport,
 		PreviewNoteSupport
 {
 	chip: Chip;
-	audioNode: AudioWorkletNode | null = null;
-	private onPositionUpdate?: (currentRow: number, currentPatternOrderIndex?: number) => void;
-	private onPatternRequest?: (patternOrderIndex: number) => void;
-	private onSpeedUpdate?: (speed: number) => void;
-	private waveformCallback?: (channels: Float32Array[]) => void;
-	private commandQueue: WorkletCommand[] = [];
+	private readonly bridge: MixerWorkletBridge;
 	private settingsUnsubscribers: (() => void)[] = [];
 
 	constructor(chip: Chip) {
 		this.chip = chip;
+		this.bridge = new MixerWorkletBridge(chip);
+	}
+
+	get audioNode(): AudioWorkletNode | null {
+		return this.bridge.audioNode;
+	}
+
+	bindChipIndex(index: number): void {
+		this.bridge.bindChipIndex(index);
 	}
 
 	subscribeToSettings(chipSettings: ChipSettings): void {
@@ -119,6 +157,14 @@ export class AYProcessor
 		);
 
 		this.settingsUnsubscribers.push(
+			chipSettings.subscribe('tempo', (value) => {
+				if (typeof value === 'number') {
+					this.sendUpdateTempo(value);
+				}
+			})
+		);
+
+		this.settingsUnsubscribers.push(
 			chipSettings.subscribe('chipVariant', (value) => {
 				if (typeof value === 'string') {
 					this.sendUpdateChipVariant(value);
@@ -127,9 +173,25 @@ export class AYProcessor
 		);
 
 		this.settingsUnsubscribers.push(
+			chipSettings.subscribe('stMixing', (value) => {
+				if (typeof value === 'boolean') {
+					this.sendUpdateStMixing(value);
+				}
+			})
+		);
+
+		this.settingsUnsubscribers.push(
 			chipSettings.subscribe('stereoLayout', (value) => {
 				if (typeof value === 'string') {
 					this.sendUpdateStereoLayout(value);
+				}
+			})
+		);
+
+		this.settingsUnsubscribers.push(
+			chipSettings.subscribe('alphaOpaqueSilence', (value) => {
+				if (typeof value === 'boolean') {
+					this.sendUpdateAlphaOpaqueSilence(value);
 				}
 			})
 		);
@@ -153,94 +215,83 @@ export class AYProcessor
 			throw new Error('WASM buffer not available or empty');
 		}
 
-		this.audioNode = audioNode;
-		this.audioNode.port.onmessage = (event: MessageEvent<WorkletMessage>) => {
-			this.handleWorkletMessage(event);
-		};
-
-		this.sendCommand({ type: 'init', wasmBuffer });
+		this.bridge.attachNode(audioNode);
+		this.bridge.postInitCommand({ type: 'init', wasmBuffer });
+		this.bridge.flushCommandQueue();
 	}
 
-	private sendCommand(command: WorkletCommand): void {
-		if (!this.audioNode) {
-			this.commandQueue.push(command);
-			return;
-		}
-
-		while (this.commandQueue.length > 0) {
-			const queuedCommand = this.commandQueue.shift();
-			if (queuedCommand) {
-				this.audioNode.port.postMessage(this.toSerializableCommand(queuedCommand));
-			}
-		}
-
-		this.audioNode.port.postMessage(this.toSerializableCommand(command));
-	}
-
-	private toSerializableCommand(command: WorkletCommand): unknown {
-		if (command.type === 'init') {
-			return command;
-		}
-		return JSON.parse(JSON.stringify(command));
+	acceptWorkletPayload(data: unknown): void {
+		this.bridge.acceptWorkletPayload(data);
 	}
 
 	setCallbacks(
 		onPositionUpdate: (currentRow: number, currentPatternOrderIndex?: number) => void,
-		onPatternRequest: (patternOrderIndex: number) => void,
-		onSpeedUpdate?: (speed: number) => void
+		onPatternRequest: (patternOrderIndex: number) => void
 	): void {
-		this.onPositionUpdate = onPositionUpdate;
-		this.onPatternRequest = onPatternRequest;
-		this.onSpeedUpdate = onSpeedUpdate;
+		this.bridge.setCallbacks(onPositionUpdate, onPatternRequest);
 	}
 
 	setWaveformCallback(callback: (channels: Float32Array[]) => void): void {
-		this.waveformCallback = callback;
+		this.bridge.setWaveformCallback(callback);
+	}
+
+	setChannelLevelsCallback(callback: (levels: number[]) => void): void {
+		this.bridge.setChannelLevelsCallback(callback);
+	}
+
+	setChannelToneHzCallback(
+		callback: (payload: {
+			frequencies: (number | null)[];
+			sidTimerHz: (number | null)[];
+			syncbuzzerTimerHz: (number | null)[];
+			timerPwmSweepPhase: (number | null)[];
+			channelInstrumentIndex: number[];
+			registers: number[];
+		}) => void
+	): void {
+		this.bridge.setChannelToneHzCallback(callback);
+	}
+
+	setTimerPwmSweepPhaseCallback(
+		callback: (payload: {
+			timerPwmSweepPhase: (number | null)[];
+			channelInstrumentIndex: number[];
+		}) => void
+	): void {
+		this.bridge.setTimerPwmSweepPhaseCallback(callback);
 	}
 
 	play(initialSpeed?: number): void {
-		this.sendCommand({ type: 'play', initialSpeed });
+		this.bridge.sendCommand({ type: 'play', initialSpeed });
 	}
 
-	playFromRow(row: number, patternOrderIndex?: number, speed?: number | null): void {
-		this.sendCommand({ type: 'play_from_row', row, patternOrderIndex, speed });
-	}
-
-	playFromPosition(
+	playFromRow(
 		row: number,
-		patternOrderIndex: number,
-		speed: number | null,
-		catchUpSegments: CatchUpSegment[],
-		startPattern: Pattern
+		patternOrderIndex?: number,
+		speed?: number | null,
+		carry?: PlaybackCarryState | null
 	): void {
-		this.sendCommand({
-			type: 'play_from_position',
-			catchUpSegments,
-			startPattern,
-			startPatternOrderIndex: patternOrderIndex,
-			startRow: row,
-			speed
-		});
+		this.bridge.sendCommand({ type: 'play_from_row', row, patternOrderIndex, speed, carry });
 	}
 
 	stop(): void {
-		this.sendCommand({ type: 'stop' });
+		this.bridge.sendCommand({ type: 'stop' });
 	}
 
-	updateOrder(order: number[]): void {
-		this.sendCommand({ type: 'update_order', order: Array.from(order) });
+	updateOrder(order: number[], loopPointId: number): void {
+		this.bridge.sendCommand({ type: 'update_order', order: Array.from(order), loopPointId });
 	}
 
 	sendInitPattern(pattern: Pattern, patternOrderIndex: number): void {
-		this.sendCommand({ type: 'init_pattern', pattern, patternOrderIndex });
+		this.bridge.sendCommand({ type: 'init_pattern', pattern, patternOrderIndex });
 	}
 
 	sendInitTuningTable(tuningTable: number[]): void {
-		this.sendCommand({ type: 'init_tuning_table', tuningTable });
+		this.bridge.sendCommand({ type: 'init_tuning_table', tuningTable });
 	}
 
 	sendInitSpeed(speed: number): void {
-		this.sendCommand({ type: 'init_speed', speed });
+		this.bridge.sendCommand({ type: 'init_speed', speed });
 	}
 
 	sendInitTables(tables: Table[]): void {
@@ -248,23 +299,22 @@ export class AYProcessor
 			id: o.id,
 			rows: Array.from(o.rows),
 			loop: o.loop,
-			name: o.name
+			name: o.name,
+			additive: o.additive
 		}));
-		this.sendCommand({ type: 'init_tables', tables: sanitized });
+		this.bridge.sendCommand({ type: 'init_tables', tables: sanitized });
 	}
 
 	sendInitInstruments(instruments: Instrument[]): void {
-		const sanitized: Instrument[] = instruments.map((o) => ({
-			id: o.id,
-			rows: Array.from(o.rows).map((row) => ({ ...row })),
-			loop: o.loop,
-			name: o.name
-		}));
-		this.sendCommand({ type: 'init_instruments', instruments: sanitized });
+		const sanitized = instruments.map(sanitizeInstrumentForWorklet);
+		this.bridge.sendCommand({
+			type: 'init_instruments',
+			instruments: sanitized as unknown as Instrument[]
+		});
 	}
 
 	sendRequestedPattern(pattern: Pattern, patternOrderIndex: number): void {
-		this.sendCommand({ type: 'set_pattern_data', pattern, patternOrderIndex });
+		this.bridge.sendCommand({ type: 'set_pattern_data', pattern, patternOrderIndex });
 	}
 
 	changePatternDuringPlayback(
@@ -273,7 +323,7 @@ export class AYProcessor
 		pattern?: Pattern,
 		speed?: number | null
 	): void {
-		this.sendCommand({
+		this.bridge.sendCommand({
 			type: 'change_pattern_during_playback',
 			row,
 			patternOrderIndex,
@@ -283,26 +333,38 @@ export class AYProcessor
 	}
 
 	sendUpdateAyFrequency(aymFrequency: number): void {
-		this.sendCommand({ type: 'update_ay_frequency', aymFrequency });
+		this.bridge.sendCommand({ type: 'update_ay_frequency', aymFrequency });
 	}
 
 	sendUpdateIntFrequency(intFrequency: number): void {
-		this.sendCommand({ type: 'update_int_frequency', intFrequency });
+		this.bridge.sendCommand({ type: 'update_int_frequency', intFrequency });
+	}
+
+	sendUpdateTempo(tempo: number): void {
+		this.bridge.sendCommand({ type: 'update_tempo', tempo });
 	}
 
 	sendUpdateChipVariant(chipVariant: string): void {
-		this.sendCommand({ type: 'update_chip_variant', chipVariant });
+		this.bridge.sendCommand({ type: 'update_chip_variant', chipVariant });
+	}
+
+	sendUpdateStMixing(stMixing: boolean): void {
+		this.bridge.sendCommand({ type: 'update_st_mixing', stMixing });
 	}
 
 	sendUpdateStereoLayout(stereoLayout: string): void {
-		this.sendCommand({ type: 'update_stereo_layout', stereoLayout });
+		this.bridge.sendCommand({ type: 'update_stereo_layout', stereoLayout });
+	}
+
+	sendUpdateAlphaOpaqueSilence(alphaOpaqueSilence: boolean): void {
+		this.bridge.sendCommand({ type: 'update_alpha_opaque_silence', alphaOpaqueSilence });
 	}
 
 	updateParameter(parameter: string, value: unknown): void {
 		if (parameter.startsWith('channelMute_')) {
 			const channelIndex = parseInt(parameter.replace('channelMute_', ''), 10);
 			if (!isNaN(channelIndex) && typeof value === 'boolean') {
-				this.sendCommand({ type: 'set_channel_mute', channelIndex, muted: value });
+				this.bridge.sendCommand({ type: 'set_channel_mute', channelIndex, muted: value });
 			}
 			return;
 		}
@@ -314,73 +376,66 @@ export class AYProcessor
 			case 'interruptFrequency':
 				this.sendUpdateIntFrequency(value as number);
 				break;
+			case 'tempo':
+				this.sendUpdateTempo(value as number);
+				break;
 			case 'chipVariant':
 				this.sendUpdateChipVariant(value as string);
 				break;
+			case 'stMixing':
+				this.sendUpdateStMixing(value as boolean);
+				break;
 			case 'stereoLayout':
 				this.sendUpdateStereoLayout(value as string);
+				break;
+			case 'alphaOpaqueSilence':
+				this.sendUpdateAlphaOpaqueSilence(value === true);
 				break;
 			default:
 				console.warn(`AY processor: unknown parameter "${parameter}"`);
 		}
 	}
 
-	private handleWorkletMessage(event: MessageEvent<WorkletMessage>): void {
-		const message = event.data;
-
-		switch (message.type) {
-			case 'position_update':
-				this.onPositionUpdate?.(message.currentRow, message.currentPatternOrderIndex);
-				break;
-			case 'request_pattern':
-				this.onPatternRequest?.(message.patternOrderIndex);
-				break;
-			case 'speed_update':
-				this.onSpeedUpdate?.(message.speed);
-				break;
-			case 'channel_waveform':
-				this.waveformCallback?.(message.channels);
-				break;
-			default:
-				console.warn('Unhandled message:', message);
-		}
-	}
-
 	isAudioNodeAvailable(): boolean {
-		return this.audioNode !== null;
+		return this.bridge.isAudioNodeAvailable();
 	}
 
-	playPreviewRow(pattern: Pattern, rowIndex: number, instrument?: Instrument): void {
+	playPreviewRow(
+		pattern: Pattern,
+		rowIndex: number,
+		instrument?: Instrument,
+		channelIndex?: number
+	): void {
 		if (rowIndex < 0 || rowIndex >= pattern.length) return;
 		const patternCopy = structuredClone(pattern);
-		const instrumentCopy = instrument
-			? {
-					id: instrument.id,
-					rows: Array.from(instrument.rows).map((row) => ({ ...row })),
-					loop: instrument.loop,
-					name: instrument.name
-				}
-			: undefined;
-		this.sendCommand({
+		const instrumentCopy = instrument ? sanitizeInstrumentForWorklet(instrument) : undefined;
+		this.bridge.sendCommand({
 			type: 'preview_row',
 			pattern: patternCopy,
 			rowIndex,
-			instrument: instrumentCopy
+			instrument: instrumentCopy as unknown as Instrument,
+			channelIndex
 		});
 	}
 
 	stopPreviewNote(channel?: number): void {
-		this.sendCommand({ type: 'stop_preview', channel });
+		this.bridge.sendCommand({ type: 'stop_preview', channel });
+	}
+
+	releasePreviewNote(channel?: number): void {
+		this.bridge.sendCommand({ type: 'release_preview', channel });
 	}
 
 	sendVirtualChannelConfig(
 		virtualChannelMap: Record<number, number>,
-		hwChannelCount: number
+		hwChannelCount: number,
+		virtualChannelRoles?: Record<number, Record<number, string>>
 	): void {
-		this.sendCommand({
+		this.bridge.sendCommand({
 			type: 'set_virtual_channel_config',
 			virtualChannelMap,
-			hwChannelCount
+			hwChannelCount,
+			virtualChannelRoles: virtualChannelRoles ?? {}
 		});
 	}
 }

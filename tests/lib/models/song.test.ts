@@ -16,7 +16,7 @@ describe('Song', () => {
 		it('should create a song with default values', () => {
 			const song = new Song(AY_CHIP_SCHEMA);
 
-			expect(song.initialSpeed).toBe(3);
+			expect(song.defaultPatternLength).toBe(64);
 			expect(song.patterns).toHaveLength(1);
 			expect(song.patterns[0].id).toBe(0);
 			expect(song.tuningTable).toEqual([]);
@@ -43,6 +43,14 @@ describe('Song', () => {
 
 			expect(pattern.length).toBe(64);
 			expect(pattern.channels).toHaveLength(3);
+		});
+
+		it('should create pattern with song defaultPatternLength', () => {
+			const song = new Song(AY_CHIP_SCHEMA);
+			song.defaultPatternLength = 32;
+			const pattern = song.addPattern();
+
+			expect(pattern.length).toBe(32);
 		});
 	});
 });
@@ -127,38 +135,20 @@ describe('Effect', () => {
 describe('Instrument', () => {
 	describe('constructor', () => {
 		it('should create instrument with specified values', () => {
-			const rows = [
-				new InstrumentRow({
-					tone: true,
-					noise: false,
-					envelope: false,
-					toneAdd: 0,
-					noiseAdd: 0,
-					volume: 10,
-					loop: false
-				}),
-				new InstrumentRow({
-					tone: false,
-					noise: true,
-					envelope: false,
-					toneAdd: 0,
-					noiseAdd: 0,
-					volume: 8,
-					loop: true
-				})
-			];
-			const instrument = new Instrument('05', rows, 1);
+			const instrument = new Instrument('05', 'Lead', 'ay');
 
 			expect(instrument.id).toBe('05');
-			expect(instrument.rows).toHaveLength(2);
-			expect(instrument.loop).toBe(1);
+			expect(instrument.name).toBe('Lead');
+			expect(instrument.chipType).toBe('ay');
+			expect(instrument.macros).toBeUndefined();
+			expect(instrument.color).toBeUndefined();
 		});
 
-		it('should create instrument with default loop', () => {
-			const rows: InstrumentRow[] = [];
-			const instrument = new Instrument('01', rows);
+		it('should create instrument with default name and chip', () => {
+			const instrument = new Instrument('01');
 
-			expect(instrument.loop).toBe(0);
+			expect(instrument.name).toBe('Instrument 01');
+			expect(instrument.chipType).toBe('ay');
 		});
 	});
 });

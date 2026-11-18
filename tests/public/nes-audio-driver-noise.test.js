@@ -1,0 +1,149 @@
+import { describe, expect, it } from 'vitest';
+import NesAudioDriver, {
+	resolveNesNoisePeriodFromSemitoneOffset
+} from '../../public/nes/nes-audio-driver.js';
+import NesChipRegisterState from '../../public/nes/nes-chip-register-state.js';
+
+describe('resolveNesNoisePeriodFromSemitoneOffset', () => {
+	it('maps C-1 to period 15 and each semitone decrements by 1 through 0', () => {
+		expect(resolveNesNoisePeriodFromSemitoneOffset(0)).toBe(15);
+		expect(resolveNesNoisePeriodFromSemitoneOffset(1)).toBe(14);
+		expect(resolveNesNoisePeriodFromSemitoneOffset(14)).toBe(1);
+		expect(resolveNesNoisePeriodFromSemitoneOffset(15)).toBe(0);
+	});
+
+	it('loops back to 15 after period 0', () => {
+		expect(resolveNesNoisePeriodFromSemitoneOffset(16)).toBe(15);
+		expect(resolveNesNoisePeriodFromSemitoneOffset(17)).toBe(14);
+		expect(resolveNesNoisePeriodFromSemitoneOffset(32)).toBe(15);
+	});
+
+	it('wraps negative offsets', () => {
+		expect(resolveNesNoisePeriodFromSemitoneOffset(-1)).toBe(0);
+		expect(resolveNesNoisePeriodFromSemitoneOffset(-16)).toBe(15);
+	});
+});
+
+describe('NesAudioDriver noise period', () => {
+	it('derives noise period from channel note index', () => {
+		const driver = new NesAudioDriver();
+		const state = {
+			channelCurrentNotes: [0, 0, 0, 5, 0],
+			channelToneSliding: [0, 0, 0, 0, 0],
+			channelVibratoSliding: [0, 0, 0, 0, 0],
+			channelDetune: [0, 0, 0, 0, 0]
+		};
+
+		expect(driver.resolveNoisePeriod(state, 3)).toBe(10);
+	});
+
+	it('writes mapped noise period to register state', () => {
+		const driver = new NesAudioDriver();
+		const registerState = new NesChipRegisterState();
+		const state = {
+			channelMuted: [false, false, false, false, false],
+			channelSoundEnabled: [false, false, false, true, false],
+			channelInstruments: [-1, -1, -1, 0, -1],
+			instruments: [
+				{
+					rows: [
+						{
+							pulseWidth: 2,
+							retrigger: false,
+							soundLength: 0,
+							envelope: false,
+							volumeOrRate: 15,
+							toneAdd: 0,
+							toneAccumulation: false,
+							sweep: false,
+							sweepRate: 0,
+							sweepShift: 0
+						}
+					],
+					loop: 0
+				}
+			],
+			instrumentPositions: [0, 0, 0, 0, 0],
+			channelPatternVolumes: [15, 15, 15, 15, 15],
+			channelCurrentNotes: [0, 0, 0, 0, 0],
+			currentTuningTable: Array.from({ length: 96 }, (_, i) => 400 + i),
+			channelToneSliding: [0, 0, 0, 0, 0],
+			channelVibratoSliding: [0, 0, 0, 0, 0],
+			channelDetune: [0, 0, 0, 0, 0],
+			channelKeyOn: [false, false, false, false, false],
+			channelToneAccumulator: [0, 0, 0, 0, 0],
+			channelOnOffCounter: [0, 0, 0, 0, 0],
+			channelOnDuration: [0, 0, 0, 0, 0],
+			channelOffDuration: [0, 0, 0, 0, 0]
+		};
+
+		driver.processInstruments(state, registerState);
+
+		expect(registerState.channels[3].noisePeriod).toBe(15);
+		expect(registerState.channels[3].noiseMode).toBe(false);
+	});
+
+	it('uses duty bit 0 as the noise mode', () => {
+		const driver = new NesAudioDriver();
+		const registerState = new NesChipRegisterState();
+		const state = noiseState({ pulseWidth: 1 });
+
+		driver.processInstruments(state, registerState);
+
+		expect(registerState.channels[3].noiseMode).toBe(true);
+	});
+
+	it('steps the noise period with the pitch sequence', () => {
+		const driver = new NesAudioDriver();
+		const registerState = new NesChipRegisterState();
+		const state = noiseState({ toneAdd: 1, toneAccumulation: true });
+
+		driver.processInstruments(state, registerState);
+		expect(registerState.channels[3].noisePeriod).toBe(14);
+
+		driver.processInstruments(state, registerState);
+		expect(registerState.channels[3].noisePeriod).toBe(13);
+	});
+
+	it('scales noise volume as instrument times column over 15', () => {
+		const driver = new NesAudioDriver();
+		const registerState = new NesChipRegisterState();
+		const state = noiseState({ volumeOrRate: 8 });
+		state.channelPatternVolumes[3] = 7;
+
+		driver.processInstruments(state, registerState);
+
+		expect(registerState.channels[3].volume).toBe(3);
+	});
+});
+
+function noiseState(rowOverrides) {
+	return {
+		channelMuted: [false, false, false, false, false],
+		channelSoundEnabled: [false, false, false, true, false],
+		channelInstruments: [-1, -1, -1, 0, -1],
+		instruments: [
+			{
+				macros: {
+					pulseWidth: { values: [rowOverrides.pulseWidth ?? 2], loop: 0 },
+					volumeOrRate: { values: [rowOverrides.volumeOrRate ?? 15], loop: 0 },
+					toneAdd: { values: [rowOverrides.toneAdd ?? 0], loop: 0 },
+					toneAccumulation: { values: [rowOverrides.toneAccumulation ?? false], loop: 0 },
+					envelope: { values: [false], loop: 0 }
+				}
+			}
+		],
+		instrumentPositions: [0, 0, 0, 0, 0],
+		channelPatternVolumes: [15, 15, 15, 15, 15],
+		channelCurrentNotes: [0, 0, 0, 0, 0],
+		currentTuningTable: Array.from({ length: 96 }, (_, i) => 400 + i),
+		channelToneSliding: [0, 0, 0, 0, 0],
+		channelVibratoSliding: [0, 0, 0, 0, 0],
+		channelDetune: [0, 0, 0, 0, 0],
+		channelKeyOn: [false, false, false, false, false],
+		channelToneAccumulator: [0, 0, 0, 0, 0],
+		channelOnOffCounter: [0, 0, 0, 0, 0],
+		channelOnDuration: [0, 0, 0, 0, 0],
+		channelOffDuration: [0, 0, 0, 0, 0]
+	};
+}

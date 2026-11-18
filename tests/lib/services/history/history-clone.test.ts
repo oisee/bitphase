@@ -1,0 +1,53 @@
+import { describe, expect, it } from 'vitest';
+import { Instrument } from '@/lib/models/song';
+import { HistoryClone } from '@/lib/services/history/history-clone';
+
+describe('HistoryClone.instrument', () => {
+	it('copies sample data for AY instruments', () => {
+		const source = Object.assign(new Instrument('01', 'Hit', 'ay'), {
+			sampleData: [9, 8, 7],
+			sampleRate: 11025,
+			sampleStart: 0,
+			sampleEnd: 2,
+			sampleLoopStart: 1,
+			sampleLoopEnabled: true
+		});
+		const cloned = HistoryClone.instrument(source) as Instrument & {
+			sampleData?: number[];
+			sampleRate?: number;
+			sampleLoopStart?: number;
+		};
+
+		expect(cloned).toBeInstanceOf(Instrument);
+		expect(cloned.sampleData).toEqual([9, 8, 7]);
+		expect(cloned.sampleData).not.toBe(source.sampleData);
+		expect(cloned.sampleRate).toBe(11025);
+		expect(cloned.sampleLoopStart).toBe(1);
+
+		cloned.sampleData![0] = 0;
+		expect(source.sampleData[0]).toBe(9);
+	});
+
+	it('copies instrument color', () => {
+		const source = Object.assign(new Instrument('01', 'Lead', 'ay'), { color: '#ff00aa' });
+		const cloned = HistoryClone.instrument(source);
+
+		expect(cloned.color).toBe('#ff00aa');
+		cloned.color = '#000000';
+		expect(source.color).toBe('#ff00aa');
+	});
+
+	it('copies DPCM samples for NES instruments', () => {
+		const source = Object.assign(new Instrument('02', 'Kick', 'nes'), {
+			dpcmSamples: [{ name: 'kick', data: [1, 2] }],
+			dpcmAssignments: [{ sampleIndex: 0, pitch: 15, loop: false, delta: 0 }]
+		});
+		const cloned = HistoryClone.instrument(source) as Instrument & {
+			dpcmSamples?: { data: number[] }[];
+		};
+
+		expect(cloned.chipType).toBe('nes');
+		expect(cloned.dpcmSamples?.[0].data).toEqual([1, 2]);
+		expect(cloned.dpcmSamples?.[0].data).not.toBe(source.dpcmSamples[0].data);
+	});
+});

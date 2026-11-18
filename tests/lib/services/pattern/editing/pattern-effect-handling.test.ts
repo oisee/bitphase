@@ -21,13 +21,13 @@ describe('PatternEffectHandling', () => {
 			expect(result).toBe('EA11');
 		});
 
-		it('formats auto-envelope effect with zero delay as E.32', () => {
+		it('formats auto-envelope effect with zero delay as E032', () => {
 			const result = PatternEffectHandling.formatEffectAsString({
 				effect: 'E'.charCodeAt(0),
 				delay: 0,
 				parameter: 0x32
 			});
-			expect(result).toBe('E.32');
+			expect(result).toBe('E032');
 		});
 	});
 
@@ -66,7 +66,7 @@ describe('PatternEffectHandling', () => {
 			expect(parsed.parameter).toBe(original.parameter);
 		});
 
-		it('effect 4 (sample position) formats as parameter even with tableIndex, ignores table syntax', () => {
+		it('effect 4 (instrument position) formats as parameter even with tableIndex, ignores table syntax', () => {
 			const result = PatternEffectHandling.formatEffectAsString({
 				effect: 4,
 				delay: 0,
@@ -76,7 +76,7 @@ describe('PatternEffectHandling', () => {
 			expect(result).toBe('4.0A');
 		});
 
-		it('effect 5 (ornament position) parses 5050 as parameter not table', () => {
+		it('effect 5 (table position) parses 5050 as parameter not table', () => {
 			const result = PatternEffectHandling.parseEffectFromString('5050');
 			expect(result.effect).toBe(5);
 			expect(result.parameter).toBe(0x50);
@@ -102,6 +102,24 @@ describe('PatternEffectHandling', () => {
 			expect(formatted).toBe('S.T1');
 		});
 
+		it('Volume slide 8203 keeps the delay nibble', () => {
+			const parsed = PatternEffectHandling.parseEffectFromString('8203');
+			expect(parsed).not.toBeNull();
+			expect(parsed!.effect).toBe(8);
+			expect(parsed!.delay).toBe(2);
+			expect(parsed!.parameter).toBe(0x03);
+			expect(PatternEffectHandling.formatEffectAsString(parsed!)).toBe('8203');
+		});
+
+		it('Volume slide with table 82T1 parses table 0', () => {
+			const parsed = PatternEffectHandling.parseEffectFromString('82T1');
+			expect(parsed).not.toBeNull();
+			expect(parsed!.effect).toBe(8);
+			expect(parsed!.delay).toBe(2);
+			expect(parsed!.tableIndex).toBe(0);
+			expect(PatternEffectHandling.formatEffectAsString(parsed!)).toBe('82T1');
+		});
+
 		it('Detune with table D.TG parses table 16 (G)', () => {
 			const parsed = PatternEffectHandling.parseEffectFromString('D.TG');
 			expect(parsed).not.toBeNull();
@@ -109,6 +127,160 @@ describe('PatternEffectHandling', () => {
 			expect(parsed!.tableIndex).toBe(15);
 			const formatted = PatternEffectHandling.formatEffectAsString(parsed!);
 			expect(formatted).toBe('D.TG');
+		});
+
+		it('Speed with table S.TW parses table W', () => {
+			const parsed = PatternEffectHandling.parseEffectFromString('S.TW');
+			expect(parsed).not.toBeNull();
+			expect(parsed!.effect).toBe('S'.charCodeAt(0));
+			expect(parsed!.tableIndex).toBe(31);
+			expect(PatternEffectHandling.formatEffectAsString(parsed!)).toBe('S.TW');
+		});
+
+		it('Speed with table S.TZ parses table Z', () => {
+			const parsed = PatternEffectHandling.parseEffectFromString('S.TZ');
+			expect(parsed).not.toBeNull();
+			expect(parsed!.effect).toBe('S'.charCodeAt(0));
+			expect(parsed!.tableIndex).toBe(34);
+			expect(PatternEffectHandling.formatEffectAsString(parsed!)).toBe('S.TZ');
+		});
+
+		it('effect 7 (note delay) ignores delay digit and formats with dot delay', () => {
+			const parsed = PatternEffectHandling.parseEffectFromString('7104');
+			expect(parsed).not.toBeNull();
+			expect(parsed!.effect).toBe(7);
+			expect(parsed!.delay).toBe(0);
+			expect(parsed!.parameter).toBe(0x04);
+			expect(PatternEffectHandling.formatEffectAsString(parsed!)).toBe('7.04');
+		});
+
+		it('effect 6 (on/off) ignores delay digit and formats with dot delay', () => {
+			const parsed = PatternEffectHandling.parseEffectFromString('6124');
+			expect(parsed).not.toBeNull();
+			expect(parsed!.effect).toBe(6);
+			expect(parsed!.delay).toBe(0);
+			expect(parsed!.parameter).toBe(0x24);
+			expect(PatternEffectHandling.formatEffectAsString(parsed!)).toBe('6.24');
+		});
+
+		it('effect 6 with table parses 6.T3', () => {
+			const parsed = PatternEffectHandling.parseEffectFromString('6.T3');
+			expect(parsed).not.toBeNull();
+			expect(parsed!.effect).toBe(6);
+			expect(parsed!.delay).toBe(0);
+			expect(parsed!.tableIndex).toBe(2);
+			expect(PatternEffectHandling.formatEffectAsString(parsed!)).toBe('6.T3');
+		});
+
+		it('Song end Q... ignores the parameter', () => {
+			const parsed = PatternEffectHandling.parseEffectFromString('Q12F');
+			expect(parsed).not.toBeNull();
+			expect(parsed!.effect).toBe('Q'.charCodeAt(0));
+			expect(parsed!.delay).toBe(0);
+			expect(parsed!.parameter).toBe(0);
+			expect(PatternEffectHandling.formatEffectAsString(parsed!)).toBe('Q...');
+			expect(PatternEffectHandling.parseEffectFromString('q...')!.effect).toBe(
+				'Q'.charCodeAt(0)
+			);
+		});
+
+		it('Speed formats unused delay as dot', () => {
+			expect(
+				PatternEffectHandling.formatEffectAsString({
+					effect: 'S'.charCodeAt(0),
+					delay: 0,
+					parameter: 0x01
+				})
+			).toBe('S.01');
+		});
+
+		it('E1XY pulse width effect parses and formats', () => {
+			const parsed = PatternEffectHandling.parseEffectFromString('E102');
+			expect(parsed).not.toBeNull();
+			expect(parsed!.effect).toBe('E'.charCodeAt(0));
+			expect(parsed!.delay).toBe(1);
+			expect(parsed!.parameter).toBe(0x02);
+			expect(PatternEffectHandling.formatEffectAsString(parsed!)).toBe('E102');
+		});
+
+		it('E100 formats zero parameter as 00', () => {
+			const effect = {
+				effect: 'E'.charCodeAt(0),
+				delay: 1,
+				parameter: 0
+			};
+			expect(PatternEffectHandling.formatEffectAsString(effect)).toBe('E100');
+			expect(PatternEffectHandling.formatEffectAsString(
+				PatternEffectHandling.parseEffectFromString('E100')!
+			)).toBe('E100');
+		});
+
+		it('E1TX pulse width table effect parses and formats', () => {
+			const parsed = PatternEffectHandling.parseEffectFromString('E1T1');
+			expect(parsed).not.toBeNull();
+			expect(parsed!.effect).toBe('E'.charCodeAt(0));
+			expect(parsed!.delay).toBe(1);
+			expect(parsed!.parameter).toBe(0);
+			expect(parsed!.tableIndex).toBe(0);
+			expect(PatternEffectHandling.formatEffectAsString(parsed!)).toBe('E1T1');
+		});
+
+		it('E2XY and E3XY sweep effects parse and format', () => {
+			const up = PatternEffectHandling.parseEffectFromString('E247');
+			expect(up).not.toBeNull();
+			expect(up!.delay).toBe(2);
+			expect(up!.parameter).toBe(0x47);
+			expect(PatternEffectHandling.formatEffectAsString(up!)).toBe('E247');
+
+			const down = PatternEffectHandling.parseEffectFromString('E317');
+			expect(down).not.toBeNull();
+			expect(down!.delay).toBe(3);
+			expect(down!.parameter).toBe(0x17);
+			expect(PatternEffectHandling.formatEffectAsString(down!)).toBe('E317');
+		});
+
+		it('E4TX and E5TX timer pwm table effects parse and format', () => {
+			const shape = PatternEffectHandling.parseEffectFromString('E4T1');
+			expect(shape).not.toBeNull();
+			expect(shape!.delay).toBe(4);
+			expect(shape!.tableIndex).toBe(0);
+			expect(PatternEffectHandling.formatEffectAsString(shape!)).toBe('E4T1');
+
+			const start = PatternEffectHandling.parseEffectFromString('E5T2');
+			expect(start).not.toBeNull();
+			expect(start!.delay).toBe(5);
+			expect(start!.tableIndex).toBe(1);
+			expect(PatternEffectHandling.formatEffectAsString(start!)).toBe('E5T2');
+		});
+
+		it('E4XY delta counter parses and formats as an E subcommand', () => {
+			const parsed = PatternEffectHandling.parseEffectFromString('E47F');
+			expect(parsed).toMatchObject({ effect: 'E'.charCodeAt(0), delay: 4, parameter: 0x7f });
+			expect(PatternEffectHandling.formatEffectAsString(parsed!)).toBe('E47F');
+		});
+
+		it('E5XY length counter parses and formats as an E subcommand', () => {
+			const parsed = PatternEffectHandling.parseEffectFromString('E51F');
+			expect(parsed).toMatchObject({ effect: 'E'.charCodeAt(0), delay: 5, parameter: 0x1f });
+			expect(PatternEffectHandling.formatEffectAsString(parsed!)).toBe('E51F');
+		});
+
+		it('E6XY envelope mode parses and formats as an E subcommand', () => {
+			const parsed = PatternEffectHandling.parseEffectFromString('E602');
+			expect(parsed).toMatchObject({ effect: 'E'.charCodeAt(0), delay: 6, parameter: 0x02 });
+			expect(PatternEffectHandling.formatEffectAsString(parsed!)).toBe('E602');
+		});
+
+		it('E7XY DPCM frequency parses and formats as an E subcommand', () => {
+			const parsed = PatternEffectHandling.parseEffectFromString('E70A');
+			expect(parsed).toMatchObject({ effect: 'E'.charCodeAt(0), delay: 7, parameter: 0x0a });
+			expect(PatternEffectHandling.formatEffectAsString(parsed!)).toBe('E70A');
+		});
+
+		it('E8XY linear counter parses and formats as an E subcommand', () => {
+			const parsed = PatternEffectHandling.parseEffectFromString('E8FF');
+			expect(parsed).toMatchObject({ effect: 'E'.charCodeAt(0), delay: 8, parameter: 0xff });
+			expect(PatternEffectHandling.formatEffectAsString(parsed!)).toBe('E8FF');
 		});
 	});
 });

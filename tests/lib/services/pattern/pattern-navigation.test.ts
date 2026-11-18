@@ -24,7 +24,7 @@ describe('PatternNavigationService', () => {
 		type: 'ay',
 		name: 'AY-8910',
 		wasmUrl: '',
-		processorName: '',
+		audioSlotKind: 'ayumi',
 		processorMap: () => ({}) as any,
 		schema: {
 			chipType: 'ay',
@@ -175,6 +175,77 @@ describe('PatternNavigationService', () => {
 			expect(result.currentPatternOrderIndex).toBe(0);
 		});
 
+		it('should move to the first row when a large step would pass the start', () => {
+			const patterns = [new Pattern(DEFAULT_PATTERN_ID, DEFAULT_PATTERN_LENGTH)];
+			const patternOrder = [DEFAULT_PATTERN_ID];
+			const context = createMockContext(patterns, patternOrder);
+			const state: NavigationState = {
+				selectedRow: 10,
+				currentPatternOrderIndex: 0,
+				selectedColumn: 2
+			};
+
+			const result = PatternNavigationService.moveRow(state, context, -16);
+
+			expect(result.selectedRow).toBe(0);
+			expect(result.currentPatternOrderIndex).toBe(0);
+			expect(result.selectedColumn).toBe(2);
+		});
+
+		it('should move to the last row when a large step would pass the end', () => {
+			const patterns = [new Pattern(DEFAULT_PATTERN_ID, DEFAULT_PATTERN_LENGTH)];
+			const patternOrder = [DEFAULT_PATTERN_ID];
+			const context = createMockContext(patterns, patternOrder);
+			const state: NavigationState = {
+				selectedRow: 60,
+				currentPatternOrderIndex: 0,
+				selectedColumn: 0
+			};
+
+			const result = PatternNavigationService.moveRow(state, context, 16);
+
+			expect(result.selectedRow).toBe(DEFAULT_PATTERN_LENGTH - 1);
+			expect(result.currentPatternOrderIndex).toBe(0);
+		});
+
+		it('should continue a large step across pattern order until the song start', () => {
+			const patterns = [
+				new Pattern(DEFAULT_PATTERN_ID, SHORT_PATTERN_LENGTH),
+				new Pattern(SECOND_PATTERN_ID, DEFAULT_PATTERN_LENGTH)
+			];
+			const patternOrder = [DEFAULT_PATTERN_ID, SECOND_PATTERN_ID];
+			const context = createMockContext(patterns, patternOrder);
+			const state: NavigationState = {
+				selectedRow: 4,
+				currentPatternOrderIndex: 1,
+				selectedColumn: 0
+			};
+
+			const result = PatternNavigationService.moveRow(state, context, -40);
+
+			expect(result.currentPatternOrderIndex).toBe(0);
+			expect(result.selectedRow).toBe(0);
+		});
+
+		it('should carry the leftover rows into the next pattern', () => {
+			const patterns = [
+				new Pattern(DEFAULT_PATTERN_ID, SHORT_PATTERN_LENGTH),
+				new Pattern(SECOND_PATTERN_ID, DEFAULT_PATTERN_LENGTH)
+			];
+			const patternOrder = [DEFAULT_PATTERN_ID, SECOND_PATTERN_ID];
+			const context = createMockContext(patterns, patternOrder);
+			const state: NavigationState = {
+				selectedRow: SHORT_PATTERN_LENGTH - 4,
+				currentPatternOrderIndex: 0,
+				selectedColumn: 0
+			};
+
+			const result = PatternNavigationService.moveRow(state, context, 16);
+
+			expect(result.currentPatternOrderIndex).toBe(1);
+			expect(result.selectedRow).toBe(12);
+		});
+
 		it('should not move beyond last pattern boundary', () => {
 			const patterns = [new Pattern(DEFAULT_PATTERN_ID, DEFAULT_PATTERN_LENGTH)];
 			const patternOrder = [DEFAULT_PATTERN_ID];
@@ -221,6 +292,47 @@ describe('PatternNavigationService', () => {
 			const result = PatternNavigationService.moveColumn(state, context);
 
 			expect(result.selectedColumn).toBe(1);
+		});
+	});
+
+	describe('columnOverflow', () => {
+		it('reports the next editor when moving past the last column', () => {
+			const patterns = [new Pattern(DEFAULT_PATTERN_ID, DEFAULT_PATTERN_LENGTH)];
+			const patternOrder = [DEFAULT_PATTERN_ID];
+			const context = createMockContext(patterns, patternOrder);
+			const state: NavigationState = {
+				selectedRow: 0,
+				currentPatternOrderIndex: 0,
+				selectedColumn: 2
+			};
+
+			expect(PatternNavigationService.columnOverflow(state, context, 1)).toBe('next');
+		});
+
+		it('reports the previous editor when moving before the first column', () => {
+			const patterns = [new Pattern(DEFAULT_PATTERN_ID, DEFAULT_PATTERN_LENGTH)];
+			const patternOrder = [DEFAULT_PATTERN_ID];
+			const context = createMockContext(patterns, patternOrder);
+			const state: NavigationState = {
+				selectedRow: 0,
+				currentPatternOrderIndex: 0,
+				selectedColumn: 0
+			};
+
+			expect(PatternNavigationService.columnOverflow(state, context, -1)).toBe('previous');
+		});
+
+		it('reports no overflow while the column stays in the row', () => {
+			const patterns = [new Pattern(DEFAULT_PATTERN_ID, DEFAULT_PATTERN_LENGTH)];
+			const patternOrder = [DEFAULT_PATTERN_ID];
+			const context = createMockContext(patterns, patternOrder);
+			const state: NavigationState = {
+				selectedRow: 0,
+				currentPatternOrderIndex: 0,
+				selectedColumn: 1
+			};
+
+			expect(PatternNavigationService.columnOverflow(state, context, 1)).toBeNull();
 		});
 	});
 
@@ -283,6 +395,28 @@ describe('PatternNavigationService', () => {
 			const result = PatternNavigationService.moveColumnByDelta(state, context, 5);
 
 			expect(result.selectedColumn).toBe(2);
+		});
+	});
+
+	describe('moveToNextChannel', () => {
+		it('wraps when the editor has a single channel slot', () => {
+			const schema = {
+				...createMockChip().schema,
+				channelLabels: ['A']
+			};
+			const pattern = new Pattern(DEFAULT_PATTERN_ID, DEFAULT_PATTERN_LENGTH, schema);
+			const context = createMockContext([pattern], [DEFAULT_PATTERN_ID]);
+			context.schema = schema;
+			const state: NavigationState = {
+				selectedRow: 0,
+				currentPatternOrderIndex: 0,
+				selectedColumn: 0
+			};
+
+			const result = PatternNavigationService.moveToNextChannel(state, context);
+
+			expect(result.wrapped).toBe(true);
+			expect(result.selectedColumn).toBe(0);
 		});
 	});
 

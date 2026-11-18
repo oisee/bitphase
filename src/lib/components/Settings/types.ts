@@ -2,15 +2,25 @@ export interface Settings {
 	volume: number;
 	envelopeAsNote: boolean;
 	autoEnterInstrument: boolean;
+	midiInputDeviceId: string;
 	patternEditorFontSize: number;
+	patternEditorPageStep: number;
+	patternEditorScrollRows: number;
 	patternEditorFontFamily: string;
 	uiFontFamily: string;
 	channelSeparatorWidth: number;
 	decimalRowNumbers: boolean;
+	hexNumerals: boolean;
 	showOscilloscopes: boolean;
+	showChannelVolumeBars: boolean;
 	showInstrumentPreview: boolean;
+	previewFullRow: boolean;
 	debugMode: boolean;
+	experimentalFeatures: boolean;
 	selectionStyle: 'inverted' | 'filled';
+	emptyNoteAlignment: 'center' | 'baseline';
+	classicInstrumentEditor: boolean;
+	pianoRollGhostNotes: boolean;
 }
 
 export interface SettingsItem {

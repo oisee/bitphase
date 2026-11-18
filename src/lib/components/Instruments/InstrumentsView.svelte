@@ -1,27 +1,30 @@
 <script lang="ts">
 	import type { Instrument } from '../../models/song';
 	import { Instrument as InstrumentModel } from '../../models/song';
-	import { InstrumentRow } from '../../models/song';
 	import IconCarbonWaveform from '~icons/carbon/waveform';
 	import IconCarbonHexagonSolid from '~icons/carbon/hexagon-solid';
 	import IconCarbonHexagonOutline from '~icons/carbon/hexagon-outline';
 	import IconCarbonAdd from '~icons/carbon/add';
-	import IconCarbonCopy from '~icons/carbon/copy';
-	import IconCarbonTrashCan from '~icons/carbon/trash-can';
 	import IconCarbonMaximize from '~icons/carbon/maximize';
 	import IconCarbonMinimize from '~icons/carbon/minimize';
 	import IconCarbonSave from '~icons/carbon/save';
 	import IconCarbonDocumentImport from '~icons/carbon/document-import';
 	import IconCarbonFolder from '~icons/carbon/folder';
-	import IconCarbonArrowsVertical from '~icons/carbon/arrows-vertical';
 	import Card from '../Card/Card.svelte';
+	import { ToolbarButton } from '../ToolbarButton';
+	import { ItemGridCell } from '../ItemGridCell';
+	import { ListResizeDivider } from '../ListResizeDivider';
 	import PresetsModal from '../Modal/PresetsModal.svelte';
 	import { open } from '../../services/modal/modal-service';
 	import { downloadJson, pickFileAsText } from '../../utils/file-download';
 	import EditableIdField from '../EditableIdField/EditableIdField.svelte';
 	import { getContext, tick, untrack } from 'svelte';
 	import type { AudioService } from '../../services/audio/audio-service';
-	import type { Chip } from '../../chips/types';
+	import type { ChipProcessor } from '../../chips/base/processor';
+	import { getChipByType } from '../../chips/registry';
+	import { instrumentHasSample } from '../../chips/ay/sample-region';
+	import { instrumentHasDpcm } from '../../chips/nes/dpcm';
+	import PillTabs, { type PillTab } from '../PillTabs/PillTabs.svelte';
 	import {
 		isValidInstrumentId,
 		normalizeInstrumentId,
@@ -30,9 +33,23 @@
 		MAX_INSTRUMENT_ID_NUM
 	} from '../../utils/instrument-id';
 	import { migrateInstrumentIdInSong } from '../../services/project/id-migration';
+	import {
+		filterInstrumentsForChip,
+		getOrderedProjectChipTypes,
+		resolveInstrumentChipType,
+		shouldSyncSelectedChipToActiveEditor
+	} from '../../services/instrument/instrument-filter';
+	import {
+		applyInstrumentPreset,
+		parseInstrumentPreset,
+		serializeInstrumentPreset,
+		type InstrumentPresetPayload
+	} from '../../services/instrument/instrument-preset';
 	import { editorStateStore } from '../../stores/editor-state.svelte';
 	import { projectStore } from '../../stores/project.svelte';
+	import { settingsStore } from '../../stores/settings.svelte';
 	import { computeGridRows } from '../../utils/compute-grid-rows';
+	import { createPersistedResizableListHeight } from '../../utils/persisted-resizable-list-height.svelte';
 	import {
 		ITEM_ROW_HEIGHT,
 		ITEM_BUTTON_BAR_HEIGHT,
@@ -46,98 +63,114 @@
 
 	let {
 		isExpanded = $bindable(false),
-		chip
+		chipProcessors,
+		syncChipType,
+		activeEditorIndex = 0,
+		selectedChipType = $bindable('')
 	}: {
 		isExpanded: boolean;
-		chip: Chip;
+		chipProcessors: ChipProcessor[];
+		syncChipType?: string;
+		activeEditorIndex?: number;
+		selectedChipType?: string;
 	} = $props();
 
-	let instruments = $derived(projectStore.instruments);
+	let allInstruments = $derived(projectStore.instruments);
+	const chipTypeTabs = $derived.by((): PillTab[] => {
+		return getOrderedProjectChipTypes(chipProcessors).flatMap((chipType) => {
+			const chip = getChipByType(chipType);
+			return chip ? [{ id: chipType, label: chip.name }] : [];
+		});
+	});
+	let lastSyncedEditorIndex = $state(-1);
+	const chip = $derived.by(() => {
+		const chipType = selectedChipType || chipTypeTabs[0]?.id || syncChipType || 'ay';
+		return getChipByType(chipType);
+	});
+	const chipInstruments = $derived(
+		chip ? filterInstrumentsForChip(allInstruments, chip.type) : []
+	);
 	const songs = $derived(projectStore.songs);
+	const hasSongs = $derived(songs.length > 0);
+
+	const instrumentListResize = createPersistedResizableListHeight({
+		storageKey: 'instrumentListHeight',
+		min: MIN_ITEM_LIST_HEIGHT,
+		max: MAX_ITEM_LIST_HEIGHT,
+		defaultHeight: DEFAULT_ITEM_LIST_HEIGHT
+	});
 
 	const instrumentGridRows = $derived.by(() =>
 		computeGridRows(
-			instruments?.length ?? 0,
-			instrumentListHeight,
+			chipInstruments?.length ?? 0,
+			instrumentListResize.listHeight,
 			ITEM_ROW_HEIGHT,
 			ITEM_BUTTON_BAR_HEIGHT
 		)
 	);
 
-	let asHex = $state(localStorage.getItem('instrumentHexMode') === 'true');
 	let selectedInstrumentIndex = $state(0);
-	let instrumentEditorRef: any = $state(null);
 	let instrumentListScrollRef: HTMLDivElement | null = $state(null);
-	let instrumentsContainerRef: HTMLDivElement | null = $state(null);
-
-	const INSTRUMENT_LIST_HEIGHT_KEY = 'instrumentListHeight';
-
-	let instrumentListHeight = $state(
-		Math.min(
-			MAX_ITEM_LIST_HEIGHT,
-			Math.max(
-				MIN_ITEM_LIST_HEIGHT,
-				parseInt(localStorage.getItem(INSTRUMENT_LIST_HEIGHT_KEY) ?? '', 10) ||
-					DEFAULT_ITEM_LIST_HEIGHT
-			)
-		)
-	);
-
-	let isResizingInstrumentList = $state(false);
-	let resizeStartY = $state(0);
-	let resizeStartHeight = $state(0);
-
-	function beginInstrumentListResize(e: MouseEvent) {
-		e.preventDefault();
-		isResizingInstrumentList = true;
-		resizeStartY = e.clientY;
-		resizeStartHeight = instrumentListHeight;
-	}
-
-	function handleInstrumentListResizeMove(e: MouseEvent) {
-		if (!isResizingInstrumentList) return;
-		const deltaY = e.clientY - resizeStartY;
-		const newHeight = Math.max(
-			MIN_ITEM_LIST_HEIGHT,
-			Math.min(MAX_ITEM_LIST_HEIGHT, resizeStartHeight + deltaY)
-		);
-		instrumentListHeight = newHeight;
-		localStorage.setItem(INSTRUMENT_LIST_HEIGHT_KEY, String(newHeight));
-	}
-
-	function endInstrumentListResize() {
-		isResizingInstrumentList = false;
-	}
 
 	$effect(() => {
-		if (!isResizingInstrumentList) return;
-		document.body.style.cursor = 'ns-resize';
-		document.body.style.userSelect = 'none';
-		window.addEventListener('mousemove', handleInstrumentListResizeMove);
-		window.addEventListener('mouseup', endInstrumentListResize);
-		return () => {
-			document.body.style.cursor = '';
-			document.body.style.userSelect = '';
-			window.removeEventListener('mousemove', handleInstrumentListResizeMove);
-			window.removeEventListener('mouseup', endInstrumentListResize);
-		};
+		if (chipTypeTabs.length === 0) return;
+		if (!selectedChipType || !chipTypeTabs.some((tab) => tab.id === selectedChipType)) {
+			selectedChipType = syncChipType ?? chipTypeTabs[0].id;
+		}
 	});
 
 	$effect(() => {
+		const editorIndex = activeEditorIndex;
+		if (!shouldSyncSelectedChipToActiveEditor(lastSyncedEditorIndex, editorIndex)) {
+			lastSyncedEditorIndex = editorIndex;
+			return;
+		}
+		lastSyncedEditorIndex = editorIndex;
+		if (syncChipType) {
+			selectedChipType = syncChipType;
+		}
+	});
+
+	$effect(() => {
+		const request = editorStateStore.selectInstrumentRequest;
+		if (!request) return;
+		if (request.chipType) {
+			selectedChipType = request.chipType;
+			return;
+		}
+		const instrument = allInstruments.find((inst) => inst.id === request.instrumentId);
+		if (instrument) {
+			selectedChipType = resolveInstrumentChipType(instrument);
+		}
+	});
+
+	$effect(() => {
+		chip?.type;
 		if (editorStateStore.selectInstrumentRequest) return;
-		if (instruments.length > 0 && instruments[selectedInstrumentIndex]) {
-			const instrumentId = instruments[selectedInstrumentIndex].id;
+		if (chipInstruments.length > 0 && chipInstruments[selectedInstrumentIndex]) {
+			const instrumentId = chipInstruments[selectedInstrumentIndex].id;
 			untrack(() => {
-				editorStateStore.setCurrentInstrument(instrumentId);
+				editorStateStore.setCurrentInstrumentForChip(
+					chipInstruments[selectedInstrumentIndex].chipType,
+					instrumentId
+				);
 			});
 		}
 	});
 
 	$effect(() => {
-		const targetId = editorStateStore.currentInstrument;
-		const idx = instruments.findIndex((inst) => inst.id === targetId);
+		const targetId = chip ? editorStateStore.getCurrentInstrument(chip.type) : null;
+		const idx = chipInstruments.findIndex((inst) => inst.id === targetId);
 		if (idx >= 0 && idx !== selectedInstrumentIndex) {
 			selectedInstrumentIndex = idx;
+		} else if (idx < 0 && chipInstruments.length > 0) {
+			selectedInstrumentIndex = 0;
+			untrack(() => {
+				editorStateStore.setCurrentInstrumentForChip(
+					chipInstruments[0].chipType,
+					chipInstruments[0].id
+				);
+			});
 		}
 		if (editorStateStore.selectInstrumentRequest) {
 			editorStateStore.clearSelectInstrumentRequest();
@@ -155,7 +188,8 @@
 		});
 	});
 
-	const InstrumentEditor = $derived(chip.instrumentEditor);
+	const InstrumentEditor = $derived(chip?.instrumentEditor);
+	const asHex = $derived(settingsStore.hexNumerals);
 
 	const hexIcon = $derived(asHex ? IconCarbonHexagonSolid : IconCarbonHexagonOutline);
 	const expandIcon = $derived(isExpanded ? IconCarbonMinimize : IconCarbonMaximize);
@@ -164,7 +198,7 @@
 		{
 			label: 'Hex',
 			icon: hexIcon,
-			onClick: () => { asHex = !asHex; localStorage.setItem('instrumentHexMode', String(asHex)); },
+			onClick: () => settingsStore.set('hexNumerals', !asHex),
 			class: asHex ? 'text-[var(--color-app-primary)]' : ''
 		},
 		{
@@ -180,50 +214,108 @@
 	}
 
 	function sortInstrumentsAndSyncSelection(selectedId?: string): void {
-		const sorted = [...instruments].sort(compareInstrumentIds);
-		const needsSort = sorted.some((inst, i) => inst !== instruments[i]);
-		if (!needsSort) return;
-		projectStore.instruments = sorted;
-		if (selectedId !== undefined) {
-			const newIndex = sorted.findIndex((inst) => inst.id === selectedId);
+		const sorted = [...allInstruments].sort(compareInstrumentIds);
+		const needsSort = sorted.some((inst, i) => inst !== allInstruments[i]);
+		if (needsSort) {
+			projectStore.instruments = sorted;
+		}
+		if (selectedId !== undefined && chip) {
+			const filtered = filterInstrumentsForChip(projectStore.instruments, chip.type);
+			const newIndex = filtered.findIndex((inst) => inst.id === selectedId);
 			if (newIndex >= 0) selectedInstrumentIndex = newIndex;
 		}
 	}
 
 	function isInstrumentUsed(instrument: Instrument): boolean {
-		if (instrument.rows.length === 0) return false;
-		if (instrument.rows.length === 1) {
-			const row = instrument.rows[0];
-			const isEmpty =
-				!row.tone &&
-				!row.noise &&
-				!row.envelope &&
-				row.toneAdd === 0 &&
-				row.noiseAdd === 0 &&
-				row.volume === 0;
-			if (isEmpty && instrument.loop === 0) return false;
+		if (instrumentHasSample(instrument as { sampleData?: number[] })) return true;
+		if (instrumentHasDpcm(instrument as { dpcmSamples?: { data?: unknown[] }[] })) return true;
+		const extra = instrument as Instrument & { timerMacros?: typeof instrument.macros };
+		if (extra.timerMacros && Object.values(extra.timerMacros).some((macro) => macro.values.length > 0)) {
+			return true;
 		}
-		return true;
+		if (instrument.macros) {
+			return Object.values(instrument.macros).some((macro) => macro.values.length > 0);
+		}
+		return false;
+	}
+
+	let pendingInstrumentUpdateBefore: Instrument[] | null = null;
+	let pendingInstrumentUpdateLabel = '';
+	let pendingInstrumentUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
+
+	function scheduleInstrumentUpdateHistory(before: Instrument[], label: string): void {
+		pendingInstrumentUpdateBefore ??= before;
+		pendingInstrumentUpdateLabel = label;
+		if (pendingInstrumentUpdateTimeout !== null) {
+			clearTimeout(pendingInstrumentUpdateTimeout);
+		}
+		pendingInstrumentUpdateTimeout = setTimeout(flushInstrumentUpdateHistory, 120);
+	}
+
+	function flushInstrumentUpdateHistory(): void {
+		if (pendingInstrumentUpdateTimeout !== null) {
+			clearTimeout(pendingInstrumentUpdateTimeout);
+			pendingInstrumentUpdateTimeout = null;
+		}
+		if (!pendingInstrumentUpdateBefore) return;
+		projectStore.recordHistory(
+			{
+				type: 'instrument.update',
+				label: pendingInstrumentUpdateLabel,
+				affectedDomains: ['instruments']
+			},
+			[
+				projectStore.createSetDiff(
+					['instruments'],
+					pendingInstrumentUpdateBefore,
+					projectStore.instruments
+				)
+			]
+		);
+		pendingInstrumentUpdateBefore = null;
+		pendingInstrumentUpdateLabel = '';
 	}
 
 	function handleInstrumentChange(instrument: Instrument): void {
+		if (!hasSongs) return;
 		const id = instrument.id;
-		const idx = instruments.findIndex((inst) => inst.id === id);
+		const idx = allInstruments.findIndex((inst) => inst.id === id);
 		if (idx >= 0) {
-			const updated = [...instruments];
+			const beforeInstruments = projectStore.cloneForHistory(projectStore.instruments);
+			const updated = [...allInstruments];
 			updated[idx] = { ...instrument };
 			projectStore.instruments = updated;
+			scheduleInstrumentUpdateHistory(beforeInstruments, `Edit instrument ${id}`);
 		}
 		services.audioService.updateInstruments(projectStore.instruments);
 	}
 
 	async function addInstrument(): Promise<void> {
-		const existingIds = instruments.map((inst) => inst.id);
+		if (!hasSongs) return;
+		flushInstrumentUpdateHistory();
+		const existingIds = allInstruments.map((inst) => inst.id);
 		const newId = getNextAvailableInstrumentId(existingIds);
 		if (!newId) return;
-		const newInstrument = new InstrumentModel(newId, [], 0, `Instrument ${newId}`);
-		projectStore.instruments = [...instruments, newInstrument];
+		if (!chip) return;
+		const newInstrument = new InstrumentModel(newId, `Instrument ${newId}`, chip.type);
+		const beforeInstruments = projectStore.cloneForHistory(projectStore.instruments);
+		projectStore.instruments = [...allInstruments, newInstrument];
 		sortInstrumentsAndSyncSelection(newId);
+		editorStateStore.setCurrentInstrumentForChip(chip.type, newId);
+		projectStore.recordHistory(
+			{
+				type: 'instrument.add',
+				label: `Add instrument ${newId}`,
+				affectedDomains: ['instruments']
+			},
+			[
+				projectStore.createSetDiff(
+					['instruments'],
+					beforeInstruments,
+					projectStore.instruments
+				)
+			]
+		);
 		services.audioService.updateInstruments(projectStore.instruments);
 		await tick();
 		instrumentListScrollRef
@@ -232,32 +324,82 @@
 	}
 
 	function removeInstrument(index: number): void {
-		const toRemove = instruments[index];
-		if (!toRemove || instruments.length <= 1) return;
-		projectStore.instruments = instruments.filter((inst) => inst.id !== toRemove.id);
-		if (selectedInstrumentIndex >= projectStore.instruments.length) {
-			selectedInstrumentIndex = Math.max(0, projectStore.instruments.length - 1);
+		if (!hasSongs) return;
+		flushInstrumentUpdateHistory();
+		const toRemove = chipInstruments[index];
+		if (!toRemove || chipInstruments.length <= 1) return;
+		const beforeInstruments = projectStore.cloneForHistory(projectStore.instruments);
+		projectStore.instruments = allInstruments.filter((inst) => inst.id !== toRemove.id);
+		if (selectedInstrumentIndex >= chipInstruments.length - 1) {
+			selectedInstrumentIndex = Math.max(0, chipInstruments.length - 2);
 		}
+		projectStore.recordHistory(
+			{
+				type: 'instrument.remove',
+				label: `Remove instrument ${toRemove.id}`,
+				affectedDomains: ['instruments']
+			},
+			[
+				projectStore.createSetDiff(
+					['instruments'],
+					beforeInstruments,
+					projectStore.instruments
+				)
+			]
+		);
 		services.audioService.updateInstruments(projectStore.instruments);
 	}
 
 	async function copyInstrument(copiedIndex: number): Promise<void> {
-		const instrument = instruments[copiedIndex];
-		if (!instrument) return;
-		const existingIds = instruments.map((inst) => inst.id);
+		if (!hasSongs) return;
+		flushInstrumentUpdateHistory();
+		const instrument = chipInstruments[copiedIndex];
+		if (!instrument || !chip) return;
+		const existingIds = allInstruments.map((inst) => inst.id);
 		const newId = getNextAvailableInstrumentId(existingIds);
 		if (!newId) return;
-		const copiedRows = instrument.rows.map((r) => new InstrumentRow({ ...r }));
-		const copy = new InstrumentModel(
-			newId,
-			copiedRows,
-			instrument.loop,
-			instrument.name + ' (Copy)'
-		);
+		const copy = new InstrumentModel(newId, instrument.name + ' (Copy)', chip.type);
+		if (instrument.color) {
+			copy.color = instrument.color;
+		}
+		if (instrument.macros) {
+			copy.macros = Object.fromEntries(
+				Object.entries(instrument.macros).map(([id, macro]) => [
+					id,
+					{ values: [...macro.values], loop: macro.loop }
+				])
+			);
+		}
+		const sourceExtended = instrument as Instrument & { timerMacros?: typeof instrument.macros };
+		if (sourceExtended.timerMacros) {
+			(copy as typeof sourceExtended).timerMacros = Object.fromEntries(
+				Object.entries(sourceExtended.timerMacros).map(([id, macro]) => [
+					id,
+					{ values: [...macro.values], loop: macro.loop }
+				])
+			);
+		}
+		chip.copyInstrumentFields?.(instrument, copy);
 
-		projectStore.instruments = [...instruments, copy];
+		const beforeInstruments = projectStore.cloneForHistory(projectStore.instruments);
+		projectStore.instruments = [...allInstruments, copy];
 		sortInstrumentsAndSyncSelection(newId);
-		services.audioService.updateInstruments(instruments);
+		editorStateStore.setCurrentInstrumentForChip(chip.type, newId);
+		projectStore.recordHistory(
+			{
+				type: 'instrument.copy',
+				label: `Copy instrument ${instrument.id}`,
+				affectedDomains: ['instruments']
+			},
+			[
+				projectStore.createSetDiff(
+					['instruments'],
+					beforeInstruments,
+					projectStore.instruments
+				)
+			]
+		);
+		services.audioService.updateInstruments(projectStore.instruments);
 		await tick();
 		instrumentListScrollRef
 			?.querySelector(`[data-instrument-index="${selectedInstrumentIndex}"]`)
@@ -265,23 +407,45 @@
 	}
 
 	function updateInstrumentId(index: number, newId: string): void {
+		flushInstrumentUpdateHistory();
 		const normalizedId = normalizeInstrumentId(newId);
 		if (!isValidInstrumentId(normalizedId) || !isInstrumentIdInRange(normalizedId)) {
 			return;
 		}
-		const oldId = instruments[index].id;
-		const existingIds = instruments.map((inst) => inst.id).filter((id) => id !== oldId);
+		const oldId = chipInstruments[index].id;
+		const existingIds = allInstruments.map((inst) => inst.id).filter((id) => id !== oldId);
 		if (existingIds.includes(normalizedId)) {
 			return;
 		}
+		const beforeInstruments = projectStore.cloneForHistory(projectStore.instruments);
+		const beforeSongs = projectStore.cloneForHistory(projectStore.songs);
+		const beforePatterns = projectStore.cloneForHistory(projectStore.patterns);
 		for (const song of songs) {
 			migrateInstrumentIdInSong(song, oldId, normalizedId);
 		}
-		const updated = [...instruments];
-		updated[index] = { ...updated[index], id: normalizedId };
+		const globalIndex = allInstruments.findIndex((inst) => inst.id === oldId);
+		if (globalIndex < 0) return;
+		const updated = [...allInstruments];
+		updated[globalIndex] = { ...updated[globalIndex], id: normalizedId };
 		projectStore.instruments = updated;
 		sortInstrumentsAndSyncSelection(normalizedId);
-		services.audioService.updateInstruments(instruments);
+		projectStore.recordHistory(
+			{
+				type: 'instrument.changeId',
+				label: `Rename instrument ${oldId} to ${normalizedId}`,
+				affectedDomains: ['instruments', 'patterns']
+			},
+			[
+				projectStore.createSetDiff(
+					['instruments'],
+					beforeInstruments,
+					projectStore.instruments
+				),
+				projectStore.createSetDiff(['songs'], beforeSongs, projectStore.songs),
+				projectStore.createSetDiff(['patterns'], beforePatterns, projectStore.patterns)
+			]
+		);
+		services.audioService.updateInstruments(projectStore.instruments);
 		requestPatternRedraw?.();
 	}
 
@@ -290,7 +454,7 @@
 
 	function startEditingInstrumentId(index: number): void {
 		editingInstrumentId = index;
-		editingInstrumentIdValue = instruments[index]?.id || '';
+		editingInstrumentIdValue = chipInstruments[index]?.id || '';
 	}
 
 	function finishEditingInstrumentId(): void {
@@ -307,53 +471,52 @@
 	}
 
 	function saveInstrument(): void {
-		if (instruments.length === 0) return;
-		const inst = instruments[selectedInstrumentIndex];
+		if (chipInstruments.length === 0) return;
+		const inst = chipInstruments[selectedInstrumentIndex];
 		if (!inst) return;
-		downloadJson(`instrument-${inst.id}.json`, {
-			name: inst.name,
-			loop: inst.loop,
-			rows: inst.rows.map((r) => ({ ...r }))
-		});
+		downloadJson(`instrument-${inst.id}.json`, serializeInstrumentPreset(inst));
+	}
+
+	function replaceInstrumentFromPreset(
+		id: string,
+		payload: InstrumentPresetPayload,
+		label: string
+	): void {
+		if (!chip) return;
+		const updated = applyInstrumentPreset(allInstruments, payload, id, chip.type);
+		if (updated) {
+			const beforeInstruments = projectStore.cloneForHistory(projectStore.instruments);
+			projectStore.instruments = updated;
+			projectStore.recordHistory(
+				{
+					type: 'instrument.replace',
+					label,
+					affectedDomains: ['instruments']
+				},
+				[
+					projectStore.createSetDiff(
+						['instruments'],
+						beforeInstruments,
+						projectStore.instruments
+					)
+				]
+			);
+		}
+		services.audioService.updateInstruments(projectStore.instruments);
+		requestPatternRedraw?.();
 	}
 
 	async function loadInstrument(): Promise<void> {
-		if (instruments.length === 0) return;
+		flushInstrumentUpdateHistory();
+		if (!chip || chipInstruments.length === 0) return;
 		try {
 			const text = await pickFileAsText();
-			const parsed: unknown = JSON.parse(text);
-			const item = Array.isArray(parsed) ? parsed[0] : parsed;
-			if (
-				item == null ||
-				typeof item !== 'object' ||
-				!Array.isArray((item as Record<string, unknown>).rows)
-			) {
+			const payload = parseInstrumentPreset(JSON.parse(text));
+			if (!payload) {
 				throw new Error('Invalid format: expected an instrument object');
 			}
-			const o = item as Record<string, unknown>;
-			const rows = (o.rows as Record<string, unknown>[]).map((r) => new InstrumentRow(r));
-			const loop = typeof o.loop === 'number' ? o.loop : 0;
-			const name = o.name != null ? String(o.name) : '';
-			const currentId = instruments[selectedInstrumentIndex]?.id ?? '01';
-			const replacement = new InstrumentModel(
-				currentId,
-				rows,
-				loop,
-				name || `Instrument ${currentId}`
-			);
-			const idx = instruments.findIndex((inst) => inst.id === currentId);
-			if (idx >= 0) {
-				const updated = [...instruments];
-				updated[idx] = new InstrumentModel(
-					currentId,
-					replacement.rows.map((r) => new InstrumentRow({ ...r })),
-					replacement.loop,
-					replacement.name
-				);
-				projectStore.instruments = updated;
-			}
-			services.audioService.updateInstruments(projectStore.instruments);
-			requestPatternRedraw?.();
+			const currentId = chipInstruments[selectedInstrumentIndex]?.id ?? '01';
+			replaceInstrumentFromPreset(currentId, payload, `Replace instrument ${currentId}`);
 		} catch (err) {
 			if ((err as Error).message !== 'No file selected') {
 				alert('Failed to load instrument: ' + (err as Error).message);
@@ -362,39 +525,16 @@
 	}
 
 	async function openPresets(): Promise<void> {
-		if (instruments.length === 0) return;
-		const item = await open(PresetsModal, { presetType: 'instrument' });
-		if (
-			item == null ||
-			typeof item !== 'object' ||
-			!Array.isArray((item as Record<string, unknown>).rows)
-		) {
+		flushInstrumentUpdateHistory();
+		if (!chip || chipInstruments.length === 0) return;
+		const payload = parseInstrumentPreset(
+			await open(PresetsModal, { presetType: 'instrument' })
+		);
+		if (!payload) {
 			return;
 		}
-		const o = item as Record<string, unknown>;
-		const rows = (o.rows as Record<string, unknown>[]).map((r) => new InstrumentRow(r));
-		const loop = typeof o.loop === 'number' ? o.loop : 0;
-		const name = o.name != null ? String(o.name) : '';
-		const currentId = instruments[selectedInstrumentIndex]?.id ?? '01';
-		const replacement = new InstrumentModel(
-			currentId,
-			rows,
-			loop,
-			name || `Instrument ${currentId}`
-		);
-		const idx = instruments.findIndex((inst) => inst.id === currentId);
-		if (idx >= 0) {
-			const updated = [...instruments];
-			updated[idx] = new InstrumentModel(
-				currentId,
-				replacement.rows.map((r) => new InstrumentRow({ ...r })),
-				replacement.loop,
-				replacement.name
-			);
-			projectStore.instruments = updated;
-		}
-		services.audioService.updateInstruments(projectStore.instruments);
-		requestPatternRedraw?.();
+		const currentId = chipInstruments[selectedInstrumentIndex]?.id ?? '01';
+		replaceInstrumentFromPreset(currentId, payload, `Apply preset to instrument ${currentId}`);
 	}
 
 	function getInstrumentIdError(index: number, id: string): string | null {
@@ -405,7 +545,10 @@
 		if (!isInstrumentIdInRange(normalizedId)) {
 			return 'ID must be between 01 and ZZ';
 		}
-		const existingIds = instruments.map((inst, i) => (i === index ? '' : inst.id));
+		const editingInstrument = chipInstruments[index];
+		const existingIds = allInstruments
+			.map((inst) => inst.id)
+			.filter((instId) => instId !== editingInstrument?.id);
 		if (existingIds.includes(normalizedId)) {
 			return 'This ID is already used';
 		}
@@ -413,15 +556,15 @@
 	}
 
 	$effect(() => {
-		const currentInstruments = instruments;
+		const currentInstruments = chipInstruments;
 		if (currentInstruments && selectedInstrumentIndex >= currentInstruments.length) {
 			selectedInstrumentIndex = 0;
 		}
 	});
 
 	$effect(() => {
-		if (!instruments || instruments.length === 0) return;
-		sortInstrumentsAndSyncSelection(instruments[selectedInstrumentIndex]?.id);
+		if (!chipInstruments || chipInstruments.length === 0) return;
+		sortInstrumentsAndSyncSelection(chipInstruments[selectedInstrumentIndex]?.id);
 	});
 </script>
 
@@ -433,35 +576,59 @@
 		class="flex flex-col"
 		actions={cardActions}>
 		{#snippet children()}
+			{#if chipTypeTabs.length > 1}
+				<div
+					class="shrink-0 border-b border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] px-3 py-2">
+					<PillTabs bind:activeTabId={selectedChipType} tabs={chipTypeTabs} size="sm" />
+				</div>
+			{/if}
 			<div
 				class="flex shrink-0 flex-col border-b border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)]"
-				style="height: {instrumentListHeight}px"
-				bind:this={instrumentsContainerRef}>
+				style="height: {instrumentListResize.listHeight}px">
 				<div
 					class="flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-hidden"
 					bind:this={instrumentListScrollRef}>
-					{#each instrumentGridRows as rowIndices}
+					{#each instrumentGridRows as rowIndices, rowIndex (rowIndex)}
 						<div
 							class="flex min-w-max shrink-0 items-stretch border-b border-[var(--color-app-border)]"
 							style="height: {ITEM_ROW_HEIGHT}px">
-							{#each rowIndices as index}
-								{@const instrument = instruments[index]}
+							{#each rowIndices as index (index)}
+								{@const instrument = chipInstruments[index]}
 								{#if instrument}
-									{@const isUsed = isInstrumentUsed(instrument)}
 									{@const isSelected = selectedInstrumentIndex === index}
-									{@const isEditing = editingInstrumentId === index}
-									{#if isEditing}
-										<div
-											data-instrument-index={index}
-											class="group relative flex min-w-[6rem] shrink-0 flex-col items-center justify-center border-r border-[var(--color-app-border)] p-3 {isSelected
-												? 'bg-[var(--color-app-primary)]'
-												: isUsed
-													? 'bg-[var(--color-app-surface-secondary)]/40 hover:bg-[var(--color-app-surface-secondary)]/70'
-													: 'bg-[var(--color-app-background)]/60 hover:bg-[var(--color-app-background)]/80'}">
+									<ItemGridCell
+										dataIndexKind="instrument"
+										dataValue={index}
+										{isSelected}
+										isUsed={isInstrumentUsed(instrument)}
+										isEditing={editingInstrumentId === index}
+										accentColor={instrument.color}
+										idLabel={instrument.id}
+										nameLabel={instrument.name}
+										copyTitle="Copy instrument"
+										removeTitle="Remove instrument"
+										showCopy={hasSongs}
+										showRemove={hasSongs && chipInstruments.length > 1}
+										onSelect={() => (selectedInstrumentIndex = index)}
+										onDoubleClick={() => {
+											if (hasSongs) startEditingInstrumentId(index);
+										}}
+										onCopy={(e) => {
+											e.stopPropagation();
+											copyInstrument(index);
+										}}
+										onRemove={(e) => {
+											e.stopPropagation();
+											removeInstrument(index);
+										}}>
+										{#snippet edit()}
 											<EditableIdField
 												bind:value={editingInstrumentIdValue}
 												error={editingInstrumentIdValue
-													? getInstrumentIdError(index, editingInstrumentIdValue)
+													? getInstrumentIdError(
+															index,
+															editingInstrumentIdValue
+														)
 													: null}
 												onCommit={finishEditingInstrumentId}
 												onCancel={cancelEditingInstrumentId}
@@ -471,61 +638,8 @@
 														.toUpperCase()
 														.slice(0, 2)
 														.replace(/[^0-9A-Z]/g, '')} />
-										</div>
-									{:else}
-										<div
-											data-instrument-index={index}
-											class="group relative flex min-w-[6rem] shrink-0 flex-col items-center border-r border-[var(--color-app-border)]">
-											<button
-												class="flex h-full w-full shrink-0 cursor-pointer flex-col items-center justify-center p-3 {isSelected
-													? 'bg-[var(--color-app-primary)]'
-													: isUsed
-														? 'bg-[var(--color-app-surface-secondary)]/40 hover:bg-[var(--color-app-surface-secondary)]/70'
-														: 'bg-[var(--color-app-background)]/60 hover:bg-[var(--color-app-background)]/80'}"
-												onclick={() => (selectedInstrumentIndex = index)}
-												ondblclick={() => startEditingInstrumentId(index)}>
-												<span
-													class="font-mono text-xs font-semibold {isSelected
-														? 'text-[var(--color-app-text-secondary)]'
-														: isUsed
-															? 'text-[var(--color-app-text-tertiary)] group-hover:text-[var(--color-app-text-primary)]'
-															: 'text-[var(--color-app-text-muted)] group-hover:text-[var(--color-app-text-tertiary)]'}">
-													{instrument.id}
-												</span>
-												<span
-													class="text-xs {isSelected
-														? 'text-[var(--color-app-text-secondary)]'
-														: isUsed
-															? 'text-[var(--color-app-text-muted)] group-hover:text-[var(--color-app-text-tertiary)]'
-															: 'text-[var(--color-app-text-muted)] group-hover:text-[var(--color-app-text-muted)]'}">
-													{instrument.name}
-												</span>
-											</button>
-											<div
-												class="absolute top-1 right-1 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-												<button
-													class="cursor-pointer rounded p-0.5 text-[var(--color-app-text-muted)] hover:text-[var(--color-app-text-primary)]"
-													onclick={(e) => {
-														e.stopPropagation();
-														copyInstrument(index);
-													}}
-													title="Copy instrument">
-													<IconCarbonCopy class="h-3 w-3" />
-												</button>
-												{#if instruments.length > 1}
-													<button
-														class="cursor-pointer rounded p-0.5 text-[var(--color-app-text-muted)] hover:text-red-400"
-														onclick={(e) => {
-															e.stopPropagation();
-															removeInstrument(index);
-														}}
-														title="Remove instrument">
-														<IconCarbonTrashCan class="h-3 w-3" />
-													</button>
-												{/if}
-											</div>
-										</div>
-									{/if}
+										{/snippet}
+									</ItemGridCell>
 								{/if}
 							{/each}
 						</div>
@@ -533,66 +647,62 @@
 				</div>
 				<div
 					class="flex shrink-0 items-center gap-2 border-t border-[var(--color-app-border)] px-2 py-1.5">
-					<button
-						class="flex cursor-pointer items-center gap-1.5 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] px-2 py-1.5 text-xs text-[var(--color-app-text-tertiary)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-[var(--color-app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+					<ToolbarButton
+						icon={IconCarbonAdd}
+						label="Add"
 						onclick={addInstrument}
-						disabled={instruments.length >= MAX_INSTRUMENT_ID_NUM}
-						title={instruments.length >= MAX_INSTRUMENT_ID_NUM
-							? 'Maximum 1295 instruments (01–ZZ)'
-							: 'Add new instrument'}>
-						<IconCarbonAdd class="h-3.5 w-3.5" />
-						<span>Add</span>
-					</button>
-					<button
-						class="flex cursor-pointer items-center gap-1.5 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] px-2 py-1.5 text-xs text-[var(--color-app-text-tertiary)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-[var(--color-app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+						disabled={!hasSongs || allInstruments.length >= MAX_INSTRUMENT_ID_NUM}
+						title={!hasSongs
+							? 'Add a song before creating instruments'
+							: allInstruments.length >= MAX_INSTRUMENT_ID_NUM
+								? 'Maximum 1295 instruments (01–ZZ)'
+								: 'Add new instrument'} />
+					<ToolbarButton
+						icon={IconCarbonSave}
+						label="Save"
 						onclick={saveInstrument}
-						disabled={instruments.length === 0}
-						title="Save selected instrument to JSON file">
-						<IconCarbonSave class="h-3.5 w-3.5" />
-						<span>Save</span>
-					</button>
-					<button
-						class="flex cursor-pointer items-center gap-1.5 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] px-2 py-1.5 text-xs text-[var(--color-app-text-tertiary)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-[var(--color-app-text-primary)]"
+						disabled={!hasSongs || chipInstruments.length === 0}
+						title="Save selected instrument to JSON file" />
+					<ToolbarButton
+						icon={IconCarbonDocumentImport}
+						label="Load"
 						onclick={loadInstrument}
-						disabled={instruments.length === 0}
-						title="Load instrument from JSON file into selected slot">
-						<IconCarbonDocumentImport class="h-3.5 w-3.5" />
-						<span>Load</span>
-					</button>
-					<button
-						class="flex cursor-pointer items-center gap-1.5 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] px-2 py-1.5 text-xs text-[var(--color-app-text-tertiary)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-[var(--color-app-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+						disabled={!hasSongs || chipInstruments.length === 0}
+						title="Load instrument from JSON file into selected slot" />
+					<ToolbarButton
+						icon={IconCarbonFolder}
+						label="Presets"
 						onclick={openPresets}
-						disabled={instruments.length === 0}
-						title="Load instrument from built-in presets">
-						<IconCarbonFolder class="h-3.5 w-3.5" />
-						<span>Presets</span>
-					</button>
+						disabled={!hasSongs || chipInstruments.length === 0}
+						title="Load instrument from built-in presets" />
 				</div>
 			</div>
 
-			<div
-				class="flex shrink-0 cursor-ns-resize items-center justify-center border-y border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] py-1 text-[var(--color-app-text-muted)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-[var(--color-app-text-secondary)] {isResizingInstrumentList
-					? 'bg-[var(--color-app-surface-hover)]'
-					: ''}"
-				role="button"
-				tabindex="0"
-				aria-label="Drag to resize instrument list"
-				title="Drag to resize instrument list"
-				onmousedown={beginInstrumentListResize}>
-				<IconCarbonArrowsVertical class="h-3 w-3" />
-			</div>
+			<ListResizeDivider
+				isResizing={instrumentListResize.isResizing}
+				label="Drag to resize instrument list"
+				onmousedown={instrumentListResize.beginResize} />
 
-			<div class="min-h-0 flex-1 overflow-auto p-4">
-				{#if instruments && instruments[selectedInstrumentIndex]}
-					{#key instruments[selectedInstrumentIndex].id}
-						<InstrumentEditor
-							bind:this={instrumentEditorRef}
-							instrument={instruments[selectedInstrumentIndex]}
-							{asHex}
-							{isExpanded}
-							onInstrumentChange={handleInstrumentChange} />
-					{/key}
-				{/if}
+			<div
+				id="instrument-detail-panel"
+				class="relative min-h-0 flex-1 overflow-hidden"
+				class:pointer-events-none={!hasSongs}
+				class:opacity-50={!hasSongs}>
+				<div class="h-full overflow-auto p-4">
+					{#if chipInstruments[selectedInstrumentIndex] && InstrumentEditor}
+						{#key `${chip?.type}:${chipInstruments[selectedInstrumentIndex].id}`}
+							<InstrumentEditor
+								instrument={chipInstruments[selectedInstrumentIndex]}
+								{asHex}
+								{isExpanded}
+								onInstrumentChange={handleInstrumentChange} />
+						{/key}
+					{:else if chipInstruments[selectedInstrumentIndex] && chip}
+						<p class="text-sm text-[var(--color-app-text-muted)]">
+							Instrument editor for {chip.name} is not available yet.
+						</p>
+					{/if}
+				</div>
 			</div>
 		{/snippet}
 	</Card>

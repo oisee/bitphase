@@ -1,0 +1,168 @@
+import type { Chip } from '../types';
+import type { Pattern } from '../../models/song';
+import { isEffectLike, type EffectLike } from '../../utils/type-guards';
+import { PatternEffectHandling } from '../../services/pattern/editing/pattern-effect-handling';
+import { getChannelEffectSlotIndex, isEffectFieldKey } from './channel-effect-columns';
+
+export type EffectStatusHint = {
+	format: string;
+	name: string;
+	params: string;
+};
+
+const GENERAL_EFFECT_HINTS: Record<number, EffectStatusHint> = {
+	['A'.charCodeAt(0)]: {
+		format: 'AXYZ',
+		name: 'Arpeggio',
+		params: 'X: steps; Y: offset; Z: offset'
+	},
+	['V'.charCodeAt(0)]: {
+		format: 'VXYZ',
+		name: 'Vibrato',
+		params: 'X: delay; Y: speed; Z: depth'
+	},
+	1: { format: '1XYZ', name: 'Slide Down', params: 'X: delay; YZ: step' },
+	2: { format: '2XYZ', name: 'Slide Up', params: 'X: delay; YZ: step' },
+	['P'.charCodeAt(0)]: {
+		format: 'PXYZ',
+		name: 'Portamento',
+		params: 'X: delay; YZ: speed'
+	},
+	4: { format: '4.XY', name: 'Instrument Position', params: 'XY: row' },
+	5: { format: '5.XY', name: 'Table Position', params: 'XY: row' },
+	6: { format: '6.XY', name: 'On/Off', params: 'X: on; Y: off' },
+	7: { format: '7.XY', name: 'Note Delay', params: 'XY: ticks' },
+	8: { format: '8XYZ', name: 'Volume Slide', params: 'X: delay; Y: up; Z: down' },
+	['D'.charCodeAt(0)]: { format: 'D.XY', name: 'Detune', params: 'XY: signed, 80=0' },
+	['S'.charCodeAt(0)]: { format: 'S.XY', name: 'Speed', params: 'XY: ticks' },
+	['Q'.charCodeAt(0)]: { format: 'Q...', name: 'Song End', params: 'stops after this row' }
+};
+
+const GENERAL_TABLE_HINTS: Record<number, EffectStatusHint> = {
+	['A'.charCodeAt(0)]: {
+		format: 'AXTY',
+		name: 'Arpeggio',
+		params: 'X: steps; Y: table'
+	},
+	['V'.charCodeAt(0)]: {
+		format: 'VXTY',
+		name: 'Vibrato',
+		params: 'X: delay; Y: table'
+	},
+	1: { format: '1XTY', name: 'Slide Down', params: 'X: delay; Y: table' },
+	2: { format: '2XTY', name: 'Slide Up', params: 'X: delay; Y: table' },
+	['P'.charCodeAt(0)]: {
+		format: 'PXTY',
+		name: 'Portamento',
+		params: 'X: delay; Y: table'
+	},
+	6: { format: '6.TY', name: 'On/Off', params: 'Y: table' },
+	8: { format: '8XTY', name: 'Volume Slide', params: 'X: delay; Y: table' },
+	['D'.charCodeAt(0)]: { format: 'D.TY', name: 'Detune', params: 'Y: table' },
+	['S'.charCodeAt(0)]: { format: 'S.TY', name: 'Speed', params: 'Y: table' }
+};
+
+const GENERAL_EFFECT_CODE_ORDER = [
+	'A'.charCodeAt(0),
+	'V'.charCodeAt(0),
+	1,
+	2,
+	'P'.charCodeAt(0),
+	4,
+	5,
+	6,
+	7,
+	8,
+	'D'.charCodeAt(0),
+	'S'.charCodeAt(0),
+	'Q'.charCodeAt(0)
+];
+
+export function formatEffectStatusHint(hint: EffectStatusHint): string {
+	return `${hint.format}: ${hint.name} (${hint.params})`;
+}
+
+function usesTableSyntax(effect: EffectLike): boolean {
+	return effect.tableIndex !== undefined && effect.tableIndex >= 0;
+}
+
+export function describeGeneralEffect(effect: EffectLike): string | null {
+	if (PatternEffectHandling.isEmptyEffect(effect)) return null;
+	const hint = usesTableSyntax(effect)
+		? (GENERAL_TABLE_HINTS[effect.effect] ?? GENERAL_EFFECT_HINTS[effect.effect])
+		: GENERAL_EFFECT_HINTS[effect.effect];
+	return hint ? formatEffectStatusHint(hint) : null;
+}
+
+export function describePatternEffect(
+	effect: EffectLike | null | undefined,
+	chip: Pick<Chip, 'describeEffect'>
+): string | null {
+	if (!effect || PatternEffectHandling.isEmptyEffect(effect)) return null;
+	return chip.describeEffect?.(effect) ?? describeGeneralEffect(effect);
+}
+
+export function listGeneralEffectStatusHints(): EffectStatusHint[] {
+	const hints: EffectStatusHint[] = [];
+	for (const code of GENERAL_EFFECT_CODE_ORDER) {
+		const inline = GENERAL_EFFECT_HINTS[code];
+		if (inline) hints.push(inline);
+		const table = GENERAL_TABLE_HINTS[code];
+		if (table) hints.push(table);
+	}
+	return hints;
+}
+
+export function listPatternEffectStatusHints(
+	chip?: Pick<Chip, 'listEffectStatusHints'>
+): EffectStatusHint[] {
+	return [...listGeneralEffectStatusHints(), ...(chip?.listEffectStatusHints?.() ?? [])];
+}
+
+export type EffectStatusSection = {
+	id: string;
+	title: string;
+	hints: EffectStatusHint[];
+};
+
+export function listPatternEffectStatusSections(
+	chips: Array<Pick<Chip, 'name' | 'type' | 'listEffectStatusHints'>> = []
+): EffectStatusSection[] {
+	const sections: EffectStatusSection[] = [
+		{ id: 'general', title: 'General', hints: listGeneralEffectStatusHints() }
+	];
+	const seen = new Set<string>();
+	for (const chip of chips) {
+		if (seen.has(chip.type)) continue;
+		seen.add(chip.type);
+		const hints = chip.listEffectStatusHints?.() ?? [];
+		if (hints.length === 0) continue;
+		sections.push({ id: chip.type, title: chip.name, hints });
+	}
+	return sections;
+}
+
+export function listPatternEffectStatusLines(chip?: Pick<Chip, 'listEffectStatusHints'>): string[] {
+	return listPatternEffectStatusHints(chip).map(formatEffectStatusHint);
+}
+
+export function getEffectFromPattern(
+	pattern: Pattern,
+	rowIndex: number,
+	fieldKey: string,
+	channelIndex: number
+): EffectLike | null {
+	if (!isEffectFieldKey(fieldKey)) return null;
+	if (rowIndex < 0 || rowIndex >= pattern.length) return null;
+
+	if (fieldKey === 'envelopeEffect') {
+		const value = pattern.patternRows[rowIndex]?.envelopeEffect;
+		return isEffectLike(value) ? value : null;
+	}
+
+	const slot = getChannelEffectSlotIndex(fieldKey);
+	if (slot === null) return null;
+	const row = pattern.channels[channelIndex]?.rows[rowIndex];
+	const value = row?.effects?.[slot];
+	return isEffectLike(value) ? value : null;
+}

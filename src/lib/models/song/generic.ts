@@ -8,6 +8,8 @@ export interface GenericPatternRow {
 
 export interface GenericChannel {
 	rows: GenericRow[];
+	label?: string;
+	effectColumnCount?: number;
 }
 
 export interface GenericPattern {

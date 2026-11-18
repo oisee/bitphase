@@ -68,7 +68,7 @@ export const PT3TuneTables: number[][] = [
 const A4_NOTE_INDEX = 45;
 const TABLE_LENGTH = 96;
 const MIN_PERIOD = 1;
-const MAX_PERIOD = 4095;
+const DEFAULT_MAX_PERIOD = 4095;
 
 const JUST_INTONATION_RATIOS = [
 	1, 16 / 15, 9 / 8, 6 / 5, 5 / 4, 4 / 3, 64 / 45, 3 / 2, 8 / 5, 5 / 3, 16 / 9, 15 / 8
@@ -81,11 +81,11 @@ export function generateNaturalTuningTable(rootSemitone: number): number[] {
 	for (let i = 0; i < TABLE_LENGTH; i++) {
 		const semitone = i % 12;
 		const octave = Math.floor(i / 12);
-		const intervalFromRoot = ((semitone - rootSemitone) % 12 + 12) % 12;
+		const intervalFromRoot = (((semitone - rootSemitone) % 12) + 12) % 12;
 		const rootRelativeOctave = octave - (semitone < rootSemitone ? 1 : 0);
 		const freqRatio = JUST_INTONATION_RATIOS[intervalFromRoot];
 		let period = Math.round(NATURAL_BASE_PERIOD / freqRatio / Math.pow(2, rootRelativeOctave));
-		if (period > MAX_PERIOD) period = MAX_PERIOD;
+		if (period > DEFAULT_MAX_PERIOD) period = DEFAULT_MAX_PERIOD;
 		if (period < MIN_PERIOD) period = MIN_PERIOD;
 		result.push(period);
 	}
@@ -97,13 +97,17 @@ export function getNaturalChipFrequency(rootSemitone: number, a4Hz: number = 440
 	return Math.round(rootFreqHz * 16 * NATURAL_BASE_PERIOD);
 }
 
-export function generate12TETTuningTable(chipFrequencyHz: number, a4Hz: number = 440): number[] {
+export function generate12TETTuningTable(
+	chipFrequencyHz: number,
+	a4Hz: number = 440,
+	maxPeriod: number = DEFAULT_MAX_PERIOD
+): number[] {
 	const result: number[] = [];
 	for (let i = 0; i < TABLE_LENGTH; i++) {
 		const freqHz = a4Hz * Math.pow(2, (i - A4_NOTE_INDEX) / 12);
 		const periodF = chipFrequencyHz / 16 / freqHz;
 		let period = Math.round(periodF);
-		if (period > MAX_PERIOD) period = MAX_PERIOD;
+		if (period > maxPeriod) period = maxPeriod;
 		if (period < MIN_PERIOD) period = MIN_PERIOD;
 		result.push(period);
 	}

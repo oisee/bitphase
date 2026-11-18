@@ -1,4 +1,8 @@
-import { formatHex } from '../../../chips/base/field-formatters';
+import {
+	MAX_TABLE_ID,
+	tableDisplayCharToId,
+	tableIdToDisplayChar
+} from '../../../utils/table-id';
 
 export type EffectLikeObject = {
 	effect: number;
@@ -8,6 +12,18 @@ export type EffectLikeObject = {
 };
 
 export class PatternEffectHandling {
+	static effectIgnoresDelay(effect: number): boolean {
+		return (
+			effect === 'D'.charCodeAt(0) ||
+			effect === 'S'.charCodeAt(0) ||
+			effect === 'Q'.charCodeAt(0) ||
+			effect === 4 ||
+			effect === 5 ||
+			effect === 6 ||
+			effect === 7
+		);
+	}
+
 	static isEmptyEffect(effect: EffectLikeObject | null | undefined): boolean {
 		if (!effect) return true;
 		const noTable =
@@ -27,6 +43,7 @@ export class PatternEffectHandling {
 			| undefined
 	): string {
 		if (!effect) return '....';
+		if (effect.effect === 'Q'.charCodeAt(0)) return 'Q...';
 		let type: string;
 		if (effect.effect === 0) {
 			type = '.';
@@ -47,15 +64,10 @@ export class PatternEffectHandling {
 		} else {
 			type = effect.effect.toString(16).toUpperCase();
 		}
-		const noDelay =
-			effect.effect === 'D'.charCodeAt(0) ||
-			effect.effect === 'S'.charCodeAt(0) ||
-			effect.effect === 4 ||
-			effect.effect === 5;
-		const delay = noDelay ? '.' : formatHex(effect.delay, 1);
+		const delay = PatternEffectHandling.formatEffectDelay(effect.effect, effect.delay);
 
 		const noTableSyntax =
-			effect.effect === 4 || effect.effect === 5;
+			effect.effect === 4 || effect.effect === 5 || effect.effect === 7;
 		if (
 			!noTableSyntax &&
 			effect.tableIndex !== undefined &&
@@ -65,8 +77,19 @@ export class PatternEffectHandling {
 			return type + delay + 'T' + tableChar;
 		}
 
-		const param = formatHex(effect.parameter, 2);
+		const param = PatternEffectHandling.formatEffectParameter(effect.parameter);
 		return type + delay + param;
+	}
+
+	private static formatEffectDelay(effect: number, delay: number): string {
+		if (PatternEffectHandling.effectIgnoresDelay(effect)) {
+			return '.';
+		}
+		return (delay ?? 0).toString(16).toUpperCase().padStart(1, '0');
+	}
+
+	private static formatEffectParameter(parameter: number): string {
+		return (parameter ?? 0).toString(16).toUpperCase().padStart(2, '0');
 	}
 
 	static parseEffectFromString(value: string): {
@@ -85,6 +108,8 @@ export class PatternEffectHandling {
 			type = 'V'.charCodeAt(0);
 		} else if (typeChar === 'S' || typeChar === 's') {
 			type = 'S'.charCodeAt(0);
+		} else if (typeChar === 'Q' || typeChar === 'q') {
+			type = 'Q'.charCodeAt(0);
 		} else if (typeChar === 'P' || typeChar === 'p') {
 			type = 'P'.charCodeAt(0);
 		} else if (typeChar === 'E' || typeChar === 'e') {
@@ -95,11 +120,13 @@ export class PatternEffectHandling {
 			type = parseInt(typeChar, 16) || 0;
 		}
 		const delay = parseInt(value[1] || '0', 16) || 0;
+		if (type === 'Q'.charCodeAt(0)) {
+			return { effect: type, delay: 0, parameter: 0 };
+		}
 
 		const char2 = value[2] || '.';
-		const noTableSyntax = type === 4 || type === 5;
-		const noDelay =
-			type === 'D'.charCodeAt(0) || type === 'S'.charCodeAt(0) || type === 4 || type === 5;
+		const noTableSyntax = type === 4 || type === 5 || type === 7;
+		const noDelay = PatternEffectHandling.effectIgnoresDelay(type);
 		const effectiveDelay = noDelay ? 0 : delay;
 		if (!noTableSyntax && (char2 === 'T' || char2 === 't')) {
 			const tableChar = value[3] || '.';
@@ -118,22 +145,10 @@ export class PatternEffectHandling {
 
 	private static tableIndexToChar(index: number): string {
 		if (index < 0) return '.';
-		const displayNum = index + 1;
-		if (displayNum < 10) return displayNum.toString();
-		if (displayNum < 32) return String.fromCharCode('A'.charCodeAt(0) + displayNum - 10);
-		return 'V';
+		return tableIdToDisplayChar(Math.min(index, MAX_TABLE_ID)) || '.';
 	}
 
 	private static charToTableIndex(char: string): number {
-		const upper = char.toUpperCase();
-		if (upper === '.' || upper === '0') return -1;
-		const code = upper.charCodeAt(0);
-		if (code >= '1'.charCodeAt(0) && code <= '9'.charCodeAt(0)) {
-			return code - '0'.charCodeAt(0) - 1;
-		}
-		if (code >= 'A'.charCodeAt(0) && code <= 'V'.charCodeAt(0)) {
-			return 10 + (code - 'A'.charCodeAt(0)) - 1;
-		}
-		return -1;
+		return tableDisplayCharToId(char);
 	}
 }

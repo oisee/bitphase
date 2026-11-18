@@ -1,6 +1,12 @@
 import type { Pattern } from '../../models/song';
-import type { NavigationState, NavigationContext } from './pattern-navigation';
+import type {
+	NavigationState,
+	NavigationContext,
+	PatternEditorDirection,
+	PatternEditorLanding
+} from './pattern-navigation';
 import { PatternNavigationService } from './pattern-navigation';
+import { patternEditorPageDelta } from './pattern-editor-steps';
 import { ProgressiveSelectionService } from './progressive-selection-service';
 import { ShortcutString } from '../../utils/shortcut-string';
 import { keybindingsStore } from '../../stores/keybindings.svelte';
@@ -21,18 +27,18 @@ import {
 	ACTION_APPLY_SCRIPT,
 	ACTION_TOGGLE_PLAYBACK,
 	ACTION_CYCLE_CHANNEL,
+	ACTION_CYCLE_CHANNEL_REVERSE,
 	ACTION_SWAP_CHANNEL_LEFT,
 	ACTION_SWAP_CHANNEL_RIGHT,
+	ACTION_INSERT_PATTERN_ROW,
+	ACTION_REMOVE_PATTERN_ROW,
+	ACTION_PLAY_SOLO,
 	ACTION_PAGE_UP,
 	ACTION_PAGE_DOWN,
 	ACTION_HOME,
 	ACTION_HOME_COLUMN,
 	ACTION_END,
-	ACTION_END_COLUMN,
-	ACTION_JUMP_CHANNEL_LEFT,
-	ACTION_JUMP_CHANNEL_RIGHT,
-	ACTION_CURSOR_HOME,
-	ACTION_CURSOR_END
+	ACTION_END_COLUMN
 } from '../../config/keybindings';
 
 export interface PatternKeyboardShortcutsContext {
@@ -60,6 +66,11 @@ export interface PatternKeyboardShortcutsContext {
 	onPausePlayback: () => void;
 	onMoveRow: (delta: number) => void;
 	onMoveColumn: (delta: number) => void;
+	onLeaveEditor?: (
+		direction: PatternEditorDirection,
+		landing: PatternEditorLanding,
+		wrap?: boolean
+	) => boolean;
 	onSetSelectedRow: (row: number) => void;
 	onSetSelectedColumn: (column: number) => void;
 	onSetCurrentPatternOrderIndex: (index: number) => void;
@@ -73,6 +84,9 @@ export interface PatternKeyboardShortcutsContext {
 	) => void;
 	onSwapChannelLeft: () => void;
 	onSwapChannelRight: () => void;
+	onInsertPatternRow: () => void;
+	onRemovePatternRow: () => void;
+	onToggleSolo?: () => void;
 	selectionStartRow: number | null;
 	selectionStartColumn: number | null;
 	selectionEndRow: number | null;
@@ -84,6 +98,53 @@ export interface PatternKeyboardShortcutsContext {
 export interface KeyboardShortcutResult {
 	handled: boolean;
 	shouldPreventDefault: boolean;
+}
+
+function moveRowOrLeaveEditor(
+	ctx: PatternKeyboardShortcutsContext,
+	delta: number,
+	extend: boolean
+): void {
+	const before: NavigationState = {
+		selectedRow: ctx.selectedRow,
+		currentPatternOrderIndex: ctx.currentPatternOrderIndex,
+		selectedColumn: ctx.selectedColumn
+	};
+	const next = PatternNavigationService.moveRow(before, ctx.navigationContext, delta);
+	if (extend) {
+		extendSelectionTo(ctx, next.selectedRow, next.selectedColumn);
+		ctx.onSetSelectedRow(next.selectedRow);
+		if (next.currentPatternOrderIndex !== before.currentPatternOrderIndex) {
+			ctx.onSetCurrentPatternOrderIndex(next.currentPatternOrderIndex);
+		}
+		return;
+	}
+	ctx.onClearSelection();
+	ctx.onMoveRow(delta);
+}
+
+function extendSelectionTo(
+	ctx: PatternKeyboardShortcutsContext,
+	row: number,
+	column: number
+): void {
+	if (!ctx.hasSelection()) {
+		ctx.onSetSelectionAnchor(ctx.selectedRow, ctx.selectedColumn);
+	}
+	ctx.onExtendSelection(row, column);
+}
+
+function resolveActionForEvent(event: KeyboardEvent): string | null {
+	const shortcut = ShortcutString.fromEvent(event);
+	const action = keybindingsStore.getActionForShortcut(shortcut);
+	if (action !== null) return action;
+	if (!event.shiftKey) return null;
+	const withoutShift = shortcut
+		.split('+')
+		.filter((part) => part !== 'Shift')
+		.join('+');
+	if (withoutShift === shortcut || withoutShift.length === 0) return null;
+	return keybindingsStore.getActionForShortcut(withoutShift);
 }
 
 function dispatchCommandAction(
@@ -121,7 +182,8 @@ function dispatchCommandAction(
 					ctx.selectionEndColumn,
 					ctx.navigationContext.getCellPositions,
 					ctx.getPatternRowData,
-					ctx.navigationContext.schema
+					ctx.navigationContext.schema,
+					ctx.navigationContext.formatter.virtualChannelMap
 				);
 				ctx.onSelectProgressive(
 					result.startRow,
@@ -169,6 +231,26 @@ function dispatchCommandAction(
 					ctx.navigationContext
 				);
 				ctx.onClearSelection();
+				if (newState.wrapped && ctx.onLeaveEditor?.('next', 'first-column', true)) {
+					return true;
+				}
+				ctx.onSetSelectedColumn(newState.selectedColumn);
+			}
+			return true;
+		case ACTION_CYCLE_CHANNEL_REVERSE:
+			if (!ctx.isPlaying) {
+				const newState = PatternNavigationService.moveToPreviousChannel(
+					{
+						selectedRow: ctx.selectedRow,
+						currentPatternOrderIndex: ctx.currentPatternOrderIndex,
+						selectedColumn: ctx.selectedColumn
+					},
+					ctx.navigationContext
+				);
+				ctx.onClearSelection();
+				if (newState.wrapped && ctx.onLeaveEditor?.('previous', 'last-channel', true)) {
+					return true;
+				}
 				ctx.onSetSelectedColumn(newState.selectedColumn);
 			}
 			return true;
@@ -182,62 +264,33 @@ function dispatchCommandAction(
 				ctx.onSwapChannelRight();
 			}
 			return true;
+		case ACTION_INSERT_PATTERN_ROW:
+			if (!ctx.isPlaying) {
+				ctx.onInsertPatternRow();
+			}
+			return true;
+		case ACTION_REMOVE_PATTERN_ROW:
+			if (!ctx.isPlaying) {
+				ctx.onRemovePatternRow();
+			}
+			return true;
+		case ACTION_PLAY_SOLO:
+			ctx.onToggleSolo?.();
+			return true;
 		case ACTION_PAGE_UP:
 			if (!ctx.isPlaying) {
-				if (event?.shiftKey) {
-					if (!ctx.hasSelection()) {
-						ctx.onSetSelectionAnchor(ctx.selectedRow, ctx.selectedColumn);
-					}
-					const newState = PatternNavigationService.moveRow(
-						{
-							selectedRow: ctx.selectedRow,
-							currentPatternOrderIndex: ctx.currentPatternOrderIndex,
-							selectedColumn: ctx.selectedColumn
-						},
-						ctx.navigationContext,
-						-16
-					);
-					ctx.onExtendSelection(newState.selectedRow, newState.selectedColumn);
-					ctx.onSetSelectedRow(newState.selectedRow);
-					if (newState.currentPatternOrderIndex !== ctx.currentPatternOrderIndex) {
-						ctx.onSetCurrentPatternOrderIndex(newState.currentPatternOrderIndex);
-					}
-				} else {
-					ctx.onClearSelection();
-					ctx.onMoveRow(-16);
-				}
+				moveRowOrLeaveEditor(ctx, patternEditorPageDelta(-1), !!event?.shiftKey);
 			}
 			return true;
 		case ACTION_PAGE_DOWN:
 			if (!ctx.isPlaying) {
-				if (event?.shiftKey) {
-					if (!ctx.hasSelection()) {
-						ctx.onSetSelectionAnchor(ctx.selectedRow, ctx.selectedColumn);
-					}
-					const newState = PatternNavigationService.moveRow(
-						{
-							selectedRow: ctx.selectedRow,
-							currentPatternOrderIndex: ctx.currentPatternOrderIndex,
-							selectedColumn: ctx.selectedColumn
-						},
-						ctx.navigationContext,
-						16
-					);
-					ctx.onExtendSelection(newState.selectedRow, newState.selectedColumn);
-					ctx.onSetSelectedRow(newState.selectedRow);
-					if (newState.currentPatternOrderIndex !== ctx.currentPatternOrderIndex) {
-						ctx.onSetCurrentPatternOrderIndex(newState.currentPatternOrderIndex);
-					}
-				} else {
-					ctx.onClearSelection();
-					ctx.onMoveRow(16);
-				}
+				moveRowOrLeaveEditor(ctx, patternEditorPageDelta(1), !!event?.shiftKey);
 			}
 			return true;
 		case ACTION_HOME:
 			if (!ctx.isPlaying) {
 				if (event?.shiftKey) {
-					ctx.onExtendSelection(0, ctx.selectedColumn);
+					extendSelectionTo(ctx, 0, ctx.selectedColumn);
 				} else {
 					ctx.onClearSelection();
 				}
@@ -246,7 +299,7 @@ function dispatchCommandAction(
 			return true;
 		case ACTION_HOME_COLUMN:
 			if (event?.shiftKey) {
-				ctx.onExtendSelection(ctx.selectedRow, 0);
+				extendSelectionTo(ctx, ctx.selectedRow, 0);
 			} else {
 				ctx.onClearSelection();
 			}
@@ -255,7 +308,7 @@ function dispatchCommandAction(
 		case ACTION_END:
 			if (!ctx.isPlaying) {
 				if (event?.shiftKey) {
-					ctx.onExtendSelection(ctx.pattern.length - 1, ctx.selectedColumn);
+					extendSelectionTo(ctx, ctx.pattern.length - 1, ctx.selectedColumn);
 				} else {
 					ctx.onClearSelection();
 				}
@@ -272,51 +325,13 @@ function dispatchCommandAction(
 				ctx.navigationContext
 			);
 			if (event?.shiftKey) {
-				ctx.onExtendSelection(ctx.selectedRow, navigationState.selectedColumn);
+				extendSelectionTo(ctx, ctx.selectedRow, navigationState.selectedColumn);
 			} else {
 				ctx.onClearSelection();
 			}
 			ctx.onSetSelectedColumn(navigationState.selectedColumn);
 			return true;
 		}
-		case ACTION_JUMP_CHANNEL_LEFT: {
-			const navState = PatternNavigationService.moveToPrevChannel(
-				{
-					selectedRow: ctx.selectedRow,
-					currentPatternOrderIndex: ctx.currentPatternOrderIndex,
-					selectedColumn: ctx.selectedColumn
-				},
-				ctx.navigationContext
-			);
-			ctx.onClearSelection();
-			ctx.onSetSelectedColumn(navState.selectedColumn);
-			return true;
-		}
-		case ACTION_JUMP_CHANNEL_RIGHT: {
-			const navState = PatternNavigationService.moveToNextChannel(
-				{
-					selectedRow: ctx.selectedRow,
-					currentPatternOrderIndex: ctx.currentPatternOrderIndex,
-					selectedColumn: ctx.selectedColumn
-				},
-				ctx.navigationContext
-			);
-			ctx.onClearSelection();
-			ctx.onSetSelectedColumn(navState.selectedColumn);
-			return true;
-		}
-		case ACTION_CURSOR_HOME:
-			if (!ctx.isPlaying) {
-				ctx.onClearSelection();
-				ctx.onSetSelectedRow(0);
-			}
-			return true;
-		case ACTION_CURSOR_END:
-			if (!ctx.isPlaying) {
-				ctx.onClearSelection();
-				ctx.onSetSelectedRow(ctx.pattern.length - 1);
-			}
-			return true;
 		default:
 			return false;
 	}
@@ -328,10 +343,8 @@ export class PatternKeyboardShortcutsService {
 		shortcutsContext: PatternKeyboardShortcutsContext
 	): KeyboardShortcutResult {
 		const isModifier = event.shiftKey;
-		const key = event.key.toLowerCase();
 
-		const shortcut = ShortcutString.fromEvent(event);
-		const action = keybindingsStore.getActionForShortcut(shortcut);
+		const action = resolveActionForEvent(event);
 		if (action !== null) {
 			if (PATTERN_EDITOR_ACTION_IDS.has(action)) {
 				const result = dispatchCommandAction(action, shortcutsContext, event);
@@ -364,86 +377,16 @@ export class PatternKeyboardShortcutsService {
 		switch (event.key) {
 			case 'ArrowUp':
 				if (!shortcutsContext.isPlaying) {
-					if (event.shiftKey) {
-						if (!shortcutsContext.hasSelection()) {
-							shortcutsContext.onSetSelectionAnchor(
-								shortcutsContext.selectedRow,
-								shortcutsContext.selectedColumn
-							);
-						}
-						const newState = PatternNavigationService.moveRow(
-							{
-								selectedRow: shortcutsContext.selectedRow,
-								currentPatternOrderIndex: shortcutsContext.currentPatternOrderIndex,
-								selectedColumn: shortcutsContext.selectedColumn
-							},
-							shortcutsContext.navigationContext,
-							-1
-						);
-						shortcutsContext.onExtendSelection(
-							newState.selectedRow,
-							newState.selectedColumn
-						);
-						shortcutsContext.onSetSelectedRow(newState.selectedRow);
-						if (
-							newState.currentPatternOrderIndex !==
-							shortcutsContext.currentPatternOrderIndex
-						) {
-							shortcutsContext.onSetCurrentPatternOrderIndex(
-								newState.currentPatternOrderIndex
-							);
-						}
-					} else {
-						shortcutsContext.onClearSelection();
-						shortcutsContext.onMoveRow(-1);
-					}
+					moveRowOrLeaveEditor(shortcutsContext, -1, event.shiftKey);
 				}
 				return { handled: true, shouldPreventDefault: true };
 			case 'ArrowDown':
 				if (!shortcutsContext.isPlaying) {
-					if (event.shiftKey) {
-						if (!shortcutsContext.hasSelection()) {
-							shortcutsContext.onSetSelectionAnchor(
-								shortcutsContext.selectedRow,
-								shortcutsContext.selectedColumn
-							);
-						}
-						const newState = PatternNavigationService.moveRow(
-							{
-								selectedRow: shortcutsContext.selectedRow,
-								currentPatternOrderIndex: shortcutsContext.currentPatternOrderIndex,
-								selectedColumn: shortcutsContext.selectedColumn
-							},
-							shortcutsContext.navigationContext,
-							1
-						);
-						shortcutsContext.onExtendSelection(
-							newState.selectedRow,
-							newState.selectedColumn
-						);
-						shortcutsContext.onSetSelectedRow(newState.selectedRow);
-						if (
-							newState.currentPatternOrderIndex !==
-							shortcutsContext.currentPatternOrderIndex
-						) {
-							shortcutsContext.onSetCurrentPatternOrderIndex(
-								newState.currentPatternOrderIndex
-							);
-						}
-					} else {
-						shortcutsContext.onClearSelection();
-						shortcutsContext.onMoveRow(1);
-					}
+					moveRowOrLeaveEditor(shortcutsContext, 1, event.shiftKey);
 				}
 				return { handled: true, shouldPreventDefault: true };
 			case 'ArrowLeft':
 				if (event.shiftKey) {
-					if (!shortcutsContext.hasSelection()) {
-						shortcutsContext.onSetSelectionAnchor(
-							shortcutsContext.selectedRow,
-							shortcutsContext.selectedColumn
-						);
-					}
 					const newState = PatternNavigationService.moveColumnByDelta(
 						{
 							selectedRow: shortcutsContext.selectedRow,
@@ -453,7 +396,8 @@ export class PatternKeyboardShortcutsService {
 						shortcutsContext.navigationContext,
 						-1
 					);
-					shortcutsContext.onExtendSelection(
+					extendSelectionTo(
+						shortcutsContext,
 						newState.selectedRow,
 						newState.selectedColumn
 					);
@@ -465,12 +409,6 @@ export class PatternKeyboardShortcutsService {
 				return { handled: true, shouldPreventDefault: true };
 			case 'ArrowRight':
 				if (event.shiftKey) {
-					if (!shortcutsContext.hasSelection()) {
-						shortcutsContext.onSetSelectionAnchor(
-							shortcutsContext.selectedRow,
-							shortcutsContext.selectedColumn
-						);
-					}
 					const newState = PatternNavigationService.moveColumnByDelta(
 						{
 							selectedRow: shortcutsContext.selectedRow,
@@ -480,7 +418,8 @@ export class PatternKeyboardShortcutsService {
 						shortcutsContext.navigationContext,
 						1
 					);
-					shortcutsContext.onExtendSelection(
+					extendSelectionTo(
+						shortcutsContext,
 						newState.selectedRow,
 						newState.selectedColumn
 					);

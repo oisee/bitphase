@@ -1,23 +1,22 @@
 <script lang="ts">
 	import Button from '../Button/Button.svelte';
+	import Checkbox from '../Checkbox/Checkbox.svelte';
 	import FormField from '../FormField/FormField.svelte';
 	import Select from '../AppLayout/Select.svelte';
+	import { NativeSelect } from '../NativeSelect';
 	import RangeInput from '../RangeInput/RangeInput.svelte';
 	import Input from '../Input/Input.svelte';
+	import { ModalPanel } from '../ModalPanel';
 	import {
 		defaultWavExportSettings,
 		sampleRateOptions,
 		bitDepthOptions,
 		channelModeOptions,
 		type WavExportSettings
-	} from '../../services/file/wav-export-settings';
+	} from '../../services/file/wav/wav-export-settings';
 	import type { Project } from '../../models/project';
 
-	let {
-		project,
-		resolve,
-		dismiss
-	} = $props<{
+	let { project, resolve, dismiss } = $props<{
 		project: Project;
 		resolve?: (value?: WavExportSettings) => void;
 		dismiss?: (error?: any) => void;
@@ -29,8 +28,10 @@
 		artist: project.author || ''
 	});
 
+	let repeatCount = $state(Math.max(0, settings.loops - 1));
+
 	function handleExport() {
-		resolve?.(settings);
+		resolve?.({ ...settings, loops: repeatCount + 1 });
 	}
 
 	function handleCancel() {
@@ -38,13 +39,8 @@
 	}
 </script>
 
-<div class="flex max-h-[90vh] w-[500px] flex-col overflow-hidden">
-	<div
-		class="flex shrink-0 items-center gap-2 border-b border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-4 py-3">
-		<h2 class="text-sm font-bold text-[var(--color-app-text-primary)]">WAV Export Settings</h2>
-	</div>
-
-	<div class="min-h-0 flex-1 overflow-y-auto p-4">
+<ModalPanel title="WAV Export Settings" width="w-[500px]">
+	{#snippet children()}
 		<FormField id="sample-rate" label="Sample Rate">
 			<Select bind:value={settings.sampleRate} options={sampleRateOptions} />
 		</FormField>
@@ -55,24 +51,27 @@
 
 		<FormField
 			id="loops"
-			label="Number of Loops"
-			description="How many times the song should loop in the exported file">
-			<RangeInput bind:value={settings.loops} min={1} max={10} step={1} />
+			label="Loop Repeats"
+			description="Additional repeats after first play (0 = no repeat)">
+			<RangeInput bind:value={repeatCount} min={0} max={9} step={1} />
 		</FormField>
 
 		<FormField
 			id="channel-mode"
 			label="Channels"
-			description="Mixed: one stereo WAV. Separate: one WAV file per chip channel (e.g. AY A/B/C). Supports multiple chips (1xAY, 2xAY, etc.).">
-			<select
+			description="Mixed writes one WAV. Separate writes one WAV per chip channel (for example AY A/B/C). Multiple chips are included.">
+			<NativeSelect
 				id="channel-mode"
 				bind:value={settings.channelMode}
-				class="w-full cursor-pointer rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-2 py-1.5 text-xs text-[var(--color-app-text-primary)] focus:border-[var(--color-app-primary)] focus:outline-none"
-			>
-				{#each channelModeOptions as opt}
-					<option value={opt.value}>{opt.label}</option>
-				{/each}
-			</select>
+				class="w-full"
+				options={channelModeOptions.map((opt) => ({
+					label: opt.label,
+					value: opt.value
+				}))} />
+		</FormField>
+
+		<FormField id="wav-stereo" label="Stereo">
+			<Checkbox id="wav-stereo" bind:checked={settings.stereo} />
 		</FormField>
 
 		<div class="mb-4 border-t border-[var(--color-app-border)] pt-4">
@@ -123,14 +122,14 @@
 					bind:value={settings.comment}
 					placeholder="Additional comments"
 					rows="3"
-					class="w-full rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-2 py-1 text-xs text-[var(--color-app-text-secondary)] placeholder-[var(--color-app-text-muted)] focus:border-[var(--color-app-primary)] focus:outline-none resize-none"></textarea>
+					class="w-full resize-none rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-2 py-1 text-xs text-[var(--color-app-text-secondary)] placeholder-[var(--color-app-text-muted)] focus:border-[var(--color-app-primary)] focus:outline-none"
+				></textarea>
 			</FormField>
 		</div>
-	</div>
+	{/snippet}
 
-	<div
-		class="flex shrink-0 justify-end gap-2 border-t border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-4 py-3">
+	{#snippet footer()}
 		<Button variant="secondary" onclick={handleCancel}>Cancel</Button>
 		<Button variant="primary" onclick={handleExport}>Export</Button>
-	</div>
-</div>
+	{/snippet}
+</ModalPanel>

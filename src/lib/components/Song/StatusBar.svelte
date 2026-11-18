@@ -1,39 +1,84 @@
 <script lang="ts">
 	import type { Pattern } from '../../models/song';
 	import type { Chip } from '../../chips/types';
+	import type { Table } from '../../models/project';
 	import { playbackStore } from '../../stores/playback.svelte';
 	import { projectStore } from '../../stores/project.svelte';
+	import {
+		getChannelEffectColumnLabel,
+		isChannelEffectFieldKey,
+		isEffectFieldKey,
+		resolveSchemaField
+	} from '../../chips/base/channel-effect-columns';
+	import { describePatternEffect, getEffectFromPattern } from '../../chips/base/effect-status';
+	import { createTempoRowClock } from '../../services/playback/tempo-row-frames';
 
 	let {
 		songIndex,
 		selectedRow,
 		selectedFieldKey,
+		selectedChannelIndex,
 		currentPatternOrderIndex,
 		chip
 	}: {
 		songIndex: number;
 		selectedRow: number;
 		selectedFieldKey: string | null;
+		selectedChannelIndex: number;
 		currentPatternOrderIndex: number;
 		chip: Chip;
 	} = $props();
 
+	const TIMELINE_SONG_INDEX = 0;
+
+	const patternLists = $derived(projectStore.patterns);
 	const patternOrder = $derived(projectStore.patternOrder);
-	const patterns = $derived(projectStore.patterns[songIndex] ?? []);
-	const speed = $derived(projectStore.songs[songIndex]?.initialSpeed ?? 3);
-	const interruptFrequency = $derived(projectStore.songs[songIndex]?.interruptFrequency ?? 50);
+	const activePatterns = $derived(patternLists[songIndex] ?? []);
+	const timelinePatterns = $derived(patternLists[TIMELINE_SONG_INDEX] ?? []);
+	const tables = $derived(projectStore.tables ?? []);
+	const speed = $derived(projectStore.getInitialSpeed());
+	const interruptFrequency = $derived(projectStore.getInterruptFrequency());
+	const tempo = $derived(projectStore.getTempo());
 	const pattern = $derived(
-		patterns.find((p) => p.id === patternOrder[currentPatternOrderIndex]) ?? null
+		activePatterns.find((p) => p.id === patternOrder[currentPatternOrderIndex]) ?? null
+	);
+	const timelinePatternAtOrder = $derived(
+		timelinePatterns.find((p) => p.id === patternOrder[currentPatternOrderIndex]) ?? null
+	);
+	const timelineRowForDisplay = $derived(
+		timelinePatternAtOrder && timelinePatternAtOrder.length > 0
+			? Math.min(selectedRow, timelinePatternAtOrder.length - 1)
+			: 0
 	);
 
-	const schema = chip.schema;
+	const schema = $derived(chip.schema);
+
+	function getTableById(tables: Table[], id: number): Table | undefined {
+		return tables.find((t) => t.id === id);
+	}
+
+	function advanceSpeedTablePosition(position: number, table: Table): number {
+		let next = position + 1;
+		if (next >= table.rows.length) {
+			next = table.loop >= 0 && table.loop < table.rows.length ? table.loop : 0;
+		}
+		return next;
+	}
+
+	function getFirstNonZeroSpeedTablePosition(table: Table): number {
+		let position = 0;
+		while (position < table.rows.length && (table.rows[position] ?? 0) <= 0) {
+			position++;
+		}
+		return position >= table.rows.length ? 0 : position;
+	}
 
 	const helpMessage = $derived.by(() => {
 		if (!pattern || selectedRow < 0 || selectedRow >= pattern.length || !selectedFieldKey) {
 			return '';
 		}
 
-		const field = schema.fields[selectedFieldKey] || schema.globalFields?.[selectedFieldKey];
+		const field = resolveSchemaField(schema, selectedFieldKey);
 		if (!field) {
 			return '';
 		}
@@ -41,7 +86,7 @@
 		const fieldType = field.type;
 
 		if (fieldType === 'note') {
-			return 'Note: Enter a note. You can enter OFF to stop playback.';
+			return 'Note: Enter a note. You can enter OFF to stop playback, or RELEASE to jump to the instrument release.';
 		}
 
 		if (selectedFieldKey === 'instrument') {
@@ -49,11 +94,20 @@
 		}
 
 		if (selectedFieldKey === 'volume') {
-			return 'Volume: Set channel volume. Hex: (1-F).';
+			return 'Volume: Set channel volume (1-F), 0 = mute, . = keep previous.';
 		}
 
-		if (selectedFieldKey === 'effect') {
-			return 'Effect: Enter effect command (e.g., A137, S.03, P30F). Check effects list for available commands.';
+		if (selectedFieldKey === 'left') {
+			return 'Left volume: Set the left output level (1-F), 0 = silence, . = keep previous.';
+		}
+
+		if (selectedFieldKey === 'right') {
+			return 'Right volume: Set the right output level (1-F), 0 = silence, . = keep previous.';
+		}
+
+		if (isChannelEffectFieldKey(selectedFieldKey)) {
+			const label = getChannelEffectColumnLabel(selectedFieldKey) ?? 'Effect';
+			return `${label}: Enter effect command (e.g., A137, S.03, P30F). Check effects list for available commands.`;
 		}
 
 		if (selectedFieldKey === 'envelopeEffect') {
@@ -72,8 +126,16 @@
 			return 'Envelope Shape: Set envelope generator shape. Hex: (1-F).';
 		}
 
+		if (selectedFieldKey === 'env0' || selectedFieldKey === 'env1') {
+			return 'Envelope mode for channels A-C or D-F. Hex 0-C. 0 is off. A blank cell leaves the current mode.';
+		}
+
 		if (selectedFieldKey === 'noiseValue') {
 			return 'Noise: Set noise generator value. Hex: (00-1F).';
+		}
+
+		if (selectedFieldKey === 'noise0' || selectedFieldKey === 'noise1') {
+			return 'Noise clock for A-C or D-F: 0 high, 1 mid, 2 low, 3 locked to A or D. Blank keeps the current clock.';
 		}
 
 		if (fieldType === 'hex') {
@@ -87,39 +149,161 @@
 		return '';
 	});
 
+	const effectHint = $derived.by(() => {
+		if (playbackStore.isPlaying) {
+			return '';
+		}
+		if (
+			!pattern ||
+			selectedRow < 0 ||
+			selectedRow >= pattern.length ||
+			!selectedFieldKey ||
+			!isEffectFieldKey(selectedFieldKey)
+		) {
+			return '';
+		}
+
+		const effect = getEffectFromPattern(
+			pattern,
+			selectedRow,
+			selectedFieldKey,
+			selectedChannelIndex
+		);
+		return describePatternEffect(effect, chip) ?? '';
+	});
+
+	function patternsAtOrderIndex(
+		lists: Pattern[][],
+		order: number[],
+		orderIdx: number
+	): Pattern[] {
+		const out: Pattern[] = [];
+		if (orderIdx >= order.length) return out;
+		const id = order[orderIdx];
+		for (const songPatterns of lists) {
+			const p = songPatterns.find((x) => x.id === id);
+			if (p) out.push(p);
+		}
+		return out;
+	}
+
+	function findSpeedEffectOnRow(
+		pattern: Pattern,
+		rowIdx: number
+	): { parameter: number; tableIndex?: number } | null {
+		const SPEED_EFFECT_TYPE = 'S'.charCodeAt(0);
+		let effect: { parameter: number; tableIndex?: number } | null = null;
+		for (const channel of pattern.channels) {
+			const row = channel.rows[rowIdx];
+			for (const slot of row?.effects ?? []) {
+				if (!slot || slot.effect !== SPEED_EFFECT_TYPE) continue;
+				effect = slot;
+			}
+		}
+		return effect;
+	}
+
+	function getRowSpeedWithTables(
+		patternsAtOrder: Pattern[],
+		rowIdx: number,
+		currentSpeed: number,
+		speedTableId: number,
+		speedTablePosition: number,
+		tables: Table[]
+	): { speed: number; nextTableId: number; nextTablePosition: number } {
+		let effect: { parameter: number; tableIndex?: number } | null = null;
+		for (const pattern of patternsAtOrder) {
+			if (rowIdx < 0 || rowIdx >= pattern.length) continue;
+			const e = findSpeedEffectOnRow(pattern, rowIdx);
+			if (e) effect = e;
+		}
+
+		if (effect?.tableIndex !== undefined && effect.tableIndex >= 0) {
+			const table = getTableById(tables, effect.tableIndex);
+			if (!table?.rows?.length) {
+				return {
+					speed: currentSpeed,
+					nextTableId: -1,
+					nextTablePosition: 0
+				};
+			}
+			const position = getFirstNonZeroSpeedTablePosition(table);
+			const speedValue = table.rows[position] ?? 0;
+			const nextPosition = advanceSpeedTablePosition(position, table);
+			return {
+				speed: speedValue > 0 ? speedValue : currentSpeed,
+				nextTableId: effect.tableIndex,
+				nextTablePosition: nextPosition
+			};
+		}
+
+		if (effect && effect.parameter > 0) {
+			return {
+				speed: effect.parameter,
+				nextTableId: -1,
+				nextTablePosition: 0
+			};
+		}
+
+		if (speedTableId >= 0) {
+			const table = getTableById(tables, speedTableId);
+			if (table?.rows?.length) {
+				const speedValue = table.rows[speedTablePosition] ?? 0;
+				const nextPosition = advanceSpeedTablePosition(speedTablePosition, table);
+				return {
+					speed: speedValue > 0 ? speedValue : currentSpeed,
+					nextTableId: speedTableId,
+					nextTablePosition: nextPosition
+				};
+			}
+		}
+
+		return {
+			speed: currentSpeed,
+			nextTableId: speedTableId,
+			nextTablePosition: speedTablePosition
+		};
+	}
+
 	function calculateTimeToPosition(
 		patternOrder: number[],
-		patterns: Pattern[],
+		patternLists: Pattern[][],
+		tables: Table[],
 		targetPatternOrderIndex: number,
 		targetRow: number,
 		initialSpeed: number,
-		interruptFrequency: number
+		interruptFrequency: number,
+		tempo: number
 	): number {
 		let totalTime = 0;
-		const SPEED_EFFECT_TYPE = 'S'.charCodeAt(0);
 		let currentSpeed = initialSpeed;
+		let speedTableId = -1;
+		let speedTablePosition = 0;
+		const clock = createTempoRowClock(tempo, interruptFrequency);
 
 		for (let orderIdx = 0; orderIdx <= targetPatternOrderIndex; orderIdx++) {
 			if (orderIdx >= patternOrder.length) break;
 
-			const patternId = patternOrder[orderIdx];
-			const pattern = patterns.find((p) => p.id === patternId);
-			if (!pattern) continue;
+			const patternsAtOrder = patternsAtOrderIndex(patternLists, patternOrder, orderIdx);
+			const leader = patternsAtOrder[TIMELINE_SONG_INDEX] ?? patternsAtOrder[0] ?? null;
+			if (!leader) continue;
 
-			const maxRow = orderIdx === targetPatternOrderIndex ? targetRow : pattern.length - 1;
+			const maxRow = orderIdx === targetPatternOrderIndex ? targetRow : leader.length - 1;
 
 			for (let rowIdx = 0; rowIdx <= maxRow; rowIdx++) {
-				for (const channel of pattern.channels) {
-					const row = channel.rows[rowIdx];
-					if (!row?.effects?.[0] || row.effects[0].effect !== SPEED_EFFECT_TYPE) continue;
-					const speedValue = row.effects[0].parameter;
-					if (speedValue > 0) {
-						currentSpeed = speedValue;
-					}
-				}
+				const result = getRowSpeedWithTables(
+					patternsAtOrder,
+					rowIdx,
+					currentSpeed,
+					speedTableId,
+					speedTablePosition,
+					tables
+				);
+				currentSpeed = result.speed;
+				speedTableId = result.nextTableId;
+				speedTablePosition = result.nextTablePosition;
 
-				const rowDuration = currentSpeed / interruptFrequency;
-				totalTime += rowDuration;
+				totalTime += clock.secondsForSpeed(currentSpeed);
 			}
 		}
 
@@ -127,17 +311,19 @@
 	}
 
 	const currentTime = $derived.by(() => {
-		if (!pattern || patternOrder.length === 0) {
+		if (!timelinePatternAtOrder || patternOrder.length === 0) {
 			return 0;
 		}
 
 		return calculateTimeToPosition(
 			patternOrder,
-			patterns,
+			patternLists,
+			tables,
 			currentPatternOrderIndex,
-			selectedRow,
+			timelineRowForDisplay,
 			speed,
-			interruptFrequency
+			interruptFrequency,
+			tempo
 		);
 	});
 
@@ -145,7 +331,7 @@
 	let baseTimestamp = $state(0);
 
 	$effect(() => {
-		selectedRow;
+		timelineRowForDisplay;
 		currentPatternOrderIndex;
 		playbackStore.isPlaying;
 		baseTime = currentTime;
@@ -158,72 +344,41 @@
 		return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 	}
 
-	function getRowSpeed(pattern: Pattern, rowIdx: number, currentSpeed: number): number {
-		const SPEED_EFFECT_TYPE = 'S'.charCodeAt(0);
-		let rowSpeed = currentSpeed;
-
-		for (const channel of pattern.channels) {
-			const row = channel.rows[rowIdx];
-			if (!row?.effects?.[0] || row.effects[0].effect !== SPEED_EFFECT_TYPE) continue;
-			const speedValue = row.effects[0].parameter;
-			if (speedValue > 0) {
-				rowSpeed = speedValue;
-			}
-		}
-
-		return rowSpeed;
-	}
-
 	function calculateSampleCounter(
 		patternOrder: number[],
-		patterns: Pattern[],
+		patternLists: Pattern[][],
+		tables: Table[],
 		targetPatternOrderIndex: number,
 		targetRow: number,
 		initialSpeed: number
 	): number {
 		let totalSamples = 0;
 		let currentSpeed = initialSpeed;
+		let speedTableId = -1;
+		let speedTablePosition = 0;
 
-		for (let orderIdx = 0; orderIdx < targetPatternOrderIndex; orderIdx++) {
+		for (let orderIdx = 0; orderIdx <= targetPatternOrderIndex; orderIdx++) {
 			if (orderIdx >= patternOrder.length) break;
 
-			const patternId = patternOrder[orderIdx];
-			const pattern = patterns.find((p) => p.id === patternId);
-			if (!pattern) continue;
+			const patternsAtOrder = patternsAtOrderIndex(patternLists, patternOrder, orderIdx);
+			const leader = patternsAtOrder[TIMELINE_SONG_INDEX] ?? patternsAtOrder[0] ?? null;
+			if (!leader) continue;
 
-			for (let rowIdx = 0; rowIdx < pattern.length; rowIdx++) {
-				const rowSpeed = getRowSpeed(pattern, rowIdx, currentSpeed);
-				currentSpeed = rowSpeed;
-				totalSamples += rowSpeed;
-			}
-		}
+			const maxRow = orderIdx === targetPatternOrderIndex ? targetRow : leader.length - 1;
 
-		if (targetPatternOrderIndex < patternOrder.length && targetRow >= 0) {
-			const patternId = patternOrder[targetPatternOrderIndex];
-			const pattern = patterns.find((p) => p.id === patternId);
-			if (pattern) {
-				if (targetPatternOrderIndex > 0) {
-					const prevPatternId = patternOrder[targetPatternOrderIndex - 1];
-					const prevPattern = patterns.find((p) => p.id === prevPatternId);
-					if (prevPattern) {
-						let prevPatternSpeed = currentSpeed;
-						for (let prevRowIdx = 0; prevRowIdx < prevPattern.length; prevRowIdx++) {
-							prevPatternSpeed = getRowSpeed(
-								prevPattern,
-								prevRowIdx,
-								prevPatternSpeed
-							);
-						}
-						totalSamples += prevPatternSpeed;
-						currentSpeed = prevPatternSpeed;
-					}
-				}
-
-				for (let rowIdx = 0; rowIdx < targetRow; rowIdx++) {
-					const rowSpeed = getRowSpeed(pattern, rowIdx, currentSpeed);
-					currentSpeed = rowSpeed;
-					totalSamples += rowSpeed;
-				}
+			for (let rowIdx = 0; rowIdx <= maxRow; rowIdx++) {
+				const result = getRowSpeedWithTables(
+					patternsAtOrder,
+					rowIdx,
+					currentSpeed,
+					speedTableId,
+					speedTablePosition,
+					tables
+				);
+				currentSpeed = result.speed;
+				speedTableId = result.nextTableId;
+				speedTablePosition = result.nextTablePosition;
+				totalSamples += result.speed;
 			}
 		}
 
@@ -231,15 +386,16 @@
 	}
 
 	const sampleCounter = $derived.by(() => {
-		if (!pattern || patternOrder.length === 0) {
+		if (!timelinePatternAtOrder || patternOrder.length === 0) {
 			return 0;
 		}
 
 		return calculateSampleCounter(
 			patternOrder,
-			patterns,
+			patternLists,
+			tables,
 			currentPatternOrderIndex,
-			selectedRow,
+			timelineRowForDisplay,
 			speed
 		);
 	});
@@ -251,14 +407,15 @@
 
 		const lastPatternIndex = patternOrder.length - 1;
 		const lastPatternId = patternOrder[lastPatternIndex];
-		const lastPattern = patterns.find((p) => p.id === lastPatternId);
+		const lastPattern = timelinePatterns.find((p) => p.id === lastPatternId);
 		if (!lastPattern) {
 			return 0;
 		}
 
 		return calculateSampleCounter(
 			patternOrder,
-			patterns,
+			patternLists,
+			tables,
 			lastPatternIndex,
 			lastPattern.length - 1,
 			speed
@@ -273,18 +430,20 @@
 
 		const lastPatternIndex = patternOrder.length - 1;
 		const lastPatternId = patternOrder[lastPatternIndex];
-		const lastPattern = patterns.find((p) => p.id === lastPatternId);
+		const lastPattern = timelinePatterns.find((p) => p.id === lastPatternId);
 		if (!lastPattern) {
 			return 0;
 		}
 
 		return calculateTimeToPosition(
 			patternOrder,
-			patterns,
+			patternLists,
+			tables,
 			lastPatternIndex,
 			lastPattern.length - 1,
 			speed,
-			interruptFrequency
+			interruptFrequency,
+			tempo
 		);
 	});
 
@@ -297,8 +456,15 @@
 
 <div
 	class="flex h-6 items-center gap-4 border-t border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] px-4 text-xs text-[var(--color-app-text-muted)]">
-	<div class="flex-1 truncate">
-		{helpMessage || '=== Ready ==='}
+	<div class="flex min-w-0 flex-1 items-center gap-4">
+		<div class="min-w-0 flex-1 truncate">
+			{helpMessage || '=== Ready ==='}
+		</div>
+		{#if effectHint}
+			<div class="shrink-0 text-[var(--color-app-text-secondary)]">
+				{effectHint}
+			</div>
+		{/if}
 	</div>
 	<div class="shrink-0">
 		Tick: {sampleCounter} / {maxSampleCounter}

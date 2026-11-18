@@ -1,10 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import {
+	clampVirtualChannelCount,
 	computeEffectiveChannelLabels,
 	getHardwareChannelIndex,
 	getVirtualChannelGroups,
+	getVirtualIndicesForHardwareChannel,
 	getTotalVirtualChannelCount,
-	hasVirtualChannels
+	hasVirtualChannels,
+	MAX_VIRTUAL_CHANNELS_PER_HARDWARE_CHANNEL,
+	normalizeVirtualChannelMap,
+	normalizeVirtualChannelRoles,
+	selectChannelsWithinVirtualLimit,
+	shiftVirtualChannelRolesForRemoval,
+	toggleVirtualChannelRole,
+	virtualChannelRoleMarks
 } from '../../../src/lib/models/virtual-channels';
 
 const HW_LABELS = ['A', 'B', 'C'];
@@ -29,6 +38,12 @@ describe('computeEffectiveChannelLabels', () => {
 	it('should treat count of 1 as no virtual channels', () => {
 		expect(computeEffectiveChannelLabels(HW_LABELS, { 0: 1, 1: 1, 2: 1 })).toEqual([
 			'A', 'B', 'C'
+		]);
+	});
+
+	it('should cap a hardware channel at 8 virtual channels', () => {
+		expect(computeEffectiveChannelLabels(HW_LABELS, { 1: 12 })).toEqual([
+			'A', 'B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'C'
 		]);
 	});
 });
@@ -86,6 +101,18 @@ describe('getVirtualChannelGroups', () => {
 	});
 });
 
+describe('getVirtualIndicesForHardwareChannel', () => {
+	it('returns the single index when there are no virtual channels', () => {
+		expect(getVirtualIndicesForHardwareChannel(1, HW_LABELS, {})).toEqual([1]);
+	});
+
+	it('returns all virtual indices for a split hardware channel', () => {
+		expect(getVirtualIndicesForHardwareChannel(0, HW_LABELS, { 0: 2 })).toEqual([0, 1]);
+		expect(getVirtualIndicesForHardwareChannel(1, HW_LABELS, { 0: 2 })).toEqual([2]);
+		expect(getVirtualIndicesForHardwareChannel(2, HW_LABELS, { 0: 2 })).toEqual([3]);
+	});
+});
+
 describe('getTotalVirtualChannelCount', () => {
 	it('should return hardware count with no virtual channels', () => {
 		expect(getTotalVirtualChannelCount(3, {})).toBe(3);
@@ -96,7 +123,34 @@ describe('getTotalVirtualChannelCount', () => {
 	});
 
 	it('should treat missing entries as 1', () => {
-		expect(getTotalVirtualChannelCount(3, { 1: 4 })).toBe(6);
+		expect(getTotalVirtualChannelCount(3, { 1: 2 })).toBe(4);
+	});
+
+	it('should cap each hardware channel at the virtual channel limit', () => {
+		expect(getTotalVirtualChannelCount(3, { 1: 12 })).toBe(10);
+	});
+});
+
+describe('virtual channel limit', () => {
+	it('clamps counts into the range 1..8', () => {
+		expect(MAX_VIRTUAL_CHANNELS_PER_HARDWARE_CHANNEL).toBe(8);
+		expect(clampVirtualChannelCount(undefined)).toBe(1);
+		expect(clampVirtualChannelCount(0)).toBe(1);
+		expect(clampVirtualChannelCount(2.9)).toBe(2);
+		expect(clampVirtualChannelCount(3)).toBe(3);
+		expect(clampVirtualChannelCount(8)).toBe(8);
+		expect(clampVirtualChannelCount(9)).toBe(8);
+	});
+
+	it('drops unsplit channels and caps the stored map', () => {
+		expect(normalizeVirtualChannelMap({ 0: 11, 1: 1, 2: 2 }, 3)).toEqual({ 0: 8, 2: 2 });
+	});
+
+	it('keeps the first 8 virtual channels in a group and the other hardware channels', () => {
+		const a = Array.from({ length: 10 }, (_, i) => `A${i + 1}`);
+		expect(
+			selectChannelsWithinVirtualLimit([...a, 'B', 'C1', 'C2'], 3, { 0: 10, 2: 2 })
+		).toEqual([...a.slice(0, 8), 'B', 'C1', 'C2']);
 	});
 });
 
@@ -111,5 +165,41 @@ describe('hasVirtualChannels', () => {
 
 	it('should return true when any count exceeds 1', () => {
 		expect(hasVirtualChannels({ 0: 1, 1: 2 })).toBe(true);
+	});
+});
+
+describe('virtual channel roles', () => {
+	it('keeps one column per role and toggles it off', () => {
+		const on = toggleVirtualChannelRole({}, 0, 1, 'timer');
+		expect(on).toEqual({ 0: { 1: 'timer' } });
+		const moved = toggleVirtualChannelRole(on, 0, 0, 'timer');
+		expect(moved).toEqual({ 0: { 0: 'timer' } });
+		expect(toggleVirtualChannelRole(moved, 0, 0, 'timer')).toEqual({});
+	});
+
+	it('shifts roles when a column is removed and clears them when one column remains', () => {
+		expect(shiftVirtualChannelRolesForRemoval({ 1: { 2: 'timer' } }, 1, 1, 2)).toEqual({
+			1: { 1: 'timer' }
+		});
+		expect(shiftVirtualChannelRolesForRemoval({ 0: { 1: 'timer' } }, 0, 1, 1)).toEqual({});
+	});
+
+	it('drops unknown roles and a lone hardware channel', () => {
+		expect(
+			normalizeVirtualChannelRoles(
+				{ 0: { 0: 'nope', 1: 'timer' }, 1: { 0: 'timer' } },
+				{ 0: 2 },
+				3,
+				['timer']
+			)
+		).toEqual({ 0: { 1: 'timer' } });
+	});
+
+	it('marks the header of the column that owns a role', () => {
+		expect(
+			virtualChannelRoleMarks(4, HW_LABELS, { 0: 2 }, { 0: { 1: 'timer' } }, [
+				{ id: 'timer', headerMark: 'Timer' }
+			])
+		).toEqual([null, 'Timer', null, null]);
 	});
 });

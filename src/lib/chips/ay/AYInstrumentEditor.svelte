@@ -1,17 +1,39 @@
 <script lang="ts">
 	import type { Instrument } from '../../models/song';
-	import IconCarbonTrashCan from '~icons/carbon/trash-can';
-	import IconCarbonDelete from '~icons/carbon/delete';
-	import IconCarbonAdd from '~icons/carbon/add';
-	import IconCarbonCopy from '~icons/carbon/copy';
 	import IconCarbonVolumeUp from '~icons/carbon/volume-up';
 	import IconCarbonArrowsVertical from '~icons/carbon/arrows-vertical';
 	import IconCarbonChartWinLoss from '~icons/carbon/chart-win-loss';
-	import RowResizeHandle from '../../components/RowResizeHandle/RowResizeHandle.svelte';
+
 	import IconCarbonWaveform from '~icons/carbon/waveform';
 	import IconCarbonActivity from '~icons/carbon/activity';
 	import IconCarbonRepeat from '~icons/carbon/repeat';
-	import Input from '../../components/Input/Input.svelte';
+	import IconCarbonMusic from '~icons/carbon/music';
+	import IconCarbonRenew from '~icons/carbon/renew';
+	import IconCarbonSettingsAdjust from '~icons/carbon/settings-adjust';
+	import PillTabs, { type PillTab } from '../../components/PillTabs/PillTabs.svelte';
+	import InstrumentEditorIdentity from '../../components/Instruments/InstrumentEditorIdentity.svelte';
+	import AYTimerWaveformDrawer from './AYTimerWaveformDrawer.svelte';
+	import AYTimerPwmControls from './AYTimerPwmControls.svelte';
+	import AYInstrumentSamplePanel from './AYInstrumentSamplePanel.svelte';
+	import { AyTimerEffectsController } from './ay-timer-effects-controller.svelte.js';
+	import { setAyTimerEffectsContext } from './ay-timer-effects-context';
+	import { type AyInstrumentFields } from './instrument';
+	import { instrumentHasSample } from './sample-region';
+	import { AY_MIXER_MACRO_FIELDS } from './mixer-macros';
+	import { AY_TIMER_MACRO_FIELDS } from './ay-timer-macros';
+	import InstrumentMacrosEditor from '../../components/Instruments/InstrumentMacrosEditor.svelte';
+	import InstrumentClassicModeToggle from '../../components/Instruments/InstrumentClassicModeToggle.svelte';
+	import { settingsStore } from '../../stores/settings.svelte';
+	import AYInstrumentClassicMixer from './AYInstrumentClassicMixer.svelte';
+	import AYInstrumentClassicTimer from './AYInstrumentClassicTimer.svelte';
+	import {
+		instrumentMacroUpdates,
+		resolveTimerInstrumentMacros,
+		type InstrumentMacros
+	} from '../../chips/base/instrument-macros';
+
+	type InstrumentTab = 'mixer' | 'timer' | 'sample';
+	type TimerInstrument = Instrument & { timerMacros?: InstrumentMacros };
 
 	let {
 		instrument,
@@ -25,910 +47,193 @@
 		onInstrumentChange: (instrument: Instrument) => void;
 	} = $props();
 
-	const VOLUME_VALUES = Array.from({ length: 16 }, (_, i) => i);
-	const showVolumeGrid = $derived(isExpanded);
+	let activeTab = $state<InstrumentTab>('mixer');
 
-	const EMPTY_ROW = {
-		tone: false,
-		noise: false,
-		envelope: false,
-		retriggerEnvelope: false,
-		toneAdd: 0,
-		noiseAdd: 0,
-		envelopeAdd: 0,
-		volume: 0,
-		alpha: 15,
-		loop: false,
-		amplitudeSliding: false,
-		amplitudeSlideUp: false,
-		toneAccumulation: false,
-		noiseAccumulation: false,
-		envelopeAccumulation: false
+	const extendedInstrument = $derived(instrument as Instrument & Partial<AyInstrumentFields>);
+	const hasSample = $derived(instrumentHasSample(extendedInstrument));
+	const classicEditor = $derived(settingsStore.classicInstrumentEditor);
+
+	const instrumentTabs = $derived.by((): PillTab[] => [
+		{ id: 'mixer', label: 'Mixer', icon: IconCarbonVolumeUp, disabled: hasSample },
+		{ id: 'timer', label: 'Timer Effects', icon: IconCarbonActivity, disabled: hasSample },
+		{ id: 'sample', label: 'Sample', icon: IconCarbonWaveform }
+	]);
+
+	const mixerIcons = {
+		volume: IconCarbonVolumeUp,
+		tone: IconCarbonMusic,
+		noise: IconCarbonWaveform,
+		envelope: IconCarbonActivity,
+		envelopeShape: IconCarbonActivity,
+		retriggerEnvelope: IconCarbonRepeat,
+		toneAdd: IconCarbonChartWinLoss,
+		toneAccumulation: IconCarbonRenew,
+		noiseAdd: IconCarbonWaveform,
+		noiseAccumulation: IconCarbonRenew,
+		envelopeAdd: IconCarbonActivity,
+		envelopeAccumulation: IconCarbonRenew,
+		amplitudeSlide: IconCarbonArrowsVertical
 	};
 
-	const MAX_ROWS = 512;
+	const timerIcons = {
+		sid: IconCarbonChartWinLoss,
+		syncbuzzer: IconCarbonActivity,
+		timerWaveform: IconCarbonWaveform,
+		fm: IconCarbonMusic,
+		fmOffsetMode: IconCarbonSettingsAdjust,
+		fmWaveform: IconCarbonWaveform,
+		envFm: IconCarbonRepeat,
+		envFmOffsetMode: IconCarbonSettingsAdjust,
+		envFmWaveform: IconCarbonWaveform,
+		semitone: IconCarbonArrowsVertical,
+		detune: IconCarbonArrowsVertical
+	};
 
-	let isDragging = $state(false);
-	let dragType:
-		| 'volume'
-		| 'tone'
-		| 'noise'
-		| 'envelope'
-		| 'retriggerEnvelope'
-		| 'toneAccumulation'
-		| 'noiseAccumulation'
-		| 'envelopeAccumulation'
-		| null = $state(null);
-	let dragValue: boolean | null = $state(null);
+	const timerInstrument = $derived.by((): TimerInstrument => {
+		const timerMacros = resolveTimerInstrumentMacros(
+			instrument as TimerInstrument,
+			AY_TIMER_MACRO_FIELDS
+		);
+		return { ...instrument, timerMacros, macros: timerMacros };
+	});
 
-	function formatNum(value: number): string {
-		if (asHex) {
-			const sign = value < 0 ? '-' : '';
-			return sign + Math.abs(value).toString(16).toUpperCase();
-		}
-		return String(value);
+	function commitTimerMacros(updated: Instrument): void {
+		const incoming = updated.macros as InstrumentMacros;
+		const prevMacros = timerInstrument.timerMacros as InstrumentMacros;
+
+		const resolvedSid = incoming['sid']!;
+		const resolvedSync = incoming['syncbuzzer']!;
+		const sidValues = resolvedSid.values.map((sid, i) => {
+			const sync = Boolean(resolvedSync.values[i]);
+			if (!Boolean(sid) || !sync) return Boolean(sid);
+			const prevSid = Boolean(prevMacros['sid']?.values[i]);
+			return prevSid === Boolean(sid) ? false : Boolean(sid);
+		});
+		const syncValues = resolvedSync.values.map((sync, i) => {
+			const sid = Boolean(sidValues[i]);
+			if (!Boolean(sync) || !sid) return Boolean(sync);
+			return false;
+		});
+
+		const timerMacros = instrumentMacroUpdates(
+			{
+				...incoming,
+				sid: { ...resolvedSid, values: sidValues },
+				syncbuzzer: { ...resolvedSync, values: syncValues }
+			},
+			AY_TIMER_MACRO_FIELDS
+		).macros;
+
+		onInstrumentChange({
+			...instrument,
+			timerMacros
+		} as TimerInstrument);
+		timerEffects.syncFromInstrument({ ...instrument, timerMacros } as TimerInstrument);
 	}
 
-	function beginDragVolume(index: number, value: number) {
-		isDragging = true;
-		dragType = 'volume';
-		updateRow(index, 'volume', value);
-	}
-
-	function dragOverVolume(index: number, value: number) {
-		if (isDragging && dragType === 'volume') {
-			updateRow(index, 'volume', value);
-		}
-	}
-
-	function beginDragBoolean(
-		index: number,
-		field:
-			| 'tone'
-			| 'noise'
-			| 'envelope'
-			| 'retriggerEnvelope'
-			| 'toneAccumulation'
-			| 'noiseAccumulation'
-			| 'envelopeAccumulation'
-	) {
-		isDragging = true;
-		dragType = field;
-		const currentValue = rows[index][field];
-		dragValue = !currentValue;
-		updateRow(index, field, dragValue);
-	}
-
-	function dragOverBoolean(
-		index: number,
-		field:
-			| 'tone'
-			| 'noise'
-			| 'envelope'
-			| 'retriggerEnvelope'
-			| 'toneAccumulation'
-			| 'noiseAccumulation'
-			| 'envelopeAccumulation'
-	) {
-		if (isDragging && dragValue !== null) {
-			updateRow(index, field, dragValue);
-		}
-	}
-
-	function ensureNonEmptyRows(rowsArray: any[]): any[] {
-		return rowsArray.length === 0
-			? [
-					{
-						tone: true,
-						noise: false,
-						envelope: false,
-						retriggerEnvelope: false,
-						toneAdd: 0,
-						noiseAdd: 0,
-						envelopeAdd: 0,
-						volume: 15,
-						alpha: 15,
-						loop: false,
-						amplitudeSliding: false,
-						amplitudeSlideUp: false,
-						toneAccumulation: false,
-						noiseAccumulation: false,
-						envelopeAccumulation: false
-					}
-				]
-			: rowsArray;
-	}
-
-	let rows = $state(ensureNonEmptyRows([...instrument.rows]));
-	let loopRow = $state(instrument.loop);
-	let name = $state(instrument.name);
-	let loopColumnRef: HTMLTableCellElement | null = $state(null);
-	let tableRef: HTMLTableElement | null = $state(null);
-	let lastInstrumentId = $state(instrument.id);
-	let lastSyncedName = $state(instrument.name);
-	let lastSyncedRows = $state([...instrument.rows]);
-	let lastSyncedLoop = $state(instrument.loop);
-
-	function updateInstrument(updates: Partial<Instrument>) {
-		onInstrumentChange({ ...instrument, ...updates });
-	}
-
-	function updateRow(index: number, field: string, value: any) {
-		rows[index] = { ...rows[index], [field]: value };
-		rows = [...rows];
-		updateInstrument({ rows });
-	}
-
-	function toggleBoolean(index: number, field: string) {
-		const currentValue = rows[index][field];
-		updateRow(index, field, !currentValue);
-	}
-
-	function cycleAmplitudeSlide(index: number) {
-		const row = rows[index];
-		if (!row.amplitudeSliding) {
-			updateRow(index, 'amplitudeSliding', true);
-			updateRow(index, 'amplitudeSlideUp', true);
-		} else if (row.amplitudeSlideUp) {
-			updateRow(index, 'amplitudeSlideUp', false);
-		} else {
-			updateRow(index, 'amplitudeSliding', false);
-			updateRow(index, 'amplitudeSlideUp', false);
-		}
-	}
-
-	function updateNumericField(index: number, field: string, event: Event) {
-		const inputEl = event.target as HTMLInputElement;
-		let text = inputEl.value.trim();
-		const allowedPattern = asHex ? /[^0-9a-fA-F-]/g : /[^0-9-]/g;
-		text = text.replace(/\+/g, '').replace(allowedPattern, '');
-
-		if (field === 'volume' || field === 'alpha') {
-			if (asHex) {
-				if (text.length > 1) {
-					text = text.substring(0, 1);
-				}
-			} else {
-				const num = parseInt(text, 10);
-				if (!isNaN(num) && num > 15) {
-					text = '15';
-				}
-			}
-		}
-
-		if (text !== inputEl.value) inputEl.value = text;
-
-		let parsed: number | null = null;
-		if (asHex) {
-			let sign = 1;
-			let temp = text;
-			if (temp.startsWith('-')) {
-				sign = -1;
-				temp = temp.substring(1);
-			}
-			if (/^[0-9a-fA-F]+$/.test(temp)) {
-				parsed = sign * parseInt(temp, 16);
-			}
-		} else {
-			if (/^-?\d+$/.test(text)) {
-				parsed = parseInt(text, 10);
-			}
-		}
-
-		if (parsed !== null) {
-			if (field === 'volume' || field === 'alpha') {
-				parsed = Math.max(0, Math.min(15, parsed));
-			}
-			updateRow(index, field, parsed);
-		}
-	}
-
-	function focusInputInRow(row: HTMLTableRowElement | null, currentInput?: HTMLInputElement) {
-		if (!row) return;
-
-		let input: HTMLInputElement | null = null;
-
-		if (currentInput) {
-			const currentCell = currentInput.closest('td');
-			if (currentCell) {
-				const cellIndex = Array.from(currentCell.parentElement?.children || []).indexOf(
-					currentCell
-				);
-				const targetCell = row.children[cellIndex] as HTMLTableCellElement | undefined;
-				if (targetCell) {
-					input = targetCell.querySelector('input[type="text"]');
-				}
-			}
-		}
-
-		if (!input) {
-			input = row.querySelector('input[type="text"]');
-		}
-
-		if (input) {
-			input.focus();
-			input.select();
-		}
-	}
-
-	function handleNumericKeyDown(index: number, event: KeyboardEvent) {
-		const key = event.key;
-		const inputEl = event.target as HTMLInputElement;
-
-		if (key === 'ArrowDown') {
-			event.preventDefault();
-			const nextIndex = index + 1;
-			if (nextIndex < rows.length) {
-				const currentRow = inputEl.closest('tr');
-				focusInputInRow(
-					currentRow?.nextElementSibling as HTMLTableRowElement | null,
-					inputEl
-				);
-			} else if (nextIndex === rows.length) {
-				addRow();
-				setTimeout(() => {
-					const currentRow = inputEl.closest('tr');
-					focusInputInRow(
-						currentRow?.nextElementSibling as HTMLTableRowElement | null,
-						inputEl
-					);
-				}, 0);
-			}
-			return;
-		}
-
-		if (key === 'ArrowUp') {
-			event.preventDefault();
-			const prevIndex = index - 1;
-			if (prevIndex >= 0) {
-				const currentRow = inputEl.closest('tr');
-				focusInputInRow(
-					currentRow?.previousElementSibling as HTMLTableRowElement | null,
-					inputEl
-				);
-			}
-			return;
-		}
-
-		if (key.length > 1) return;
-		const pattern = asHex ? /^[0-9a-fA-F-]$/ : /^[0-9-]$/;
-		if (!pattern.test(key)) event.preventDefault();
-	}
-
-	function updateArraysAfterRowChange(newRows: any[]) {
-		rows = newRows;
-		if (loopRow >= rows.length) loopRow = rows.length - 1;
-		updateInstrument({ rows });
-	}
-
-	function addRow() {
-		updateArraysAfterRowChange([...rows, { ...EMPTY_ROW }]);
-	}
-
-	function duplicateRow(index: number) {
-		if (rows.length >= MAX_ROWS) return;
-		const newRows = [...rows];
-		newRows.splice(index + 1, 0, { ...rows[index] });
-		updateArraysAfterRowChange(newRows);
-	}
-
-	function setRowCount(targetCount: number) {
-		const count = Math.max(1, Math.min(MAX_ROWS, targetCount));
-		if (count === rows.length) return;
-		if (count > rows.length) {
-			const toAdd = count - rows.length;
-			const newRows = [...rows, ...Array.from({ length: toAdd }, () => ({ ...EMPTY_ROW }))];
-			updateArraysAfterRowChange(newRows);
-		} else {
-			updateArraysAfterRowChange(rows.slice(0, count));
-		}
-	}
-
-	function removeRow(index: number) {
-		if (rows.length === 1) return;
-		updateArraysAfterRowChange(rows.filter((_, i) => i !== index));
-	}
-
-	function removeRowsFromBottom(index: number) {
-		if (rows.length === 1) return;
-		const rowsToKeep = index + 1;
-		if (rowsToKeep >= rows.length) return;
-		updateArraysAfterRowChange(rows.slice(0, rowsToKeep));
-	}
-
-	function setLoop(index: number) {
-		loopRow = index;
-		updateInstrument({ loop: loopRow });
-	}
-
-	export function addRowExternal() {
-		addRow();
-	}
-
-	export function removeLastRowExternal() {
-		removeRow(rows.length - 1);
-	}
-
-	function syncFromInstrument() {
-		rows = ensureNonEmptyRows([...instrument.rows]);
-		loopRow = instrument.loop;
-		name = instrument.name;
-		lastSyncedRows = [...instrument.rows];
-		lastSyncedLoop = instrument.loop;
-		lastSyncedName = instrument.name;
-	}
+	const timerEffects = new AyTimerEffectsController(
+		() => instrument,
+		(next) => onInstrumentChange(next),
+		() => asHex
+	);
+	setAyTimerEffectsContext(timerEffects);
 
 	$effect(() => {
-		if (instrument.id !== lastInstrumentId) {
-			lastInstrumentId = instrument.id;
-			syncFromInstrument();
-		} else {
-			const rowsChanged =
-				instrument.rows.length !== lastSyncedRows.length ||
-				instrument.rows.some((row, i) => row !== lastSyncedRows[i]);
-			const loopChanged = instrument.loop !== lastSyncedLoop;
-			const nameChanged = instrument.name !== lastSyncedName;
-
-			if (rowsChanged || loopChanged) {
-				rows = ensureNonEmptyRows([...instrument.rows]);
-				loopRow = instrument.loop;
-				lastSyncedRows = [...instrument.rows];
-				lastSyncedLoop = instrument.loop;
-			}
-
-			if (nameChanged) {
-				name = instrument.name;
-				lastSyncedName = instrument.name;
-			}
-		}
+		timerEffects.handleInstrumentChange(instrument);
 	});
 
 	$effect(() => {
-		if (name !== lastSyncedName) {
-			updateInstrument({ name });
+		if (hasSample && activeTab !== 'sample') {
+			activeTab = 'sample';
+			timerEffects.closeWaveformEditor();
 		}
 	});
-
-	$effect(() => {
-		rows = ensureNonEmptyRows(rows);
-	});
-
-	$effect(() => {
-		const stop = () => {
-			isDragging = false;
-			dragType = null;
-			dragValue = null;
-		};
-		window.addEventListener('mouseup', stop);
-		return () => window.removeEventListener('mouseup', stop);
-	});
-
 </script>
 
-{#snippet volumeCell(index: number, value: number, isSelected: boolean)}
-	<td
-		class={`group h-8 w-6 min-w-6 cursor-pointer border border-[var(--color-app-border)] text-center text-[0.7rem] leading-none ${isSelected ? 'bg-[var(--color-app-surface-active)]' : 'bg-[var(--color-app-surface)] hover:bg-[var(--color-app-surface-secondary)]'}`}
-		tabindex="-1"
-		title={String(value)}
-		onmousedown={() => beginDragVolume(index, value)}
-		onmouseover={() => dragOverVolume(index, value)}
-		onfocus={() => dragOverVolume(index, value)}>
-		{#if isSelected}
-			{formatNum(value)}
+<div class="w-full max-w-full min-w-0 overflow-x-auto outline-none focus:outline-none" tabindex="-1">
+	<InstrumentEditorIdentity {instrument} {onInstrumentChange} />
+
+	<div class="mt-3 ml-2 mr-2 flex items-center justify-between gap-2">
+		<PillTabs
+			bind:activeTabId={activeTab}
+			tabs={instrumentTabs}
+			onSelect={(tabId) => {
+				if (tabId === 'sample') {
+					timerEffects.closeWaveformEditor();
+				}
+			}} />
+		<InstrumentClassicModeToggle />
+	</div>
+
+	{#if activeTab === 'timer' && timerEffects.waveformEditorRowIndex !== null}
+		<AYTimerWaveformDrawer rowIndex={timerEffects.waveformEditorRowIndex} {isExpanded} />
+	{/if}
+
+	{#if activeTab === 'sample'}
+		<div class="mt-3 mr-2 ml-2 box-border min-w-0">
+			<AYInstrumentSamplePanel {instrument} {isExpanded} {onInstrumentChange} />
+		</div>
+	{:else if activeTab === 'mixer'}
+		{#if classicEditor}
+			<AYInstrumentClassicMixer {instrument} {asHex} {isExpanded} {onInstrumentChange} />
 		{:else}
-			<span class="text-[var(--color-app-text-tertiary)] opacity-0 group-hover:opacity-100"
-				>{formatNum(value)}</span>
+			<InstrumentMacrosEditor
+				{instrument}
+				fields={AY_MIXER_MACRO_FIELDS}
+				{asHex}
+				{isExpanded}
+				icons={mixerIcons}
+				{onInstrumentChange} />
 		{/if}
-	</td>
-{/snippet}
-
-<div class="w-full overflow-x-auto">
-	<div class="mt-2 ml-2 flex items-center gap-2">
-		<span class="w-10 shrink-0 text-xs text-[var(--color-app-text-muted)]">Name:</span>
-		<Input class="w-48 text-xs" bind:value={name} />
-	</div>
-
-	<div class="mt-3 flex items-start gap-2 overflow-x-auto">
-		{#key isExpanded}
-			<div class="relative flex flex-col">
-				{#if loopRow >= 0 && loopRow < rows.length && loopColumnRef && tableRef}
-					{@const tbody = tableRef.querySelector('tbody')}
-					{@const firstRow = tbody?.querySelector('tr') as HTMLTableRowElement | null}
-					{@const rowTop = firstRow ? firstRow.offsetTop : 0}
-					{@const rowHeight = isExpanded ? '2rem' : '1.75rem'}
-					{@const leftOffset = isExpanded ? '1rem' : '0.65rem'}
-					<div
-						class="pointer-events-none absolute top-0 z-0"
-						style="left: calc({loopColumnRef.offsetLeft}px + {leftOffset}); margin-top: calc({rowTop}px + {rowHeight} * {loopRow}); height: calc({rowHeight} * {rows.length -
-							loopRow});">
-						<div class="relative h-full">
-							<div
-								class="absolute top-0 left-0 h-full w-0.5 border-l-2 border-[var(--color-app-primary)]">
-							</div>
-							<div
-								class="absolute top-0 left-0 h-2 w-2 border-t-2 border-l-2 border-[var(--color-app-primary)]">
-							</div>
-							<div
-								class="absolute bottom-0 left-0 h-2 w-2 border-b-2 border-l-2 border-[var(--color-app-primary)]">
-							</div>
-						</div>
-					</div>
-				{/if}
-				<div class="flex items-center justify-center py-1">
-					<button
-						class="flex cursor-pointer items-center justify-center rounded p-0.5 text-[var(--color-app-text-muted)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-green-400"
-						onclick={addRow}
-						title="Add new row">
-						<IconCarbonAdd class="mr-1 h-3.5 w-3.5" />
-						<span class="mr-1 text-xs">Add new row</span>
-					</button>
-				</div>
-				<table
-					bind:this={tableRef}
-					class="table-fixed border-collapse bg-[var(--color-app-surface)] font-mono text-xs select-none">
-					<thead>
-						<tr>
-							<th class={isExpanded ? 'w-14 min-w-14 px-2 py-1.5' : 'px-1 py-1'}
-								>row</th>
-							<th class={isExpanded ? 'w-20 min-w-20 px-1' : 'w-16 min-w-16 px-0.5'}></th>
-							<th
-								class={isExpanded ? 'w-6 px-1.5' : 'w-4 px-0.5'}
-								bind:this={loopColumnRef}>{isExpanded ? 'loop' : 'lp'}</th>
-							<th
-								class={isExpanded
-									? 'w-8 min-w-8 px-1'
-									: 'w-8 min-w-8 px-0.5 text-[0.65rem]'}
-								title="Tone Generator">
-								<div class="flex items-center justify-center">
-									<IconCarbonChartWinLoss
-										class={isExpanded ? 'h-3.5 w-3.5' : 'h-3 w-3'} />
-								</div>
-							</th>
-							<th
-								class={isExpanded
-									? 'w-8 min-w-8 px-1'
-									: 'w-8 min-w-8 px-0.5 text-[0.65rem]'}
-								title="Noise Generator">
-								<div class="flex items-center justify-center">
-									<IconCarbonWaveform
-										class={isExpanded ? 'h-3.5 w-3.5' : 'h-3 w-3'} />
-								</div>
-							</th>
-							<th
-								class={isExpanded
-									? 'w-8 min-w-8 px-1'
-									: 'w-8 min-w-8 px-0.5 text-[0.65rem]'}
-								title="Hardware Envelope">
-								<div class="flex items-center justify-center">
-									<IconCarbonActivity
-										class={isExpanded ? 'h-3.5 w-3.5' : 'h-3 w-3'} />
-								</div>
-							</th>
-							<th
-								class={isExpanded
-									? 'w-8 min-w-8 px-1'
-									: 'w-8 min-w-8 px-0.5 text-[0.65rem]'}
-								title="Retrigger envelope when this row is played (only when envelope is on)">
-								<div class="flex items-center justify-center">
-									<IconCarbonRepeat
-										class={isExpanded ? 'h-3.5 w-3.5' : 'h-3 w-3'} />
-								</div>
-							</th>
-							<th
-								class={isExpanded
-									? 'w-16 min-w-16 px-1.5'
-									: 'w-12 px-0.5 text-[0.65rem]'}
-								title="Tone Offset">
-								<div class="flex items-center justify-center gap-0.5">
-									<IconCarbonChartWinLoss
-										class={isExpanded ? 'h-3.5 w-3.5' : 'h-3 w-3'} />
-									<span>+</span>
-								</div>
-							</th>
-							<th
-								class={isExpanded
-									? 'w-8 min-w-8 px-1'
-									: 'w-10 px-0.5 text-[0.65rem]'}
-								title="Tone Accumulation">
-								<div class="flex items-center justify-center gap-0.5">
-									<IconCarbonChartWinLoss
-										class={isExpanded ? 'h-3.5 w-3.5' : 'h-3 w-3'} />
-									<span>↑</span>
-								</div>
-							</th>
-							<th
-								class={isExpanded
-									? 'w-16 min-w-16 px-1.5'
-									: 'w-12 px-0.5 text-[0.65rem]'}
-								title="Noise Offset">
-								<div class="flex items-center justify-center gap-0.5">
-									<IconCarbonWaveform
-										class={isExpanded ? 'h-3.5 w-3.5' : 'h-3 w-3'} />
-									<span>+</span>
-								</div>
-							</th>
-							<th
-								class={isExpanded
-									? 'w-8 min-w-8 px-1'
-									: 'w-10 px-0.5 text-[0.65rem]'}
-								title="Noise Accumulation">
-								<div class="flex items-center justify-center gap-0.5">
-									<IconCarbonWaveform
-										class={isExpanded ? 'h-3.5 w-3.5' : 'h-3 w-3'} />
-									<span>↑</span>
-								</div>
-							</th>
-							<th
-								class={isExpanded
-									? 'w-16 min-w-16 px-1.5'
-									: 'w-12 px-0.5 text-[0.65rem]'}
-								title="Envelope Offset">
-								<div class="flex items-center justify-center gap-0.5">
-									<IconCarbonActivity
-										class={isExpanded ? 'h-3.5 w-3.5' : 'h-3 w-3'} />
-									<span>+</span>
-								</div>
-							</th>
-							<th
-								class={isExpanded
-									? 'w-8 min-w-8 px-1'
-									: 'w-10 px-0.5 text-[0.65rem]'}
-								title="Envelope Accumulation">
-								<div class="flex items-center justify-center gap-0.5">
-									<IconCarbonActivity
-										class={isExpanded ? 'h-3.5 w-3.5' : 'h-3 w-3'} />
-									<span>↑</span>
-								</div>
-							</th>
-							<th
-								class={isExpanded
-									? 'w-12 min-w-12 px-1'
-									: 'w-12 px-0.5 text-[0.65rem]'}
-								title="Volume Level">
-								<div class="flex items-center justify-center">
-									<IconCarbonVolumeUp
-										class={isExpanded ? 'h-3.5 w-3.5' : 'h-3 w-3'} />
-								</div>
-							</th>
-							<th
-								class={isExpanded
-									? 'w-14 min-w-14 px-1'
-									: 'w-14 px-0.5 text-[0.65rem]'}
-								title="Alpha (transparency for fill layer)">
-								<span class={isExpanded ? 'text-xs' : 'text-[0.65rem]'}>α</span>
-							</th>
-							<th
-								class={isExpanded
-									? 'w-8 min-w-8 px-1'
-									: 'w-8 min-w-8 px-0.5 text-[0.65rem]'}
-								title="Amplitude Slide: ↑ up / ↓ down / blank off">
-								<div class="flex items-center justify-center">
-									<IconCarbonArrowsVertical
-										class={isExpanded ? 'h-3.5 w-3.5' : 'h-3 w-3'} />
-								</div>
-							</th>
-						</tr>
-						{#if showVolumeGrid}
-							<tr>
-								<th></th>
-								<th></th>
-								<th></th>
-								<th></th>
-								<th></th>
-								<th></th>
-								<th></th>
-								<th></th>
-								<th></th>
-								<th></th>
-								<th></th>
-								<th></th>
-								<th></th>
-								<th></th>
-								<th></th>
-								<th></th>
-								<th></th>
-							</tr>
-						{/if}
-					</thead>
-					<tbody>
-						{#each rows as row, index}
-							<tr class={isExpanded ? 'h-8' : 'h-7'}>
-								<td
-									class="border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] {isExpanded
-										? 'w-14 min-w-14 px-2 py-1.5'
-										: 'px-1 py-1 text-[0.65rem]'} text-right">{index}</td>
-								<td
-									class="border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] {isExpanded
-										? 'w-20 min-w-20 px-1'
-										: 'w-16 min-w-16 px-0.5'}">
-									<div
-										class="flex items-center justify-center {isExpanded
-											? 'gap-1'
-											: 'gap-0.5'}">
-										<button
-											class="flex cursor-pointer items-center justify-center rounded p-0.5 text-[var(--color-app-text-muted)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-red-400"
-											onclick={(e) => {
-												e.stopPropagation();
-												removeRow(index);
-											}}
-											title="Remove this row">
-											<IconCarbonTrashCan
-												class={isExpanded ? 'h-3.5 w-3.5' : 'h-3 w-3'} />
-										</button>
-										<button
-											class="flex cursor-pointer items-center justify-center rounded p-0.5 text-[var(--color-app-text-muted)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-blue-400"
-											onclick={(e) => {
-												e.stopPropagation();
-												duplicateRow(index);
-											}}
-											title="Duplicate this row">
-											<IconCarbonCopy
-												class={isExpanded ? 'h-3.5 w-3.5' : 'h-3 w-3'} />
-										</button>
-										{#if index < rows.length - 1}
-											<button
-												class="flex cursor-pointer items-center justify-center rounded p-0.5 text-[var(--color-app-text-muted)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-red-500"
-												onclick={(e) => {
-													e.stopPropagation();
-													removeRowsFromBottom(index);
-												}}
-												title="Remove all rows below this one">
-												<IconCarbonDelete
-													class={isExpanded ? 'h-3.5 w-3.5' : 'h-3 w-3'} />
-											</button>
-										{/if}
-									</div>
-								</td>
-								<td
-									class={isExpanded
-										? 'w-6 cursor-pointer px-1.5 text-center text-sm'
-										: 'w-4 cursor-pointer px-0.5 text-center text-[0.65rem]'}
-									onclick={() => setLoop(index)}>
-								</td>
-								<!-- Tone -->
-								<td
-									class="{isExpanded
-										? 'w-8 min-w-8 px-1'
-										: 'w-8 min-w-8 px-0.5'} cursor-pointer border border-[var(--color-app-border)] bg-[var(--color-app-surface)] text-center {row.tone
-										? 'bg-green-900/30 text-green-400'
-										: 'text-[var(--color-app-text-muted)]'}"
-									tabindex="-1"
-									onmousedown={() => beginDragBoolean(index, 'tone')}
-									onmouseover={() => dragOverBoolean(index, 'tone')}
-									onfocus={() => dragOverBoolean(index, 'tone')}>
-									{row.tone ? '✓' : ''}
-								</td>
-								<!-- Noise -->
-								<td
-									class="{isExpanded
-										? 'w-8 min-w-8 px-1'
-										: 'w-8 min-w-8 px-0.5'} cursor-pointer border border-[var(--color-app-border)] bg-[var(--color-app-surface)] text-center {row.noise
-										? 'bg-green-900/30 text-green-400'
-										: 'text-[var(--color-app-text-muted)]'}"
-									tabindex="-1"
-									onmousedown={() => beginDragBoolean(index, 'noise')}
-									onmouseover={() => dragOverBoolean(index, 'noise')}
-									onfocus={() => dragOverBoolean(index, 'noise')}>
-									{row.noise ? '✓' : ''}
-								</td>
-								<!-- Envelope -->
-								<td
-									class="{isExpanded
-										? 'w-8 min-w-8 px-1'
-										: 'w-8 min-w-8 px-0.5'} cursor-pointer border border-[var(--color-app-border)] bg-[var(--color-app-surface)] text-center {row.envelope
-										? 'bg-green-900/30 text-green-400'
-										: 'text-[var(--color-app-text-muted)]'}"
-									tabindex="-1"
-									onmousedown={() => beginDragBoolean(index, 'envelope')}
-									onmouseover={() => dragOverBoolean(index, 'envelope')}
-									onfocus={() => dragOverBoolean(index, 'envelope')}>
-									{row.envelope ? '✓' : ''}
-								</td>
-								<!-- Retrigger envelope -->
-								<td
-									class="{isExpanded
-										? 'w-8 min-w-8 px-1'
-										: 'w-8 min-w-8 px-0.5'} cursor-pointer border border-[var(--color-app-border)] bg-[var(--color-app-surface)] text-center {(row.retriggerEnvelope ??
-									false)
-										? 'bg-green-900/30 text-green-400'
-										: 'text-[var(--color-app-text-muted)]'}"
-									tabindex="-1"
-									title="Retrigger envelope when this row is played"
-									onmousedown={() => beginDragBoolean(index, 'retriggerEnvelope')}
-									onmouseover={() => dragOverBoolean(index, 'retriggerEnvelope')}
-									onfocus={() => dragOverBoolean(index, 'retriggerEnvelope')}>
-									{(row.retriggerEnvelope ?? false) ? '✓' : ''}
-								</td>
-								<!-- ToneAdd -->
-								<td class={isExpanded ? 'w-16 min-w-16 px-1.5' : 'w-12 px-0.5'}>
-									<input
-										type="text"
-										class="w-full min-w-0 overflow-x-auto rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] {isExpanded
-											? 'px-2 py-1 text-xs'
-											: 'px-1 py-0.5 text-[0.65rem]'} text-[var(--color-app-text-secondary)] placeholder-[var(--color-app-text-muted)] focus:border-[var(--color-app-primary)] focus:outline-none"
-										value={formatNum(row.toneAdd)}
-										onkeydown={(e) => handleNumericKeyDown(index, e)}
-										onfocus={(e) => (e.target as HTMLInputElement).select()}
-										oninput={(e) => updateNumericField(index, 'toneAdd', e)} />
-								</td>
-								<!-- Tone Accumulation -->
-								<td
-									class="{isExpanded
-										? 'w-8 min-w-8 px-1'
-										: 'px-1.5'} cursor-pointer border border-[var(--color-app-border)] bg-[var(--color-app-surface)] text-center {row.toneAccumulation
-										? 'bg-[var(--color-app-primary)]/30 text-[var(--color-app-primary)]'
-										: 'text-[var(--color-app-text-muted)]'}"
-									tabindex="-1"
-									onmousedown={() => beginDragBoolean(index, 'toneAccumulation')}
-									onmouseover={() => dragOverBoolean(index, 'toneAccumulation')}
-									onfocus={() => dragOverBoolean(index, 'toneAccumulation')}>
-									{row.toneAccumulation ? '↑' : ''}
-								</td>
-								<!-- NoiseAdd -->
-								<td class={isExpanded ? 'w-16 min-w-16 px-1.5' : 'w-12 px-0.5'}>
-									<input
-										type="text"
-										class="w-full min-w-0 overflow-x-auto rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] {isExpanded
-											? 'px-2 py-1 text-xs'
-											: 'px-1 py-0.5 text-[0.65rem]'} text-[var(--color-app-text-secondary)] placeholder-[var(--color-app-text-muted)] focus:border-[var(--color-app-primary)] focus:outline-none"
-										value={formatNum(row.noiseAdd)}
-										onkeydown={(e) => handleNumericKeyDown(index, e)}
-										onfocus={(e) => (e.target as HTMLInputElement).select()}
-										oninput={(e) => updateNumericField(index, 'noiseAdd', e)} />
-								</td>
-								<!-- Noise Accumulation -->
-								<td
-									class="{isExpanded
-										? 'w-8 min-w-8 px-1'
-										: 'px-1.5'} cursor-pointer border border-[var(--color-app-border)] bg-[var(--color-app-surface)] text-center {row.noiseAccumulation
-										? 'bg-[var(--color-app-primary)]/30 text-[var(--color-app-primary)]'
-										: 'text-[var(--color-app-text-muted)]'}"
-									tabindex="-1"
-									onmousedown={() => beginDragBoolean(index, 'noiseAccumulation')}
-									onmouseover={() => dragOverBoolean(index, 'noiseAccumulation')}
-									onfocus={() => dragOverBoolean(index, 'noiseAccumulation')}>
-									{row.noiseAccumulation ? '↑' : ''}
-								</td>
-								<!-- EnvelopeAdd -->
-								<td class={isExpanded ? 'w-16 min-w-16 px-1.5' : 'w-12 px-0.5'}>
-									<input
-										type="text"
-										class="w-full min-w-0 overflow-x-auto rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] {isExpanded
-											? 'px-2 py-1 text-xs'
-											: 'px-1 py-0.5 text-[0.65rem]'} text-[var(--color-app-text-secondary)] placeholder-[var(--color-app-text-muted)] focus:border-[var(--color-app-primary)] focus:outline-none"
-										value={formatNum(row.envelopeAdd ?? 0)}
-										onkeydown={(e) => handleNumericKeyDown(index, e)}
-										onfocus={(e) => (e.target as HTMLInputElement).select()}
-										oninput={(e) =>
-											updateNumericField(index, 'envelopeAdd', e)} />
-								</td>
-								<!-- Envelope Accumulation -->
-								<td
-									class="{isExpanded
-										? 'w-8 min-w-8 px-1'
-										: 'px-1.5'} cursor-pointer border border-[var(--color-app-border)] bg-[var(--color-app-surface)] text-center {row.envelopeAccumulation
-										? 'bg-[var(--color-app-primary)]/30 text-[var(--color-app-primary)]'
-										: 'text-[var(--color-app-text-muted)]'}"
-									tabindex="-1"
-									onmousedown={() =>
-										beginDragBoolean(index, 'envelopeAccumulation')}
-									onmouseover={() =>
-										dragOverBoolean(index, 'envelopeAccumulation')}
-									onfocus={() => dragOverBoolean(index, 'envelopeAccumulation')}>
-									{row.envelopeAccumulation ? '↑' : ''}
-								</td>
-								<!-- Volume -->
-								<td class={isExpanded ? 'w-12 min-w-12 px-1.5' : 'w-12 px-0.5'}>
-									<input
-										type="text"
-										class="w-full min-w-0 overflow-x-auto rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] {isExpanded
-											? 'px-2 py-1 text-xs'
-											: 'px-1 py-0.5 text-[0.65rem]'} text-[var(--color-app-text-secondary)] placeholder-[var(--color-app-text-muted)] focus:border-[var(--color-app-primary)] focus:outline-none"
-										value={formatNum(row.volume)}
-										onkeydown={(e) => handleNumericKeyDown(index, e)}
-										onfocus={(e) => (e.target as HTMLInputElement).select()}
-										oninput={(e) => updateNumericField(index, 'volume', e)} />
-								</td>
-								<!-- Alpha -->
-								<td class={isExpanded ? 'w-12 min-w-12 px-1.5' : 'w-12 px-0.5'}>
-									<input
-										type="text"
-										class="w-full min-w-0 overflow-x-auto rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] {isExpanded
-											? 'px-2 py-1 text-xs'
-											: 'px-1 py-0.5 text-[0.65rem]'} text-[var(--color-app-text-secondary)] placeholder-[var(--color-app-text-muted)] focus:border-[var(--color-app-primary)] focus:outline-none"
-										value={formatNum(row.alpha ?? 15)}
-										onkeydown={(e) => handleNumericKeyDown(index, e)}
-										onfocus={(e) => (e.target as HTMLInputElement).select()}
-										oninput={(e) => updateNumericField(index, 'alpha', e)} />
-								</td>
-								<!-- Amplitude Slide (merged: off/up/down) -->
-								<td
-									class="w-8 min-w-8 {isExpanded
-										? 'px-1'
-										: 'px-0.5'} cursor-pointer border border-[var(--color-app-border)] bg-[var(--color-app-surface)] text-center {row.amplitudeSliding &&
-									row.amplitudeSlideUp
-										? 'bg-green-900/30 text-green-400'
-										: row.amplitudeSliding
-											? 'bg-red-900/30 text-red-400'
-											: 'text-[var(--color-app-text-muted)]'}"
-									onclick={() => cycleAmplitudeSlide(index)}
-									title={row.amplitudeSliding
-										? row.amplitudeSlideUp
-											? 'Slide up'
-											: 'Slide down'
-										: 'No slide'}>
-									<span class="inline-block min-w-[1ch]"
-										>{row.amplitudeSliding
-											? row.amplitudeSlideUp
-												? '↑'
-												: '↓'
-											: ''}</span>
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-					<tfoot>
-						<tr>
-							<td colspan="17" class="px-2 py-1">
-								<div class="flex items-center justify-center">
-									<button
-										class="flex cursor-pointer items-center justify-center rounded p-0.5 text-[var(--color-app-text-muted)] transition-colors hover:bg-[var(--color-app-surface-hover)] hover:text-green-400"
-										onclick={addRow}
-										title="Add new row">
-										<IconCarbonAdd class="mr-1 h-3.5 w-3.5" />
-										<span class="mr-1 text-xs">Add new row</span>
-									</button>
-								</div>
-							</td>
-						</tr>
-						<tr>
-							<td colspan="17" class="border-t border-[var(--color-app-border)] p-0">
-								<RowResizeHandle
-									rowCount={rows.length}
-									onRowCountChange={setRowCount}
-									rowHeightPx={isExpanded ? 32 : 28}
-									maxRows={MAX_ROWS} />
-							</td>
-						</tr>
-					</tfoot>
-				</table>
-			</div>
-
-			{#if showVolumeGrid}
-				<table
-					class="table-fixed border-collapse bg-[var(--color-app-surface)] font-mono text-xs select-none">
-					<thead>
-						<tr>
-							<th class="px-2 py-1.5">row</th>
-							{#each VOLUME_VALUES as v}
-								<th
-									class="w-6 min-w-6 bg-[var(--color-app-surface-secondary)] text-center"
-									title={String(v)}>
-									{formatNum(v)}
-								</th>
-							{/each}
-						</tr>
-						<tr>
-							<th></th>
-							{#each VOLUME_VALUES as v}
-								<th class="w-6 min-w-6"></th>
-							{/each}
-						</tr>
-					</thead>
-					<tbody>
-						{#each rows as row, index}
-							<tr class="h-8">
-								<td
-									class="border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] px-2 text-right"
-									>{index}</td>
-								{#each VOLUME_VALUES as v}
-									{@render volumeCell(index, v, v === row.volume)}
-								{/each}
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			{/if}
-		{/key}
-	</div>
+	{:else if classicEditor}
+		<AYInstrumentClassicTimer {isExpanded} {asHex} />
+	{:else}
+		<InstrumentMacrosEditor
+			instrument={timerInstrument}
+			fields={AY_TIMER_MACRO_FIELDS}
+			{asHex}
+			{isExpanded}
+			icons={timerIcons}
+			onInstrumentChange={commitTimerMacros}
+			onStepClick={(fieldId, index) => {
+				const macros = timerInstrument.timerMacros as InstrumentMacros;
+				if (fieldId === 'sid' || fieldId === 'syncbuzzer' || fieldId === 'timerWaveform') {
+					const sidActive = Boolean(macros['sid']?.values[index]);
+					const syncActive = Boolean(macros['syncbuzzer']?.values[index]);
+					if (sidActive || syncActive) {
+						timerEffects.setTimerEditPanel('mix');
+						timerEffects.openWaveformEditor(index);
+					}
+				} else if (fieldId === 'fm' || fieldId === 'fmWaveform') {
+					if (Boolean(macros['fm']?.values[index])) {
+						timerEffects.setTimerEditPanel('fm');
+						timerEffects.openWaveformEditor(index);
+					}
+				} else if (fieldId === 'envFm' || fieldId === 'envFmWaveform') {
+					if (Boolean(macros['envFm']?.values[index])) {
+						timerEffects.setTimerEditPanel('envFm');
+						timerEffects.openWaveformEditor(index);
+					}
+				}
+			}}
+			isStepEnabled={(fieldId, index) => {
+				const macros = timerInstrument.timerMacros as InstrumentMacros;
+				if (fieldId === 'timerWaveform') {
+					return (
+						Boolean(macros['sid']?.values[index]) ||
+						Boolean(macros['syncbuzzer']?.values[index])
+					);
+				}
+				if (fieldId === 'fmWaveform') {
+					return Boolean(macros['fm']?.values[index]);
+				}
+				if (fieldId === 'envFmWaveform') {
+					return Boolean(macros['envFm']?.values[index]);
+				}
+				return true;
+			}} />
+		<div class="mx-2 mt-2">
+			<AYTimerPwmControls {isExpanded} />
+		</div>
+	{/if}
 </div>

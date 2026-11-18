@@ -1,5 +1,41 @@
 import type { SettingsItem } from '../components/Settings/types';
 
+export const PATTERN_EDITOR_PAGE_STEP_MIN = 1;
+export const PATTERN_EDITOR_PAGE_STEP_MAX = 256;
+export const PATTERN_EDITOR_PAGE_STEP_DEFAULT = 16;
+
+export const PATTERN_EDITOR_SCROLL_ROWS_MIN = 1;
+export const PATTERN_EDITOR_SCROLL_ROWS_MAX = 64;
+export const PATTERN_EDITOR_SCROLL_ROWS_DEFAULT = 1;
+
+export function clampIntegerSetting(
+	value: unknown,
+	min: number,
+	max: number,
+	fallback: number
+): number {
+	const parsed = typeof value === 'number' ? value : Number(value);
+	if (!Number.isFinite(parsed)) return fallback;
+	return Math.min(max, Math.max(min, Math.round(parsed)));
+}
+
+const MONOSPACE_FONTS = [
+	{ value: 'monospace', label: 'System Default' },
+	{ value: 'Fira Code', label: 'Fira Code' },
+	{ value: 'JetBrains Mono', label: 'JetBrains Mono' },
+	{ value: 'IBM Plex Mono', label: 'IBM Plex Mono' },
+	{ value: 'Source Code Pro', label: 'Source Code Pro' },
+	{ value: 'Iosevka Charon Mono', label: 'Iosevka Charon Mono' },
+	{ value: 'Press Start 2P', label: 'Press Start 2P' }
+] as const;
+
+const SANS_FONTS = [
+	{ value: 'sans-serif', label: 'System Default' },
+	{ value: 'Inter', label: 'Inter' },
+	{ value: 'Roboto', label: 'Roboto' },
+	{ value: 'Open Sans', label: 'Open Sans' }
+] as const;
+
 export const settingsItems: SettingsItem[] = [
 	{
 		label: 'Volume',
@@ -18,12 +54,51 @@ export const settingsItems: SettingsItem[] = [
 		category: 'ayYm'
 	},
 	{
+		label: 'Classic Instrument Editor',
+		description: 'Use the old row-table instrument editor. Macros stay underneath.',
+		type: 'toggle',
+		defaultValue: false,
+		setting: 'classicInstrumentEditor',
+		category: 'ayYm'
+	},
+	{
 		label: 'Auto-enter Instrument',
 		description: 'Automatically insert the current instrument index when entering notes',
 		type: 'toggle',
-		defaultValue: false,
+		defaultValue: true,
 		setting: 'autoEnterInstrument',
 		category: 'general'
+	},
+	{
+		label: 'Page Up/Down rows',
+		description: 'How many rows Page Up and Page Down move in the pattern editor',
+		type: 'number',
+		defaultValue: PATTERN_EDITOR_PAGE_STEP_DEFAULT,
+		setting: 'patternEditorPageStep',
+		category: 'general',
+		min: PATTERN_EDITOR_PAGE_STEP_MIN,
+		max: PATTERN_EDITOR_PAGE_STEP_MAX,
+		step: 1
+	},
+	{
+		label: 'Mouse wheel rows',
+		description: 'How many rows each mouse-wheel notch moves in the pattern editor',
+		type: 'number',
+		defaultValue: PATTERN_EDITOR_SCROLL_ROWS_DEFAULT,
+		setting: 'patternEditorScrollRows',
+		category: 'general',
+		min: PATTERN_EDITOR_SCROLL_ROWS_MIN,
+		max: PATTERN_EDITOR_SCROLL_ROWS_MAX,
+		step: 1
+	},
+	{
+		label: 'MIDI device',
+		description: 'Which MIDI keyboard to use for note input',
+		type: 'select',
+		defaultValue: '',
+		setting: 'midiInputDeviceId',
+		category: 'keyboard',
+		options: []
 	},
 	{
 		label: 'Show Preview Playground',
@@ -34,11 +109,28 @@ export const settingsItems: SettingsItem[] = [
 		category: 'general'
 	},
 	{
+		label: 'Preview Full Row',
+		description:
+			'When enabled, pattern input previews every channel on the current row. When disabled, only the edited channel is previewed',
+		type: 'toggle',
+		defaultValue: true,
+		setting: 'previewFullRow',
+		category: 'general'
+	},
+	{
 		label: 'Debug Mode',
-		description: 'Log each playback row in the console in tracker format',
+		description: 'Show playback debug panel and log each playback row in the console',
 		type: 'toggle',
 		defaultValue: false,
 		setting: 'debugMode',
+		category: 'general'
+	},
+	{
+		label: 'Experimental features',
+		description: 'Show unfinished features',
+		type: 'toggle',
+		defaultValue: false,
+		setting: 'experimentalFeatures',
 		category: 'general'
 	},
 	{
@@ -56,17 +148,10 @@ export const settingsItems: SettingsItem[] = [
 		label: 'Pattern Editor Font Family',
 		description: 'Choose the font for the pattern editor',
 		type: 'select',
-		defaultValue: 'monospace',
+		defaultValue: 'JetBrains Mono',
 		setting: 'patternEditorFontFamily',
 		category: 'appearance',
-		options: [
-			{ value: 'monospace', label: 'System Default' },
-			{ value: 'Fira Code', label: 'Fira Code' },
-			{ value: 'JetBrains Mono', label: 'JetBrains Mono' },
-			{ value: 'IBM Plex Mono', label: 'IBM Plex Mono' },
-			{ value: 'Source Code Pro', label: 'Source Code Pro' },
-			{ value: 'Press Start 2P', label: 'Press Start 2P' }
-		]
+		options: [...MONOSPACE_FONTS]
 	},
 	{
 		label: 'UI Font Family',
@@ -76,11 +161,14 @@ export const settingsItems: SettingsItem[] = [
 		setting: 'uiFontFamily',
 		category: 'appearance',
 		options: [
-			{ value: 'Fira Code', label: 'Fira Code (Monospace)' },
-			{ value: 'JetBrains Mono', label: 'JetBrains Mono (Monospace)' },
-			{ value: 'Inter', label: 'Inter (Sans-serif)' },
-			{ value: 'Roboto', label: 'Roboto (Sans-serif)' },
-			{ value: 'Open Sans', label: 'Open Sans (Sans-serif)' }
+			...MONOSPACE_FONTS.map((font) => ({
+				value: font.value,
+				label: `${font.label} (Monospace)`
+			})),
+			...SANS_FONTS.map((font) => ({
+				value: font.value,
+				label: `${font.label} (Sans-serif)`
+			}))
 		]
 	},
 	{
@@ -103,11 +191,27 @@ export const settingsItems: SettingsItem[] = [
 		category: 'appearance'
 	},
 	{
+		label: 'Hexadecimal Numbers',
+		description: 'Display instrument and table editor values as hexadecimal',
+		type: 'toggle',
+		defaultValue: false,
+		setting: 'hexNumerals',
+		category: 'appearance'
+	},
+	{
 		label: 'Show Oscilloscopes',
 		description: 'Display per-channel waveform oscilloscopes',
 		type: 'toggle',
 		defaultValue: true,
 		setting: 'showOscilloscopes',
+		category: 'appearance'
+	},
+	{
+		label: 'Show Channel Volume Bars',
+		description: 'Display live volume meters under pattern editor channel headers',
+		type: 'toggle',
+		defaultValue: true,
+		setting: 'showChannelVolumeBars',
 		category: 'appearance'
 	},
 	{
@@ -121,6 +225,28 @@ export const settingsItems: SettingsItem[] = [
 		options: [
 			{ value: 'inverted', label: 'Inverted' },
 			{ value: 'filled', label: 'Filled' }
+		]
+	},
+	{
+		label: 'Piano roll ghost notes',
+		description:
+			'Show notes from the other channels as faint gray blocks on the piano roll. They are marked with their channel and cannot be edited',
+		type: 'toggle',
+		defaultValue: false,
+		setting: 'pianoRollGhostNotes',
+		category: 'appearance'
+	},
+	{
+		label: 'Empty note alignment',
+		description:
+			'Vertical position of empty notes (`---`). Down-aligned matches empty fields that use dots',
+		type: 'select',
+		defaultValue: 'center',
+		setting: 'emptyNoteAlignment',
+		category: 'appearance',
+		options: [
+			{ value: 'center', label: 'Centered' },
+			{ value: 'baseline', label: 'Down-aligned' }
 		]
 	}
 ];

@@ -24,6 +24,7 @@ Main canvas-based tracker interface for editing musical patterns. Handles render
 ### Callback Props
 
 - **onfocus**: `() => void` - Callback fired when editor gains focus
+- **canFocusOnHover**: `() => boolean` - Returns true when hover may focus this editor (e.g. when no pattern editor is focused); used to avoid accidental focus switch when moving between chip editors
 - **initAllChips**: `() => void` - Initializes all chip processors before playback
 - **getSpeedForChip**: `(chipIndex: number) => number | null` - Retrieves playback speed for specific chip index
 
@@ -186,8 +187,9 @@ Performance optimization through memoization:
 ### Mouse Movement
 
 - **handleMouseMove(event)** - Updates cursor style when hovering channel labels
-- **handleMouseEnter()** - Focuses canvas and clears text selection
+- **handleMouseEnter(event)** - Updates cursor style when hovering channel labels. When canFocusOnHover() returns true (no pattern editor is focused), focuses canvas and invokes onfocus
 - **handleMouseLeave()** - Resets cursor to default
+- **handleCanvasMouseDown(event)** - On click: focuses canvas, clears text selection, and invokes onfocus callback to switch active editor
 
 ### Mouse Clicks & Drag
 
@@ -214,7 +216,7 @@ Performance optimization through memoization:
 
 ## Wheel Input
 
-**handleWheel(event)** - Scrolls pattern vertically by moving selected row
+**handleWheel(event)** - Scrolls pattern vertically by the configured mouse-wheel row count
 
 ## Selection Utilities
 
@@ -264,7 +266,6 @@ Performance optimization through memoization:
     - Throttled to 33ms (30fps) to avoid excessive UI updates
     - Respects manual pattern changes during timeout period
 - **handlePatternRequest(orderIndex)** - Callback when audio needs pattern data
-- **handleSpeedUpdate(speed)** - Callback when speed effect changes playback rate
 
 ## Shortcuts Context
 
