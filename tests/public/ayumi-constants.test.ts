@@ -142,6 +142,15 @@ describe('ayumi-constants', () => {
 			expect(result[2].pan).toBe(center);
 		});
 
+		it('BAC layout: A center, B left, C right', () => {
+			const result = getPanSettingsForLayout('BAC');
+			const center = 0.5;
+			const sep = 60 / 200;
+			expect(result[0].pan).toBe(center);
+			expect(result[1].pan).toBe(center - sep);
+			expect(result[2].pan).toBe(center + sep);
+		});
+
 		it('CAB layout: A center, B right, C left', () => {
 			const result = getPanSettingsForLayout('CAB');
 			const center = 0.5;

@@ -165,6 +165,7 @@ export const AY_CHIP_SCHEMA: ChipSchema = {
 			options: [
 				{ label: 'ABC', value: 'ABC' },
 				{ label: 'ACB', value: 'ACB' },
+				{ label: 'BAC', value: 'BAC' },
 				{ label: 'CAB', value: 'CAB' },
 				{ label: 'Mono', value: 'mono' }
 			],

@@ -10,6 +10,7 @@ const AY_STEREO_LAYOUTS: Record<number, string> = {
 	0: 'mono',
 	1: 'ABC',
 	2: 'ACB',
+	3: 'BAC',
 	5: 'CAB'
 };
 

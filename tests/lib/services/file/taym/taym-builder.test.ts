@@ -7,6 +7,7 @@ import {
 import { readTaym, writeTaym } from '@/lib/services/file/taym/codec';
 import { readTaymFile } from '@/lib/services/file/taym/taym-reader';
 import { check } from '@/lib/services/file/taym/validate';
+import { importTaymBuffer } from '@/lib/services/file/taym/taym-import';
 import * as spec from '@/lib/services/file/taym/spec';
 import { encodePSG, type SongCaptureResult } from '@/lib/services/file/ay/psg-export';
 import {
@@ -69,6 +70,10 @@ describe('buildTaymFromCapture', () => {
 				.config
 		).toBe(spec.AY_LAYOUT_ACB);
 		expect(
+			buildTaymFromCapture(capture(frames), { metadata: { stereoLayout: 'BAC' } }).chips[0]
+				.config
+		).toBe(spec.AY_LAYOUT_BAC);
+		expect(
 			buildTaymFromCapture(capture(frames), { metadata: { stereoLayout: 'CAB' } }).chips[0]
 				.config
 		).toBe(spec.AY_LAYOUT_CAB);
@@ -80,6 +85,13 @@ describe('buildTaymFromCapture', () => {
 			buildTaymFromCapture(capture(frames), { metadata: { stereoLayout: ST_MONO_LAYOUT } })
 				.chips[0].config
 		).toBe(spec.AY_LAYOUT_ST_MONO);
+	});
+
+	it('imports a BAC layout back as BAC, without a mono fallback warning', () => {
+		const taym = buildTaymFromCapture(capture(frames), { metadata: { stereoLayout: 'BAC' } });
+		const { project, warnings } = importTaymBuffer(writeTaym(taym));
+		expect(warnings.filter((w) => w.includes('Stereo layout'))).toEqual([]);
+		expect((project.songs[0] as { stereoLayout?: string }).stereoLayout).toBe('BAC');
 	});
 
 	it('writes title, author, tracker, tuning, timing and instrument names into an INFO chunk', () => {
