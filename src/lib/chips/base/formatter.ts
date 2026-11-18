@@ -6,9 +6,16 @@ import { NoteName } from '../../models/song';
 import { formatNoteFromEnum } from '../../utils/note-utils';
 import { EffectField } from '../../services/pattern/editing/effect-field';
 import { isPrimitive } from '../../utils/type-guards';
+import {
+	getChannelLayout,
+	getEffectColumnCountFromGenericRow,
+	resolveSchemaField
+} from './channel-effect-columns';
+import { anchorsBeforeChannel, usesAnchoredGlobals } from './global-anchors';
 
 export abstract class BaseFormatter implements PatternFormatter {
 	decimalRowNumbers?: boolean;
+	virtualChannelMap?: Record<number, number>;
 	protected _debugFormat = false;
 
 	formatRow(
@@ -21,14 +28,30 @@ export abstract class BaseFormatter implements PatternFormatter {
 		this._debugFormat = options?.debug ?? false;
 		try {
 			let result = this.getRowNumber(rowIndex) + ' ';
+			const anchored = usesAnchoredGlobals(schema);
 
-			if (schema.globalTemplate && schema.globalFields) {
+			if (!anchored && schema.globalTemplate && schema.globalFields) {
 				result +=
-					this.formatTemplate(schema.globalTemplate, patternRow, schema.globalFields) + ' ';
+					this.formatTemplate(schema.globalTemplate, patternRow, schema.globalFields) +
+					' ';
 			}
 
-			for (const channel of channels) {
-				result += this.formatTemplate(schema.template, channel, schema.fields) + ' ';
+			const virtualChannelMap = options?.virtualChannelMap ?? this.virtualChannelMap;
+			for (let channelIndex = 0; channelIndex < channels.length; channelIndex++) {
+				const channel = channels[channelIndex];
+				if (anchored) {
+					for (const anchor of anchorsBeforeChannel(schema, channelIndex, virtualChannelMap)) {
+						const value = patternRow[anchor.field];
+						result +=
+							this.formatField(isPrimitive(value) ? value : null, anchor.definition) +
+							' ';
+					}
+				}
+				const layout = getChannelLayout(
+					schema,
+					getEffectColumnCountFromGenericRow(channel)
+				);
+				result += this.formatTemplate(layout.template, channel, layout.fields) + ' ';
 			}
 
 			return result.trim();
@@ -49,6 +72,33 @@ export abstract class BaseFormatter implements PatternFormatter {
 
 		const parts = rowString.split(/\s+/);
 		let partIndex = 1;
+		const anchored = usesAnchoredGlobals(schema);
+
+		if (anchored) {
+			const channelSpaceCount = (schema.template.match(/\s/g) || []).length;
+			let channelIndex = 0;
+			while (partIndex < parts.length) {
+				for (const anchor of anchorsBeforeChannel(schema, channelIndex)) {
+					if (partIndex >= parts.length) break;
+					const token = parts[partIndex] || '';
+					partIndex++;
+					patternRow[anchor.field] = this.parseField(token, anchor.definition);
+				}
+				const channelParts: string[] = [];
+				for (let i = 0; i <= channelSpaceCount && partIndex < parts.length; i++) {
+					channelParts.push(parts[partIndex] || '');
+					partIndex++;
+				}
+				const channelString = channelParts.join(' ');
+				if (channelString) {
+					channels.push(
+						this.parseTemplate(channelString, schema.template, schema.fields)
+					);
+				}
+				channelIndex++;
+			}
+			return { patternRow, channels };
+		}
 
 		if (schema.globalTemplate && schema.globalFields) {
 			const spaceCount = (schema.globalTemplate.match(/\s/g) || []).length;
@@ -284,7 +334,7 @@ export abstract class BaseFormatter implements PatternFormatter {
 	}
 
 	getColorForField(fieldKey: string, schema: ChipSchema): string {
-		const field = schema.fields[fieldKey] || schema.globalFields?.[fieldKey];
+		const field = resolveSchemaField(schema, fieldKey);
 		if (field?.color) {
 			return field.color;
 		}

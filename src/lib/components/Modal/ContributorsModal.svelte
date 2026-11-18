@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Button from '../Button/Button.svelte';
+	import { ModalPanel } from '../ModalPanel';
 	import { setupCanvas } from '../../utils/canvas-utils';
 	import { getFonts } from '../../utils/fonts';
 
@@ -9,11 +10,13 @@
 
 	const credits = [
 		'Main code: Pator',
-		'Contributors: CyberL1, dualjack',
+		'Contributors: Alex Winston, spkr, RuGrantez, phase-mod, Natt Akuma, Jakim, CyberL1, dualjack',
 		'Testers: phase-mod, Abyxus',
 		'Ayumi emulator by Peter Sovietov',
+		"NSFPlug soundchip cores based on Brad Smith's NSFPlay 2.6",
+		'SAASound emulator by Dave Hooper and Simon Owen',
 		'Bitphase logo by Grongy',
-		'Special thanks to Otomata Labs, Megus, Jammer, Tygrys, spkr, e!ghtbm, Tomarkus, arabek, MmcM, nq, KK, AceMan, MaV, Jakim, LiSU, Volutar, MameXLIII',
+		'Special thanks to Otomata Labs, Megus, Jammer, Tygrys, e!ghtbm, Tomarkus, arabek, MmcM, nq, KK, AceMan, MaV, LiSU, Volutar, MameXLIII',
 		"and everyone else I've forgot to mention",
 		'Thank you for using Bitphase'
 	];
@@ -264,8 +267,7 @@
 			const charWidths = chars.map((c) => ctxRef.measureText(c).width);
 			const textWidthMain = charWidths.reduce((a, b) => a + b, 0);
 			const scrollCycleMain = textWidthMain + w;
-			const scrollOffsetMain =
-				((t / 1000) * SCROLLER_SPEED * PIXEL_SCALE) % scrollCycleMain;
+			const scrollOffsetMain = ((t / 1000) * SCROLLER_SPEED * PIXEL_SCALE) % scrollCycleMain;
 			const baseYMain = h - 14 * PIXEL_SCALE;
 			const phase = (t / 1000) * SCROLLER_WAVE_SPEED;
 			const amplitudeMain = SCROLLER_AMPLITUDE * PIXEL_SCALE;
@@ -312,35 +314,28 @@
 	}
 </script>
 
-<div class="contributors-modal">
-	<div
-		class="flex items-center gap-2 border-b border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-3 py-2">
-		<h2 class="font-bold text-[var(--color-app-text-primary)]">Contributors</h2>
-	</div>
-
-	<div class="modal-body">
+<ModalPanel
+	title="Contributors"
+	width="w-[560px]"
+	maxHeightClass=""
+	compact
+	bodyClass="contributors-body">
+	{#snippet children()}
 		<div class="demo-area" bind:this={demoContainerEl}>
 			<canvas
 				bind:this={canvasEl}
 				class="demo-canvas"
 				aria-label="Demoscene plasma, cube and credits scroller"></canvas>
 		</div>
+	{/snippet}
 
-		<div class="modal-footer">
-			<Button variant="primary" onclick={handleClose}>Close</Button>
-		</div>
-	</div>
-</div>
+	{#snippet footer()}
+		<Button variant="primary" onclick={handleClose}>Close</Button>
+	{/snippet}
+</ModalPanel>
 
 <style>
-	.contributors-modal {
-		display: flex;
-		flex-direction: column;
-		width: 560px;
-		min-height: 420px;
-	}
-
-	.modal-body {
+	:global(.contributors-body) {
 		display: flex;
 		flex-direction: column;
 		flex: 1;
@@ -361,14 +356,5 @@
 		height: 100%;
 		display: block;
 		image-rendering: crisp-edges;
-	}
-
-	.modal-footer {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		padding: 1rem 1.5rem 1.5rem;
-		border-top: 1px solid var(--color-app-border);
-		background: var(--color-app-surface);
 	}
 </style>

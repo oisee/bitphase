@@ -17,7 +17,7 @@ describe('ProjectService', () => {
 		type: CHIP_TYPE_AY,
 		name: 'AY-8910',
 		wasmUrl: '',
-		processorName: '',
+		audioSlotKind: 'ayumi',
 		processorMap: () => ({}) as any,
 		schema: {
 			chipType: CHIP_TYPE_AY,
@@ -66,30 +66,78 @@ describe('ProjectService', () => {
 
 	describe('resetProject', () => {
 		it('should clear chip processors before creating new project', async () => {
-			const mockChip = createMockChip();
-
-			await projectService.resetProject(mockChip);
+			await projectService.resetProject();
 
 			expect(mockAudioService.clearChipProcessors).toHaveBeenCalledOnce();
 		});
 
-		it('should add chip processor after creating project', async () => {
+		it('should not add chip processor for empty project', async () => {
+			await projectService.resetProject();
+
+			expect(mockAudioService.addChipProcessor).not.toHaveBeenCalled();
+		});
+
+		it('should create new project with no songs', async () => {
+			const project = await projectService.resetProject();
+
+			expect(project).toBeInstanceOf(Project);
+			expect(project.songs).toHaveLength(0);
+		});
+	});
+
+	describe('createNewSong', () => {
+		it('should create song with chip type', async () => {
 			const mockChip = createMockChip();
 
-			await projectService.resetProject(mockChip);
+			const song = await projectService.createNewSong(mockChip);
+
+			expect(song).toBeInstanceOf(Song);
+			expect(song.chipType).toBe(CHIP_TYPE_AY);
+			expect(song.interruptFrequency).toBe(50);
+		});
+
+		it('should add chip processor when creating new song', async () => {
+			const mockChip = createMockChip();
+
+			await projectService.createNewSong(mockChip);
 
 			expect(mockAudioService.addChipProcessor).toHaveBeenCalledOnce();
 			expect(mockAudioService.addChipProcessor).toHaveBeenCalledWith(mockChip);
 		});
 
-		it('should create new project with chip type applied to first song', async () => {
+		it('should share interrupt frequency with an existing song', async () => {
 			const mockChip = createMockChip();
+			const existing = new Song(mockChip.schema);
+			existing.chipType = CHIP_TYPE_AY;
+			existing.interruptFrequency = 60;
 
-			const project = await projectService.resetProject(mockChip);
+			const song = await projectService.createNewSong(mockChip, [existing]);
 
-			expect(project).toBeInstanceOf(Project);
-			expect(project.songs).toHaveLength(1);
-			expect(project.songs[0].chipType).toBe(CHIP_TYPE_AY);
+			expect(song.interruptFrequency).toBe(60);
+		});
+
+		it('should copy interrupt frequency from the first song onto every chip', () => {
+			const ay = new Song();
+			ay.chipType = 'ay';
+			ay.interruptFrequency = 60;
+			const nes = new Song();
+			nes.chipType = 'nes';
+			nes.interruptFrequency = 50;
+
+			ProjectService.ensureChipSettingsConsistency([ay, nes]);
+
+			expect(nes.interruptFrequency).toBe(60);
+		});
+
+		it('should inherit defaultPatternLength from an existing song', async () => {
+			const mockChip = createMockChip();
+			const existing = new Song(mockChip.schema);
+			existing.chipType = CHIP_TYPE_AY;
+			existing.defaultPatternLength = 32;
+
+			const song = await projectService.createNewSong(mockChip, [existing]);
+
+			expect(song.defaultPatternLength).toBe(32);
 		});
 
 		it('should apply chip schema defaultTuningTable and defaultChipVariant to song', async () => {
@@ -104,40 +152,30 @@ describe('ProjectService', () => {
 			};
 			mockChip.type = 'other';
 
-			const project = await projectService.resetProject(mockChip);
+			const song = await projectService.createNewSong(mockChip);
 
-			expect(project.songs[0].tuningTable).toEqual(defaultTuningTable);
-			expect(project.songs[0].chipVariant).toBe(defaultChipVariant);
-		});
-
-		it('should always create a song with the chip schema', async () => {
-			const mockChip = createMockChip();
-
-			const project = await projectService.resetProject(mockChip);
-
-			expect(project.songs).toHaveLength(1);
-			expect(project.songs[0].chipType).toBe(CHIP_TYPE_AY);
-			expect(mockAudioService.addChipProcessor).toHaveBeenCalledWith(mockChip);
+			expect(song.tuningTable).toEqual(defaultTuningTable);
+			expect(song.chipVariant).toBe(defaultChipVariant);
 		});
 	});
 
-	describe('createNewSong', () => {
-		it('should create song with chip type', async () => {
-			const mockChip = createMockChip();
+	describe('restoreChipProcessorsForSongs', () => {
+		it('clears processors and adds one per song using chipType', async () => {
+			await projectService.restoreChipProcessorsForSongs([
+				{ chipType: 'ay' },
+				{ chipType: 'nes' }
+			]);
 
-			const song = await projectService.createNewSong(mockChip);
-
-			expect(song).toBeInstanceOf(Song);
-			expect(song.chipType).toBe(CHIP_TYPE_AY);
+			expect(mockAudioService.clearChipProcessors).toHaveBeenCalledOnce();
+			expect(mockAudioService.addChipProcessor).toHaveBeenCalledTimes(2);
 		});
 
-		it('should add chip processor when creating new song', async () => {
-			const mockChip = createMockChip();
+		it('falls back to AY when chipType is missing', async () => {
+			const { AY_CHIP } = await import('../../../../src/lib/chips/ay');
 
-			await projectService.createNewSong(mockChip);
+			await projectService.restoreChipProcessorsForSongs([{}]);
 
-			expect(mockAudioService.addChipProcessor).toHaveBeenCalledOnce();
-			expect(mockAudioService.addChipProcessor).toHaveBeenCalledWith(mockChip);
+			expect(mockAudioService.addChipProcessor).toHaveBeenCalledWith(AY_CHIP);
 		});
 	});
 });

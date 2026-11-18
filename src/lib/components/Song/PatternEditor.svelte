@@ -4,7 +4,8 @@
 		ChipProcessor,
 		TuningTableSupport,
 		InstrumentSupport,
-		PreviewNoteSupport
+		PreviewNoteSupport,
+		VirtualChannelSupport
 	} from '../../chips/base/processor';
 	import type { AudioService } from '../../services/audio/audio-service';
 	import type { Chip } from '../../chips/types';
@@ -17,36 +18,53 @@
 	import { playbackStore } from '../../stores/playback.svelte';
 	import { getFormatter, getConverter } from '../../chips/registry';
 	import { PatternService } from '../../services/pattern/pattern-service';
-	import { PatternNavigationService } from '../../services/pattern/pattern-navigation';
+	import {
+		PatternNavigationService,
+		type PatternEditorDirection,
+		type PatternEditorLanding
+	} from '../../services/pattern/pattern-navigation';
 	import {
 		PatternVisibleRowsService,
 		type VisibleRow,
 		type VisibleRowsCache
 	} from '../../services/pattern/pattern-visible-rows';
 	import { PatternEditingService } from '../../services/pattern/pattern-editing';
-	import { PreviewService } from '../../services/audio/preview-service';
-	import { PatternEditorRenderer } from '../../ui-rendering/pattern-editor-renderer';
+	import {
+		fieldEditPreviews,
+		previewChannelForFieldEdit,
+		PreviewService
+	} from '../../services/audio/preview-service';
+	import { PlaybackOrderIndexGate } from '../../services/audio/playback-order-index-gate';
+	import { PlaybackSeekScheduler } from '../../services/audio/playback-seek-scheduler';
+	import {
+		CHANNEL_LEVEL_STRIP_HEIGHT,
+		PatternEditorRenderer
+	} from '../../ui-rendering/pattern-editor-renderer';
 	import { PatternEditorTextParser } from '../../ui-rendering/pattern-editor-text-parser';
+	import {
+		applyInstrumentColorsToSegments,
+		createInstrumentCarryLookup,
+		instrumentColorsById
+	} from '../../ui-rendering/instrument-pattern-colors';
 	import { getColumnAtX } from '../../ui-rendering/pattern-editor-hit-test';
 	import { Cache } from '../../utils/memoize';
 	import { channelMuteStore } from '../../stores/channel-mute.svelte';
+	import {
+		channelCountForMute,
+		clearedChannelMutes,
+		soloChannelMutes
+	} from '../../services/audio/channel-mute-plan';
+	import { waveformStore } from '../../stores/waveform.svelte';
 	import { PatternFieldDetection } from '../../services/pattern/editing/pattern-field-detection';
 	import {
 		PatternValueUpdates,
 		type GenericFieldUpdate
 	} from '../../services/pattern/editing/pattern-value-updates';
-	import { PatternDeleteHandler } from '../../services/pattern/editing/pattern-delete-handler';
+
 	import { EffectField } from '../../services/pattern/editing/effect-field';
 	import { undoRedoStore } from '../../stores/undo-redo.svelte';
 	import { editorStateStore } from '../../stores/editor-state.svelte';
-	import {
-		PatternFieldEditAction,
-		BulkPatternEditAction,
-		VirtualChannelAction,
-		type PatternEditContext,
-		type VirtualChannelEditContext,
-		type CursorPosition
-	} from '../../models/actions';
+	import type { CursorPosition } from '../../models/actions';
 	import {
 		ClipboardService,
 		type ClipboardContext
@@ -59,10 +77,18 @@
 		PatternKeyboardShortcutsService,
 		type PatternKeyboardShortcutsContext
 	} from '../../services/pattern/pattern-keyboard-shortcuts';
+	import { patternEditorScrollDelta } from '../../services/pattern/pattern-editor-steps';
 	import { autoEnvStore } from '../../stores/auto-env.svelte';
 	import { AutoEnvService } from '../../services/pattern/auto-env-service';
 	import { EnvelopeModeService } from '../../services/pattern/envelope-mode-service';
 	import { PatternRowDataService } from '../../services/pattern/pattern-row-data-service';
+	import {
+		MAX_CHANNEL_EFFECT_COLUMNS,
+		MIN_CHANNEL_EFFECT_COLUMNS,
+		getPatternEffectColumnCounts,
+		resolveChannelEffectColumnCount,
+		schemaHasChannelEffects
+	} from '../../chips/base/channel-effect-columns';
 	import {
 		SelectionBoundsService,
 		type SelectionBounds
@@ -77,26 +103,41 @@
 	import type { UserScript } from '../../services/user-scripts/types';
 	import { PatternTemplateParser } from '../../services/pattern/editing/pattern-template-parsing';
 	import { ContextMenu } from '../Menu';
-	import { editMenuItems } from '../../config/app-menu';
+	import type { MenuItem } from '../Menu/types';
 	import {
 		ACTION_PLAY_FROM_ROW,
-		ACTION_SELECT_INSTRUMENT_OR_TABLE_IN_EDITOR
+		ACTION_SELECT_INSTRUMENT_OR_TABLE_IN_EDITOR,
+		buildEditMenuItems
 	} from '../../config/keybindings';
 	import { tableDisplayCharToId } from '../../utils/table-id';
 	import { keybindingsStore } from '../../stores/keybindings.svelte';
 	import { ShortcutString } from '../../utils/shortcut-string';
 	import { projectStore } from '../../stores/project.svelte';
+	import { filterInstrumentsForChip } from '../../services/instrument/instrument-filter';
 	import {
-		computeStateHorizon,
-		buildCatchUpSegmentsToHorizon
+		collectPlaybackCarry,
+		type PlaybackCarryState
 	} from '../../services/audio/play-from-position';
+	import { findLastSpeedCommand } from '../../services/audio/playback-speed';
 	import {
 		getVirtualChannelGroups,
 		getHardwareChannelIndex,
-		computeEffectiveChannelLabels
+		computeEffectiveChannelLabels,
+		getTotalVirtualChannelCount,
+		clampVirtualChannelCount,
+		cloneVirtualChannelRoles,
+		toggleVirtualChannelRole,
+		virtualChannelRoleMarks,
+		MAX_VIRTUAL_CHANNELS_PER_HARDWARE_CHANNEL,
+		type VirtualChannelRoleMap
 	} from '../../models/virtual-channels';
 	import { VirtualChannelService } from '../../services/pattern/virtual-channel-service';
-	import { AYProcessor } from '../../chips/ay/processor';
+	import { midiService } from '../../services/midi/midi-service';
+	import type {
+		EditingContext,
+		FieldInfo,
+		PatternEditingResult
+	} from '../../services/pattern/editing/editing-context';
 
 	let {
 		songIndex,
@@ -105,6 +146,8 @@
 		isActive = false,
 		isPlaybackMaster = false,
 		onfocus,
+		onLeaveEditor,
+		canFocusOnHover = () => false,
 		onaction,
 		initAllChips,
 		initAllChipsForPlayPattern,
@@ -112,7 +155,8 @@
 		getSpeedForPlayPattern,
 		chip,
 		chipProcessor,
-		tuningTableVersion = 0
+		tuningTableVersion = 0,
+		onChannelMutesChanged
 	}: {
 		songIndex: number;
 		currentPatternOrderIndex: number;
@@ -120,6 +164,12 @@
 		isActive?: boolean;
 		isPlaybackMaster?: boolean;
 		onfocus?: () => void;
+		onLeaveEditor?: (
+			direction: PatternEditorDirection,
+			landing: PatternEditorLanding,
+			wrap?: boolean
+		) => boolean;
+		canFocusOnHover?: () => boolean;
 		onaction?: (data: { action: string }) => void;
 		initAllChips?: () => void;
 		initAllChipsForPlayPattern?: () => void;
@@ -128,13 +178,20 @@
 		chip: Chip;
 		chipProcessor: ChipProcessor;
 		tuningTableVersion?: number;
+		onChannelMutesChanged?: () => void;
 	} = $props();
 
 	const patterns = $derived(projectStore.patterns[songIndex] ?? []);
 	const patternOrder = $derived(projectStore.patternOrder);
-	const tuningTable = $derived(projectStore.songs[songIndex]?.tuningTable ?? []);
-	const speed = $derived(projectStore.songs[songIndex]?.initialSpeed ?? 3);
-	const instruments = $derived(projectStore.instruments);
+	const tuningTable = $derived.by(() => {
+		void tuningTableVersion;
+		return projectStore.songs[songIndex]?.tuningTable ?? [];
+	});
+	const speed = $derived(projectStore.getInitialSpeed());
+	const instruments = $derived(filterInstrumentsForChip(projectStore.instruments, chip.type));
+	const instrumentColorFingerprint = $derived(
+		[...instrumentColorsById(instruments)].map(([id, color]) => `${id}:${color}`).join('|')
+	);
 	const tables = $derived(projectStore.tables);
 
 	function updatePatterns(newPatterns: Pattern[]): void {
@@ -145,15 +202,67 @@
 	let channelContextMenuPosition = $state<{ x: number; y: number } | null>(null);
 	let channelContextMenuHwIndex = $state<number>(-1);
 	let channelContextMenuVirtualIndex = $state<number>(-1);
+	const editContextMenuItems = $derived(buildEditMenuItems());
+
+	const CHANNEL_LEVEL_DECAY = 0.82;
+	const CHANNEL_LEVEL_EPSILON = 0.01;
+
+	let channelLevels: number[] = [];
+	let levelStripHeader: {
+		rowString: string;
+		channelLabels: string[];
+		channelMuted: boolean[];
+		vcGroups: ReturnType<typeof getVirtualChannelGroups> | undefined;
+		channelRoleMarks?: (string | null)[];
+	} | null = null;
 
 	const services: { audioService: AudioService } = getContext('container');
 
-	const formatter = getFormatter(chip);
-	const converter = getConverter(chip);
-	const schema = chip.schema;
+	const formatter = $derived.by(() => {
+		const next = getFormatter(chip);
+		next.virtualChannelMap = projectStore.songs[songIndex]?.virtualChannelMap ?? {};
+		return next;
+	});
+	const converter = $derived.by(() => getConverter(chip));
+	const schema = $derived(chip.schema);
 	const previewService = new PreviewService();
+	let pendingPlaybackPosition: {
+		row: number;
+		orderIndex?: number;
+		timestamp: number;
+	} | null = null;
+	let playbackRafId: number | null = null;
+	let playbackStartTime = 0;
+	const orderIndexGate = new PlaybackOrderIndexGate();
+	const playbackSeekScheduler = new PlaybackSeekScheduler(() => {
+		if (!playbackStore.isPlaying) return;
+		discardPendingPlaybackPosition(currentPatternOrderIndex);
+		if (services.audioService.playing) {
+			services.audioService.stop();
+		}
+		togglePlayback();
+	});
 	const pressedKeyChannels = new Map<string, number>();
 	let previewInitialized = false;
+
+	function createEmptyPatternForSong(
+		patternId: number,
+		forSongIndex: number = songIndex
+	): Pattern {
+		const song = projectStore.songs[forSongIndex];
+		const songSchema =
+			song?.getSchema() ??
+			(forSongIndex === songIndex
+				? schema
+				: services.audioService.chipProcessors[forSongIndex]?.chip?.schema);
+		return PatternService.createEmptyPattern(
+			patternId,
+			songSchema,
+			song?.getEffectiveChannelLabels(),
+			song?.defaultPatternLength ?? projectStore.getDefaultPatternLength(),
+			projectStore.patterns[forSongIndex]
+		);
+	}
 
 	$effect(() => {
 		if (chipProcessor && chipProcessor.isAudioNodeAvailable()) {
@@ -231,7 +340,10 @@
 
 	let canvas: HTMLCanvasElement;
 	let ctx: CanvasRenderingContext2D;
+	let levelStripCanvas: HTMLCanvasElement | undefined;
+	let levelStripCtx: CanvasRenderingContext2D | null = null;
 	let containerDiv: HTMLDivElement;
+	let pendingDrawRaf: number | null = null;
 
 	let COLORS = $state(getColors());
 	let FONTS = $derived.by(() => {
@@ -241,8 +353,14 @@
 
 	let fontSize = $derived(settingsStore.patternEditorFontSize);
 	let fontFamily = $derived(settingsStore.patternEditorFontFamily);
+	let patternEditorFontString = $derived.by(() => {
+		const effectiveFontFamily = fontFamily === 'monospace' ? 'monospace' : `"${fontFamily}"`;
+		const fontFallback = fontFamily === 'monospace' ? 'monospace' : FONTS.mono;
+		return `${fontSize}px ${effectiveFontFamily}, ${fontFallback}`;
+	});
 	let channelSeparatorWidth = $derived(settingsStore.channelSeparatorWidth);
 	let selectionStyle = $derived(settingsStore.selectionStyle);
+	let emptyNoteAlignment = $derived(settingsStore.emptyNoteAlignment);
 	let canvasWidth = $state(PATTERN_EDITOR_CONSTANTS.DEFAULT_CANVAS_WIDTH);
 	let canvasHeight = $state(PATTERN_EDITOR_CONSTANTS.DEFAULT_CANVAS_HEIGHT);
 	let lineHeight = $derived(fontSize * PATTERN_EDITOR_CONSTANTS.LINE_HEIGHT_MULTIPLIER);
@@ -255,12 +373,13 @@
 	let selectionEndColumn = $state<number | null>(null);
 	let isSelecting = $state(false);
 	let mouseDownCell: { row: number; column: number } | null = null;
+	let pressOnInactiveEditor = false;
 	let autoScrollInterval: number | null = null;
 	let autoScrollDirection: number = 0;
 	let isEnterKeyHeld = $state(false);
 
 	const rowStringCache = new Cache<string, string>(500);
-	const patternGenericCache = new Cache<number, ReturnType<typeof converter.toGeneric>>(100);
+	const patternGenericCache = new Cache<string, ReturnType<typeof converter.toGeneric>>(100);
 	const cellPositionsCache = new Cache<
 		string,
 		ReturnType<PatternEditorTextParser['getCellPositions']>
@@ -274,18 +393,41 @@
 	let lastVisibleRowsCache: VisibleRowsCache | null = null;
 	let fontReady = $state(false);
 
-	let currentPattern = $derived.by(() => {
+	let currentPattern = $derived.by((): Pattern | null => {
 		const patternId = patternOrder[currentPatternOrderIndex];
-		return findOrCreatePattern(patternId);
+		if (patternId === undefined) return null;
+		return patterns.find((pattern) => pattern.id === patternId) ?? null;
 	});
 
 	function findOrCreatePattern(patternId: number): Pattern {
-		const { pattern, newPatterns } = PatternService.findOrCreatePattern(patterns, patternId);
+		const song = projectStore.songs[songIndex];
+		if (!song) {
+			return PatternService.createEmptyPattern(
+				patternId,
+				schema,
+				undefined,
+				projectStore.getDefaultPatternLength()
+			);
+		}
+		const { pattern, newPatterns } = PatternService.findOrCreatePattern(
+			patterns,
+			patternId,
+			song.getSchema() ?? schema,
+			song.getEffectiveChannelLabels(),
+			song.defaultPatternLength ?? projectStore.getDefaultPatternLength()
+		);
 		if (newPatterns !== patterns) {
 			updatePatterns(newPatterns);
 		}
 		return pattern;
 	}
+
+	$effect(() => {
+		if (!projectStore.songs[songIndex]) return;
+		const patternId = patternOrder[currentPatternOrderIndex];
+		if (patternId === undefined || currentPattern) return;
+		findOrCreatePattern(patternId);
+	});
 
 	function clearAllCaches(): void {
 		PatternRowDataService.clearAllCaches(
@@ -297,28 +439,69 @@
 		lastVisibleRowsCache = null;
 	}
 
+	function bindVirtualChannelLayout(): void {
+		const map = projectStore.songs[songIndex]?.virtualChannelMap ?? {};
+		formatter.virtualChannelMap = map;
+		textParser?.setVirtualChannelMap(map);
+		renderer?.setVirtualChannelMap(map);
+	}
+
+	let appliedVirtualChannelMapKey = '';
 	$effect(() => {
-		patterns.length;
-		patternOrder.length;
+		const key = JSON.stringify(projectStore.songs[songIndex]?.virtualChannelMap ?? {});
+		bindVirtualChannelLayout();
+		if (key === appliedVirtualChannelMapKey) return;
+		appliedVirtualChannelMapKey = key;
 		clearAllCaches();
+		untrack(() => {
+			if (!ctx || !renderer || !textParser || !patternEditorIsShown()) return;
+			draw();
+		});
 	});
 
-	let lastActiveState = isActive;
 	$effect(() => {
-		const becameActive = isActive && !lastActiveState;
-		lastActiveState = isActive;
+		patterns;
+		patternOrder;
+		clearAllCaches();
+		lastVisibleRowsCache = null;
+		untrack(() => {
+			if (!ctx || !renderer || !textParser || !patternEditorIsShown()) return;
+			const previousWidth = canvasWidth;
+			updateSize();
+			if (canvasWidth !== previousWidth) {
+				setupCanvas();
+			}
+			draw();
+		});
+	});
+
+	$effect(() => {
+		instrumentColorFingerprint;
+		untrack(() => scheduleDraw());
+	});
+
+	let lastActiveState = false;
+	$effect(() => {
+		const active = isActive;
+		const activityChanged = active !== lastActiveState;
+		const becameActive = active && !lastActiveState;
+		lastActiveState = active;
+
+		if (!activityChanged) return;
 
 		if (becameActive) {
 			clearAllCaches();
 			lastVisibleRowsCache = null;
-			if (ctx && renderer && textParser) {
-				draw();
-			}
+		}
+		if (ctx && renderer && textParser) {
+			draw();
 		}
 	});
 
 	function ensurePatternExists(): Pattern | null {
-		return currentPattern;
+		const patternId = patternOrder[currentPatternOrderIndex];
+		if (patternId === undefined) return null;
+		return findOrCreatePattern(patternId);
 	}
 
 	function getSelectionBounds() {
@@ -332,34 +515,10 @@
 
 	function updatePatternInArray(updatedPattern: Pattern): void {
 		updatePatterns(PatternService.updatePatternInArray(patterns, updatedPattern));
-		patternGenericCache.delete(updatedPattern.id);
-		rowStringCache.invalidate((key) => {
-			if (typeof key === 'string') {
-				return key.startsWith(`${updatedPattern.id}:`);
-			}
-			return false;
-		});
+		const patternCachePrefix = `${updatedPattern.id}:`;
+		patternGenericCache.invalidate((key) => key.startsWith(patternCachePrefix));
+		rowStringCache.invalidate((key) => key.startsWith(patternCachePrefix));
 		lastVisibleRowsCache = null;
-	}
-
-	function createEditContext(): PatternEditContext {
-		return {
-			patterns,
-			updatePatterns: (newPatterns: Pattern[]) => {
-				updatePatterns(newPatterns);
-				lastDrawnPatternLength = -1;
-				lastVisibleRowsCache = null;
-				clearAllCaches();
-				draw();
-			},
-			setCursor: (position: CursorPosition) => {
-				selectedRow = position.row;
-				selectedColumn = position.column;
-				currentPatternOrderIndex = position.patternOrderIndex;
-				clearAllCaches();
-				draw();
-			}
-		};
 	}
 
 	function getCursorPosition(): CursorPosition {
@@ -370,51 +529,81 @@
 		};
 	}
 
-	function recordPatternEdit(oldPattern: Pattern, newPattern: Pattern): void {
-		const action = new PatternFieldEditAction(
-			createEditContext(),
-			oldPattern,
-			newPattern,
-			getCursorPosition()
-		);
-		undoRedoStore.pushAction(action);
+	function getPatternHistoryPath(pattern: Pattern): (string | number)[] {
+		const patternIndex = patterns.findIndex((p) => p.id === pattern.id);
+		return patternIndex >= 0 ? ['patterns', songIndex, patternIndex] : ['patterns', songIndex];
 	}
 
-	function refreshAfterVirtualChannelChange(): void {
-		sendVirtualChannelConfigToProcessor();
+	function changeChannelEffectColumnCount(channelIndex: number, delta: number): void {
+		if (playbackStore.isPlaying) return;
+		if (!schemaHasChannelEffects(schema)) return;
+		const pattern = currentPattern ?? ensurePatternExists();
+		if (!pattern) return;
+		const channel = pattern.channels[channelIndex];
+		if (!channel) return;
+		const currentCount = resolveChannelEffectColumnCount(channel);
+		const nextCount = currentCount + delta;
+		if (
+			nextCount < MIN_CHANNEL_EFFECT_COLUMNS ||
+			nextCount > MAX_CHANNEL_EFFECT_COLUMNS ||
+			nextCount === currentCount
+		) {
+			return;
+		}
+		const oldPatterns = patterns;
+		const newPatterns = PatternService.setChannelEffectColumnCount(
+			patterns,
+			channelIndex,
+			nextCount
+		);
+		projectStore.recordHistory(
+			{
+				type: 'pattern.edit',
+				label: delta > 0 ? 'Add effect column' : 'Remove effect column',
+				affectedDomains: ['patterns']
+			},
+			[projectStore.createSetDiff(['patterns', songIndex], oldPatterns, newPatterns)]
+		);
+		updatePatterns(newPatterns);
+		const updatedCurrent = newPatterns.find((item) => item.id === pattern.id) ?? newPatterns[0];
+		if (updatedCurrent && chipProcessor && chipProcessor.isAudioNodeAvailable()) {
+			chipProcessor.sendInitPattern(updatedCurrent, currentPatternOrderIndex);
+		}
 		clearAllCaches();
 		updateSize();
 		setupCanvas();
 		draw();
 	}
 
-	function createVirtualChannelEditContext(): VirtualChannelEditContext {
-		const song = projectStore.songs[songIndex];
-		return {
-			patterns,
-			song: song!,
-			updatePatterns: (newPatterns: Pattern[]) => {
-				updatePatterns(newPatterns);
-				lastDrawnPatternLength = -1;
-				lastVisibleRowsCache = null;
+	function recordPatternEdit(oldPattern: Pattern, newPattern: Pattern, bulk = false): void {
+		projectStore.recordHistory(
+			{
+				type: bulk ? 'pattern.bulkEdit' : 'pattern.edit',
+				label: bulk
+					? `Bulk edit pattern ${oldPattern.id}`
+					: `Edit pattern ${oldPattern.id}`,
+				affectedDomains: ['patterns'],
+				beforeSelection: getCursorPosition(),
+				afterSelection: getCursorPosition()
 			},
-			setCursor: (position: CursorPosition) => {
-				selectedRow = position.row;
-				selectedColumn = position.column;
-				currentPatternOrderIndex = position.patternOrderIndex;
-			},
-			onVirtualChannelChange: refreshAfterVirtualChannelChange
-		};
+			[projectStore.createSetDiff(getPatternHistoryPath(oldPattern), oldPattern, newPattern)]
+		);
+	}
+
+	function refreshAfterVirtualChannelChange(): void {
+		sendVirtualChannelConfigToProcessor();
+		const pattern = currentPattern ?? ensurePatternExists();
+		if (pattern) {
+			chipProcessor.sendInitPattern(pattern, currentPatternOrderIndex);
+		}
+		clearAllCaches();
+		updateSize();
+		setupCanvas();
+		draw();
 	}
 
 	function recordBulkPatternEdit(oldPattern: Pattern, newPattern: Pattern): void {
-		const action = new BulkPatternEditAction(
-			createEditContext(),
-			oldPattern,
-			newPattern,
-			getCursorPosition()
-		);
-		undoRedoStore.pushAction(action);
+		recordPatternEdit(oldPattern, newPattern, true);
 	}
 
 	export function resetToBeginning() {
@@ -422,15 +611,22 @@
 		currentPatternOrderIndex = 0;
 	}
 
+	function discardPendingPlaybackPosition(pinnedOrderIndex?: number): void {
+		pendingPlaybackPosition = null;
+		playbackStartTime = performance.now();
+		if (playbackRafId !== null) {
+			cancelAnimationFrame(playbackRafId);
+			playbackRafId = null;
+		}
+		if (pinnedOrderIndex !== undefined) {
+			orderIndexGate.pin(pinnedOrderIndex);
+		}
+	}
+
 	export function setPatternOrderIndex(index: number) {
 		if (index >= 0 && index < patternOrder.length) {
 			currentPatternOrderIndex = index;
-			pendingPlaybackPosition = null;
-			playbackStartTime = performance.now();
-			if (playbackRafId !== null) {
-				cancelAnimationFrame(playbackRafId);
-				playbackRafId = null;
-			}
+			discardPendingPlaybackPosition(index);
 		}
 	}
 
@@ -450,6 +646,65 @@
 		canvas?.focus();
 	}
 
+	export function placeCursor(landing: PatternEditorLanding): void {
+		selectionStartRow = null;
+		selectionStartColumn = null;
+		selectionEndRow = null;
+		selectionEndColumn = null;
+		mouseDownCell = null;
+		pressOnInactiveEditor = false;
+		const pattern = currentPattern || ensurePatternExists();
+		if (!pattern) return;
+		const state = {
+			selectedRow,
+			currentPatternOrderIndex,
+			selectedColumn
+		};
+		const context = buildNavigationContext(pattern);
+		if (landing === 'first-column') {
+			selectedColumn = 0;
+			return;
+		}
+		if (landing === 'last-column') {
+			selectedColumn = PatternNavigationService.moveToRowEnd(state, context).selectedColumn;
+			return;
+		}
+		selectedColumn = PatternNavigationService.moveToPreviousChannel(
+			{ ...state, selectedColumn: 0 },
+			context
+		).selectedColumn;
+	}
+
+	export function scrollCursorIntoView(): void {
+		if (!canvas) return;
+		const scroller = canvas.closest('[data-song-pattern-scroll]');
+		const pattern = currentPattern;
+		if (!(scroller instanceof HTMLElement) || !pattern) {
+			canvas.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+			return;
+		}
+		const rowString = getPatternRowData(pattern, selectedRow);
+		const cells = getCellPositions(rowString, selectedRow);
+		const cell = cells[selectedColumn];
+		if (!cell) {
+			canvas.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+			return;
+		}
+		const canvasRect = canvas.getBoundingClientRect();
+		const scrollerRect = scroller.getBoundingClientRect();
+		const cellLeft = canvasRect.left + cell.x;
+		const cellRight = cellLeft + cell.width;
+		if (cellLeft < scrollerRect.left) {
+			scroller.scrollLeft -= scrollerRect.left - cellLeft;
+		} else if (cellRight > scrollerRect.right) {
+			scroller.scrollLeft += cellRight - scrollerRect.right;
+		}
+	}
+
+	export function getCanvas(): HTMLCanvasElement | undefined {
+		return canvas;
+	}
+
 	export function getSelectedFieldKey(): string | null {
 		if (patternOrder.length === 0) return null;
 		const pattern = currentPattern;
@@ -461,6 +716,10 @@
 		if (selectedColumn < 0 || selectedColumn >= cellPositions.length) return null;
 		const cell = cellPositions[selectedColumn];
 		return cell?.fieldKey || null;
+	}
+
+	export function getSelectedChannelIndex(): number {
+		return getChannelIndexAtCursor();
 	}
 
 	export function getCurrentPatternLength(): number | null {
@@ -493,6 +752,19 @@
 		}
 
 		const resizedPattern = PatternService.resizePattern(pattern, newLength, schema);
+		projectStore.recordHistory(
+			{
+				type: 'pattern.resize',
+				label: `Resize pattern ${pattern.id}`,
+				affectedDomains: ['patterns'],
+				beforeSelection: getCursorPosition(),
+				afterSelection: {
+					...getCursorPosition(),
+					row: Math.min(selectedRow, resizedPattern.length - 1)
+				}
+			},
+			[projectStore.createSetDiff(getPatternHistoryPath(pattern), pattern, resizedPattern)]
+		);
 		const newPatterns = PatternService.updatePatternInArray(patterns, resizedPattern);
 		updatePatterns(newPatterns);
 
@@ -502,6 +774,94 @@
 
 		lastDrawnPatternLength = -1;
 		lastVisibleRowsCache = null;
+		clearAllCaches();
+		draw();
+	}
+
+	function resolveSchemaForSong(forSongIndex: number) {
+		const song = projectStore.songs[forSongIndex];
+		return (
+			song?.getSchema() ??
+			(forSongIndex === songIndex
+				? schema
+				: services.audioService.chipProcessors[forSongIndex]?.chip?.schema)
+		);
+	}
+
+	function insertPatternRow(): void {
+		if (playbackStore.isPlaying) return;
+
+		const patternId = patternOrder[currentPatternOrderIndex];
+		const rowIndex = selectedRow;
+		const beforePatterns = projectStore.patterns.map((songPatterns) => [...songPatterns]);
+		let changed = false;
+
+		for (let j = 0; j < projectStore.patterns.length; j++) {
+			const songPatterns = projectStore.patterns[j];
+			const pattern = songPatterns.find((p) => p.id === patternId);
+			if (!pattern) continue;
+			const next = PatternService.insertRowAt(pattern, rowIndex, resolveSchemaForSong(j));
+			if (!next) continue;
+			changed = true;
+			projectStore.updatePatterns(j, PatternService.updatePatternInArray(songPatterns, next));
+		}
+
+		if (!changed) return;
+
+		projectStore.recordHistory(
+			{
+				type: 'pattern.insertRow',
+				label: `Insert row in pattern ${patternId}`,
+				affectedDomains: ['patterns'],
+				beforeSelection: getCursorPosition(),
+				afterSelection: getCursorPosition()
+			},
+			[projectStore.createSetDiff(['patterns'], beforePatterns, projectStore.patterns)]
+		);
+
+		selectionStartRow = null;
+		selectionStartColumn = null;
+		selectionEndRow = null;
+		selectionEndColumn = null;
+		clearAllCaches();
+		draw();
+	}
+
+	function removePatternRow(): void {
+		if (playbackStore.isPlaying) return;
+
+		const patternId = patternOrder[currentPatternOrderIndex];
+		const rowIndex = selectedRow;
+		const beforePatterns = projectStore.patterns.map((songPatterns) => [...songPatterns]);
+		let changed = false;
+
+		for (let j = 0; j < projectStore.patterns.length; j++) {
+			const songPatterns = projectStore.patterns[j];
+			const pattern = songPatterns.find((p) => p.id === patternId);
+			if (!pattern) continue;
+			const next = PatternService.removeRowAt(pattern, rowIndex, resolveSchemaForSong(j));
+			if (!next) continue;
+			changed = true;
+			projectStore.updatePatterns(j, PatternService.updatePatternInArray(songPatterns, next));
+		}
+
+		if (!changed) return;
+
+		projectStore.recordHistory(
+			{
+				type: 'pattern.removeRow',
+				label: `Remove row in pattern ${patternId}`,
+				affectedDomains: ['patterns'],
+				beforeSelection: getCursorPosition(),
+				afterSelection: getCursorPosition()
+			},
+			[projectStore.createSetDiff(['patterns'], beforePatterns, projectStore.patterns)]
+		);
+
+		selectionStartRow = null;
+		selectionStartColumn = null;
+		selectionEndRow = null;
+		selectionEndColumn = null;
 		clearAllCaches();
 		draw();
 	}
@@ -530,7 +890,8 @@
 				pattern: originalPattern,
 				bounds,
 				converter,
-				selectedChannels
+				selectedChannels,
+				schema
 			});
 
 			recordBulkPatternEdit(originalPattern, updatedPattern);
@@ -558,7 +919,8 @@
 				cell.fieldKey,
 				cell.charIndex,
 				rowString,
-				schema
+				schema,
+				getPatternEffectColumnCounts(pattern)
 			);
 			channels.add(channelIndex);
 		}
@@ -574,6 +936,99 @@
 		isEnterKeyHeld = false;
 	}
 
+	function mergeSpeedCarry(
+		carry: PlaybackCarryState | null,
+		orderIndex: number,
+		startRow: number,
+		chipIndex: number
+	): PlaybackCarryState | null {
+		const speedState = findLastSpeedCommand(
+			projectStore.patterns,
+			patternOrder,
+			orderIndex,
+			startRow - 1,
+			projectStore.tables
+		);
+		if (!speedState) return carry;
+		const next: PlaybackCarryState = carry ? { ...carry } : {};
+		if (speedState.speed !== undefined) next.speed = speedState.speed;
+		if (chipIndex === speedState.ownerChipIndex) {
+			next.speedTable = speedState.speedTable;
+			next.speedTablePosition = speedState.speedTablePosition;
+		} else {
+			delete next.speedTable;
+			delete next.speedTablePosition;
+		}
+		return next;
+	}
+
+	function buildCarryPlayOptions(orderIndex: number, startRow: number) {
+		const tables = projectStore.tables;
+		const chipProcessors = services.audioService.chipProcessors;
+		if (chipProcessors.length > 1) {
+			return {
+				getCarryForChip: (chipIndex: number) => {
+					const songPatterns = projectStore.patterns[chipIndex] ?? [];
+					const schema = chipProcessors[chipIndex]?.chip?.schema;
+					if (!schema) return mergeSpeedCarry(null, orderIndex, startRow, chipIndex);
+					return mergeSpeedCarry(
+						collectPlaybackCarry(
+							patternOrder,
+							(id) => songPatterns.find((p) => p.id === id),
+							orderIndex,
+							startRow,
+							schema,
+							tables,
+							(logicalIndex) =>
+								getHardwareChannelIndex(
+									logicalIndex,
+									schema.channelLabels ?? [],
+									projectStore.songs[chipIndex]?.virtualChannelMap ?? {}
+								)
+						),
+						orderIndex,
+						startRow,
+						chipIndex
+					);
+				}
+			};
+		}
+		return {
+			carry: chip.schema
+				? mergeSpeedCarry(
+						collectPlaybackCarry(
+							patternOrder,
+							findOrCreatePattern,
+							orderIndex,
+							startRow,
+							chip.schema,
+							tables,
+							(logicalIndex) =>
+								getHardwareChannelIndex(
+									logicalIndex,
+									chip.schema.channelLabels ?? [],
+									projectStore.songs[songIndex]?.virtualChannelMap ?? {}
+								)
+						),
+						orderIndex,
+						startRow,
+						songIndex
+					)
+				: mergeSpeedCarry(null, orderIndex, startRow, songIndex)
+		};
+	}
+
+	export function playFromPosition(orderIndex: number, row: number): void {
+		lastPatternOrderIndexFromPlayback = orderIndex;
+		discardPendingPlaybackPosition(orderIndex);
+		playbackSeekScheduler.cancel();
+		if (currentPatternOrderIndex !== orderIndex) currentPatternOrderIndex = orderIndex;
+		selectedRow = Math.max(0, row);
+		if (services.audioService.playing) services.audioService.stop();
+		playbackStore.isPlaying = true;
+		playFromCursor();
+	}
+
 	export function playFromCursor() {
 		if (!chipProcessor || !chipProcessor.isAudioNodeAvailable()) {
 			console.warn('Audio processor not available or not initialized');
@@ -587,83 +1042,13 @@
 			}
 
 			initAllChips?.();
-			pendingPlaybackPosition = null;
-			playbackStartTime = performance.now();
-			if (playbackRafId !== null) {
-				cancelAnimationFrame(playbackRafId);
-				playbackRafId = null;
-			}
-
-			const chipProcessors = services.audioService.chipProcessors;
-			const usePerChip = chipProcessors.length > 1;
-
-			const buildOptions = () => {
-				if (usePerChip) {
-					return {
-						getStartPatternForChip: (chipIndex: number) => {
-							const patternId = patternOrder[currentPatternOrderIndex];
-							const songPatterns = projectStore.patterns[chipIndex] ?? [];
-							const schema = chipProcessors[chipIndex]?.chip?.schema;
-							return (
-								songPatterns.find((p) => p.id === patternId) ??
-								PatternService.createEmptyPattern(patternId, schema)
-							);
-						},
-						getCatchUpSegmentsForChip: (chipIndex: number) => {
-							const songPatterns = projectStore.patterns[chipIndex] ?? [];
-							const schema = chipProcessors[chipIndex]?.chip?.schema;
-							const getPattern = (id: number) =>
-								songPatterns.find((p) => p.id === id);
-							const horizon =
-								schema && songPatterns.length > 0
-									? computeStateHorizon(
-											patternOrder,
-											getPattern,
-											currentPatternOrderIndex,
-											selectedRow,
-											schema
-										)
-									: null;
-							return horizon
-								? buildCatchUpSegmentsToHorizon(
-										patternOrder,
-										getPattern,
-										horizon.orderIndex,
-										horizon.row
-									)
-								: [];
-						}
-					};
-				}
-				const getPattern = (id: number) => findOrCreatePattern(id);
-				const horizon = chip.schema
-					? computeStateHorizon(
-							patternOrder,
-							getPattern,
-							currentPatternOrderIndex,
-							selectedRow,
-							chip.schema
-						)
-					: null;
-				const catchUpSegments = horizon
-					? buildCatchUpSegmentsToHorizon(
-							patternOrder,
-							getPattern,
-							horizon.orderIndex,
-							horizon.row
-						)
-					: [];
-				return {
-					catchUpSegments,
-					startPattern: currentPattern
-				};
-			};
+			discardPendingPlaybackPosition();
 
 			services.audioService.playFromRow(
 				selectedRow,
 				currentPatternOrderIndex,
 				getSpeedForChip,
-				buildOptions()
+				buildCarryPlayOptions(currentPatternOrderIndex, selectedRow)
 			);
 		} catch (error) {
 			console.error('Error during playback from cursor:', error);
@@ -684,85 +1069,16 @@
 			}
 
 			initAllChipsForPlayPattern?.();
-			pendingPlaybackPosition = null;
-			playbackStartTime = performance.now();
-			if (playbackRafId !== null) {
-				cancelAnimationFrame(playbackRafId);
-				playbackRafId = null;
-			}
+			discardPendingPlaybackPosition();
+			orderIndexGate.clear();
 
-			const chipProcessors = services.audioService.chipProcessors;
-			const usePerChip = chipProcessors.length > 1;
-
-			const buildOptions = () => {
-				if (usePerChip) {
-					return {
-						getStartPatternForChip: (chipIndex: number) => {
-							const patternId = currentPattern.id;
-							const songPatterns = projectStore.patterns[chipIndex] ?? [];
-							const schema = chipProcessors[chipIndex]?.chip?.schema;
-							return (
-								songPatterns.find((p) => p.id === patternId) ??
-								PatternService.createEmptyPattern(patternId, schema)
-							);
-						},
-						getCatchUpSegmentsForChip: (chipIndex: number) => {
-							const songPatterns = projectStore.patterns[chipIndex] ?? [];
-							const schema = chipProcessors[chipIndex]?.chip?.schema;
-							const getPattern = (id: number) =>
-								songPatterns.find((p) => p.id === id);
-							const orderIndexForBacktrack =
-								services.audioService.getPlayPatternId() !== null
-									? Math.max(0, patternOrder.indexOf(currentPattern.id))
-									: 0;
-							const horizon =
-								schema && songPatterns.length > 0
-									? computeStateHorizon(
-											patternOrder,
-											getPattern,
-											orderIndexForBacktrack,
-											0,
-											schema
-										)
-									: null;
-							return horizon
-								? buildCatchUpSegmentsToHorizon(
-										patternOrder,
-										getPattern,
-										horizon.orderIndex,
-										horizon.row
-									)
-								: [];
-						}
-					};
-				}
-				const getPattern = (id: number) => findOrCreatePattern(id);
-				const orderIndexForBacktrack =
-					services.audioService.getPlayPatternId() !== null
-						? Math.max(0, patternOrder.indexOf(currentPattern.id))
-						: 0;
-				const horizon = chip.schema
-					? computeStateHorizon(
-							patternOrder,
-							getPattern,
-							orderIndexForBacktrack,
-							0,
-							chip.schema
-						)
-					: null;
-				const catchUpSegments = horizon
-					? buildCatchUpSegmentsToHorizon(
-							patternOrder,
-							getPattern,
-							horizon.orderIndex,
-							horizon.row
-						)
-					: [];
-				return { catchUpSegments, startPattern: currentPattern };
-			};
+			const orderIndexForBacktrack =
+				services.audioService.getPlayPatternId() !== null
+					? Math.max(0, patternOrder.indexOf(currentPattern.id))
+					: 0;
 
 			services.audioService.playFromRow(0, 0, getSpeedForPlayPattern ?? getSpeedForChip, {
-				...buildOptions()
+				...buildCarryPlayOptions(orderIndexForBacktrack, 0)
 			});
 		} catch (error) {
 			console.error('Error during play pattern:', error);
@@ -784,86 +1100,15 @@
 				}
 
 				initAllChips?.();
-				pendingPlaybackPosition = null;
-				playbackStartTime = performance.now();
-				if (playbackRafId !== null) {
-					cancelAnimationFrame(playbackRafId);
-					playbackRafId = null;
-				}
+				discardPendingPlaybackPosition();
 
-				const defaultGetSpeed = (index: number) =>
-					projectStore.songs[index]?.initialSpeed ?? 3;
-				const chipProcessors = services.audioService.chipProcessors;
-				const usePerChip = chipProcessors.length > 1;
-				const startRow = 0;
-
-				const buildOptions = () => {
-					if (usePerChip) {
-						return {
-							getStartPatternForChip: (chipIndex: number) => {
-								const patternId = patternOrder[currentPatternOrderIndex];
-								const songPatterns = projectStore.patterns[chipIndex] ?? [];
-								const schema = chipProcessors[chipIndex]?.chip?.schema;
-								return (
-									songPatterns.find((p) => p.id === patternId) ??
-									PatternService.createEmptyPattern(patternId, schema)
-								);
-							},
-							getCatchUpSegmentsForChip: (chipIndex: number) => {
-								const songPatterns = projectStore.patterns[chipIndex] ?? [];
-								const schema = chipProcessors[chipIndex]?.chip?.schema;
-								const getPattern = (id: number) =>
-									songPatterns.find((p) => p.id === id);
-								const horizon =
-									schema && songPatterns.length > 0
-										? computeStateHorizon(
-												patternOrder,
-												getPattern,
-												currentPatternOrderIndex,
-												startRow,
-												schema
-											)
-										: null;
-								return horizon
-									? buildCatchUpSegmentsToHorizon(
-											patternOrder,
-											getPattern,
-											horizon.orderIndex,
-											horizon.row
-										)
-									: [];
-							}
-						};
-					}
-					const getPattern = (id: number) => findOrCreatePattern(id);
-					const horizon = chip.schema
-						? computeStateHorizon(
-								patternOrder,
-								getPattern,
-								currentPatternOrderIndex,
-								startRow,
-								chip.schema
-							)
-						: null;
-					const catchUpSegments = horizon
-						? buildCatchUpSegmentsToHorizon(
-								patternOrder,
-								getPattern,
-								horizon.orderIndex,
-								horizon.row
-							)
-						: [];
-					return {
-						catchUpSegments,
-						startPattern: currentPattern
-					};
-				};
+				const defaultGetSpeed = () => projectStore.getInitialSpeed();
 
 				services.audioService.playFromRow(
-					startRow,
+					0,
 					currentPatternOrderIndex,
 					getSpeedForChip ?? defaultGetSpeed,
-					buildOptions()
+					buildCarryPlayOptions(currentPatternOrderIndex, 0)
 				);
 			}
 		} catch (error) {
@@ -873,8 +1118,10 @@
 	}
 
 	function initPlayback() {
+		const pattern = currentPattern ?? ensurePatternExists();
+		if (!pattern) return;
 		sendVirtualChannelConfigToProcessor();
-		chipProcessor.sendInitPattern(currentPattern, currentPatternOrderIndex);
+		chipProcessor.sendInitPattern(pattern, currentPatternOrderIndex);
 		chipProcessor.sendInitSpeed(speed);
 
 		const withTuningTables = chipProcessor as ChipProcessor & Partial<TuningTableSupport>;
@@ -888,7 +1135,9 @@
 	}
 
 	function pausePlayback() {
+		playbackSeekScheduler.cancel();
 		services.audioService.stop();
+		orderIndexGate.clear();
 	}
 
 	function getCellPositions(
@@ -914,8 +1163,10 @@
 				canvasHeight,
 				lineHeight,
 				createPatternIfMissing: (patternId: number) => {
-					const newPattern = PatternService.createEmptyPattern(patternId);
-					updatePatterns([...patterns, newPattern]);
+					const newPattern = createEmptyPatternForSong(patternId);
+					if (projectStore.songs[songIndex]) {
+						updatePatterns([...patterns, newPattern]);
+					}
 					return newPattern;
 				}
 			},
@@ -929,12 +1180,10 @@
 		if (!canvas) return false;
 
 		ctx = canvas.getContext('2d')!;
+		setupLevelStripCanvas();
 
 		try {
-			const effectiveFontFamily =
-				fontFamily === 'monospace' ? 'monospace' : `"${fontFamily}"`;
-			const fontFallback = fontFamily === 'monospace' ? 'monospace' : FONTS.mono;
-			const fontString = `${fontSize}px ${effectiveFontFamily}, ${fontFallback}`;
+			const fontString = patternEditorFontString;
 
 			canvas.style.fontFeatureSettings = "'liga' 0, 'calt' 0";
 			canvas.style.fontVariantLigatures = 'none';
@@ -970,8 +1219,10 @@
 				lineHeight,
 				schema,
 				channelSeparatorWidth,
-				selectionStyle
+				selectionStyle,
+				emptyNoteAlignment
 			});
+			bindVirtualChannelLayout();
 
 			if (fontFamily && fontFamily !== 'monospace') {
 				const fontSpec = `${fontSize}px "${fontFamily}"`;
@@ -984,6 +1235,9 @@
 						.then(() => {
 							if (ctx && canvas) {
 								ctx.font = fontString;
+								if (levelStripCtx) {
+									levelStripCtx.font = fontString;
+								}
 								clearAllCaches();
 								updateSize();
 								draw();
@@ -1030,8 +1284,10 @@
 						lineHeight,
 						schema,
 						channelSeparatorWidth,
-						selectionStyle
+						selectionStyle,
+						emptyNoteAlignment
 					});
+					bindVirtualChannelLayout();
 					draw();
 				}
 			});
@@ -1040,7 +1296,14 @@
 	});
 
 	function getChipIndex(): number {
-		return services.audioService.chipProcessors.findIndex((p) => p === chipProcessor);
+		const found = services.audioService.chipProcessors.findIndex((p) => p === chipProcessor);
+		if (found >= 0) return found;
+		const count = Math.max(
+			services.audioService.chipProcessors.length,
+			projectStore.songs.length
+		);
+		if (songIndex >= 0 && songIndex < count) return songIndex;
+		return -1;
 	}
 
 	function getChannelMutedState(pattern: Pattern): boolean[] {
@@ -1050,11 +1313,45 @@
 		);
 	}
 
+	function computeDisplayChannelLevels(): { levels: number[]; active: boolean } {
+		const chipIndex = getChipIndex();
+		const logicalLevels = chipIndex >= 0 ? waveformStore.getChannelLevels(chipIndex) : [];
+		const hwLabels = schema.channelLabels ?? ['A', 'B', 'C'];
+		const vcMap = projectStore.songs[songIndex]?.virtualChannelMap ?? {};
+		const virtualCount = getTotalVirtualChannelCount(hwLabels.length, vcMap);
+		const prev = channelLevels;
+		const levels = new Array<number>(virtualCount);
+		let anyLevel = false;
+
+		for (let vi = 0; vi < virtualCount; vi++) {
+			const muted = chipIndex >= 0 && channelMuteStore.isChannelMuted(chipIndex, vi);
+			const peak = muted ? 0 : (logicalLevels[vi] ?? 0);
+			const previous = prev[vi] ?? 0;
+			let value = peak >= previous ? peak : previous * CHANNEL_LEVEL_DECAY;
+			if (value < CHANNEL_LEVEL_EPSILON) value = 0;
+			levels[vi] = value;
+			if (value > 0) anyLevel = true;
+		}
+
+		return {
+			levels,
+			active: anyLevel || playbackStore.isPlaying
+		};
+	}
+
+	function applyChannelEffectColumnCounts(pattern: Pattern): void {
+		const counts = getPatternEffectColumnCounts(pattern);
+		textParser?.setChannelEffectColumnCounts(counts);
+		renderer?.setChannelEffectColumnCounts(counts);
+	}
+
 	function getPatternRowData(
 		pattern: Pattern,
 		rowIndex: number,
 		options?: { debug?: boolean }
 	): string {
+		bindVirtualChannelLayout();
+		applyChannelEffectColumnCounts(pattern);
 		return PatternRowDataService.getRowData(
 			{
 				pattern,
@@ -1069,7 +1366,37 @@
 		);
 	}
 
-	function draw() {
+	function getHeaderRowContext(patternToDraw: Pattern): {
+		rowString: string;
+		channelLabels: string[];
+		channelMuted: boolean[];
+		vcGroups: ReturnType<typeof getVirtualChannelGroups> | undefined;
+		channelRoleMarks?: (string | null)[];
+	} | null {
+		if (patternToDraw.length <= 0) return null;
+
+		const song = projectStore.songs[songIndex];
+		const hwLabels = schema.channelLabels ?? ['A', 'B', 'C'];
+		return {
+			rowString: getPatternRowData(patternToDraw, 0),
+			channelLabels: patternToDraw.channels.map((ch) => ch.label),
+			channelMuted: getChannelMutedState(patternToDraw),
+			vcGroups: song
+				? getVirtualChannelGroups(hwLabels, song.virtualChannelMap ?? {})
+				: undefined,
+			channelRoleMarks: song
+				? virtualChannelRoleMarks(
+						patternToDraw.channels.length,
+						hwLabels,
+						song.virtualChannelMap,
+						song.virtualChannelRoles,
+						schema.virtualChannelRoles
+					)
+				: undefined
+		};
+	}
+
+	function drawPatternGrid(): void {
 		if (!ctx || !renderer || !textParser) return;
 		if (document.hidden) return;
 
@@ -1082,6 +1409,13 @@
 		const visibleRows = getVisibleRows(patternToDraw);
 		const bounds = getSelectionBounds();
 		const channelMutedByPatternId = new Map<number, boolean[]>();
+		const instrumentColors = instrumentColorsById(instruments);
+		const instrumentCarry =
+			instrumentColors.size > 0
+				? createInstrumentCarryLookup(patternOrder, (patternId) =>
+						patterns.find((pattern) => pattern.id === patternId)
+					)
+				: null;
 
 		function getCachedChannelMuted(pattern: Pattern): boolean[] {
 			let muted = channelMutedByPatternId.get(pattern.id);
@@ -1106,11 +1440,20 @@
 			}
 
 			const patternToRender = findOrCreatePattern(row.patternIndex);
+			applyChannelEffectColumnCounts(patternToRender);
 			if (row.rowIndex >= 0 && row.rowIndex < patternToRender.length) {
 				const rowString = getPatternRowData(patternToRender, row.rowIndex);
 
 				if (!textParser || !renderer) continue;
-				const segments = textParser.parseRowString(rowString, row.rowIndex);
+				const parsedSegments = textParser.parseRowString(rowString, row.rowIndex);
+				const segments = instrumentCarry
+					? applyInstrumentColorsToSegments(
+							parsedSegments,
+							rowString,
+							instrumentColors,
+							instrumentCarry.idsAt(row.orderIndex, row.rowIndex)
+						)
+					: parsedSegments;
 				const cellPositions = getCellPositions(rowString, row.rowIndex);
 				const channelMuted = getCachedChannelMuted(patternToRender);
 
@@ -1129,12 +1472,17 @@
 					selectionEndCol = bounds.maxCol;
 				}
 
+				const cursorOverride = pressOnInactiveEditor ? mouseDownCell : null;
+
 				renderer.drawRow({
 					rowString,
 					y,
-					isSelected: row.isSelected && isActive,
+					isSelected:
+						isActive &&
+						isCurrentPattern &&
+						(cursorOverride ? row.rowIndex === cursorOverride.row : row.isSelected),
 					rowIndex: row.rowIndex,
-					selectedColumn,
+					selectedColumn: cursorOverride?.column ?? selectedColumn,
 					segments,
 					cellPositions,
 					channelMuted,
@@ -1146,44 +1494,177 @@
 
 		ctx.globalAlpha = 1.0;
 
-		if (patternToDraw && patternToDraw.length > 0) {
-			let rowToUse: number | null = null;
-			const firstVisibleRow = visibleRows.find((r) => !r.isEmpty);
-
-			if (
-				firstVisibleRow &&
-				firstVisibleRow.rowIndex >= 0 &&
-				firstVisibleRow.rowIndex < patternToDraw.length
-			) {
-				rowToUse = firstVisibleRow.rowIndex;
-			} else {
-				rowToUse = 0;
-			}
-
-			if (rowToUse !== null && rowToUse >= 0 && rowToUse < patternToDraw.length) {
-				const rowString = getPatternRowData(patternToDraw, rowToUse);
-
-				const song = projectStore.songs[songIndex];
-				const vcGroups = song
-					? getVirtualChannelGroups(
-							schema.channelLabels ?? ['A', 'B', 'C'],
-							song.virtualChannelMap ?? {}
-						)
-					: undefined;
-
-				renderer.drawChannelSeparators(rowString, canvasHeight, vcGroups);
-
-				const channelLabels = patternToDraw.channels.map((ch) => ch.label);
-				const channelMuted = getCachedChannelMuted(patternToDraw);
-
-				renderer.drawChannelLabels({
-					rowString,
-					channelLabels,
-					channelMuted,
-					virtualChannelGroups: vcGroups
-				});
-			}
+		const header = getHeaderRowContext(patternToDraw);
+		if (header) {
+			renderer.drawChannelSeparators(header.rowString, canvasHeight, header.vcGroups);
 		}
+	}
+
+	function drawHeaderOverlay(): void {
+		if (!ctx || !renderer || !textParser) return;
+		if (document.hidden) return;
+
+		const patternId = patternOrder[currentPatternOrderIndex];
+		const patternToDraw = findOrCreatePattern(patternId);
+		if (!patternToDraw) return;
+
+		const header = getHeaderRowContext(patternToDraw);
+		if (!header) return;
+		levelStripHeader = header;
+
+		applyChannelEffectColumnCounts(patternToDraw);
+		renderer.drawChannelLabels({
+			rowString: header.rowString,
+			channelLabels: header.channelLabels,
+			channelMuted: header.channelMuted,
+			virtualChannelGroups: header.vcGroups,
+			channelRoleMarks: header.channelRoleMarks,
+			effectColumnControlsEnabled: !playbackStore.isPlaying
+		});
+		drawChannelLevelStripOverlay();
+	}
+
+	function drawChannelLevelStripOverlay(): void {
+		if (!levelStripCtx || !renderer) return;
+		if (document.hidden) return;
+		const header = levelStripHeader;
+		if (!header || !settingsStore.showChannelVolumeBars || channelLevels.length === 0) {
+			levelStripCtx.clearRect(0, 0, canvasWidth, CHANNEL_LEVEL_STRIP_HEIGHT);
+			return;
+		}
+
+		renderer.drawChannelLevelStripOnOverlay(levelStripCtx, {
+			rowString: header.rowString,
+			channelLabels: header.channelLabels,
+			channelMuted: header.channelMuted,
+			virtualChannelGroups: header.vcGroups,
+			channelLevels
+		});
+	}
+
+	function setupLevelStripCanvas(): void {
+		if (!levelStripCanvas) return;
+		levelStripCtx = levelStripCanvas.getContext('2d');
+		if (!levelStripCtx) return;
+		setupCanvasUtil({
+			canvas: levelStripCanvas,
+			ctx: levelStripCtx,
+			width: canvasWidth,
+			height: CHANNEL_LEVEL_STRIP_HEIGHT,
+			fontSize,
+			fonts: { ...FONTS, mono: patternEditorFontString }
+		});
+		levelStripCtx.font = patternEditorFontString;
+	}
+
+	function draw() {
+		bindVirtualChannelLayout();
+		drawPatternGrid();
+		drawHeaderOverlay();
+	}
+
+	function patternEditorIsShown(): boolean {
+		return !document.hidden && !!containerDiv && containerDiv.getClientRects().length > 0;
+	}
+
+	function scheduleDraw(): void {
+		if (pendingDrawRaf !== null || !patternEditorIsShown()) return;
+		pendingDrawRaf = requestAnimationFrame(() => {
+			pendingDrawRaf = null;
+			if (patternEditorIsShown()) draw();
+		});
+	}
+
+	$effect(() => {
+		playbackStore.isPlaying;
+		untrack(() => {
+			if (ctx && renderer && textParser && fontReady && !document.hidden) {
+				drawHeaderOverlay();
+			}
+		});
+	});
+
+	$effect(() => {
+		songIndex;
+		schema;
+		const showBars = settingsStore.showChannelVolumeBars;
+
+		let cancelled = false;
+		let rafId = 0;
+
+		if (!showBars) {
+			if (channelLevels.length > 0) {
+				channelLevels = [];
+				drawChannelLevelStripOverlay();
+			}
+			return;
+		}
+
+		const tick = () => {
+			if (cancelled) return;
+			rafId = requestAnimationFrame(tick);
+
+			if (document.hidden) return;
+
+			const { levels, active } = computeDisplayChannelLevels();
+			const playing = playbackStore.isPlaying;
+
+			if (!playing && !active) {
+				if (channelLevels.length > 0) {
+					channelLevels = [];
+					drawChannelLevelStripOverlay();
+				}
+				return;
+			}
+
+			let changed = levels.length !== channelLevels.length;
+			if (!changed) {
+				for (let i = 0; i < levels.length; i++) {
+					if (levels[i] !== channelLevels[i]) {
+						changed = true;
+						break;
+					}
+				}
+			}
+
+			if (changed) {
+				channelLevels = levels;
+				drawChannelLevelStripOverlay();
+			}
+		};
+
+		rafId = requestAnimationFrame(tick);
+
+		return () => {
+			cancelled = true;
+			cancelAnimationFrame(rafId);
+		};
+	});
+
+	function buildNavigationContext(pattern: Pattern) {
+		return {
+			patterns,
+			patternOrder,
+			currentPattern: pattern,
+			converter,
+			formatter,
+			schema,
+			getCellPositions
+		};
+	}
+
+	function tryLeaveEditor(
+		direction: PatternEditorDirection,
+		landing: PatternEditorLanding,
+		wrap = false
+	): boolean {
+		if (!onLeaveEditor?.(direction, landing, wrap)) return false;
+		selectionStartRow = null;
+		selectionStartColumn = null;
+		selectionEndRow = null;
+		selectionEndColumn = null;
+		scheduleDraw();
+		return true;
 	}
 
 	function moveRow(delta: number) {
@@ -1213,12 +1694,7 @@
 		selectedRow = navigationState.selectedRow;
 		if (currentPatternOrderIndex !== navigationState.currentPatternOrderIndex) {
 			currentPatternOrderIndex = navigationState.currentPatternOrderIndex;
-			pendingPlaybackPosition = null;
-			playbackStartTime = performance.now();
-			if (playbackRafId !== null) {
-				cancelAnimationFrame(playbackRafId);
-				playbackRafId = null;
-			}
+			discardPendingPlaybackPosition(navigationState.currentPatternOrderIndex);
 		}
 
 		const updatedPattern = currentPattern || ensurePatternExists();
@@ -1240,23 +1716,19 @@
 		const pattern = currentPattern || ensurePatternExists();
 		if (!pattern) return;
 
-		const navigationState = PatternNavigationService.moveColumnByDelta(
-			{
-				selectedRow,
-				currentPatternOrderIndex,
-				selectedColumn
-			},
-			{
-				patterns,
-				patternOrder,
-				currentPattern: pattern,
-				converter,
-				formatter,
-				schema,
-				getCellPositions
-			},
-			delta
-		);
+		const state = {
+			selectedRow,
+			currentPatternOrderIndex,
+			selectedColumn
+		};
+		const context = buildNavigationContext(pattern);
+		const overflow = PatternNavigationService.columnOverflow(state, context, delta);
+		if (overflow) {
+			const landing = overflow === 'next' ? 'first-column' : 'last-column';
+			if (tryLeaveEditor(overflow, landing)) return;
+		}
+
+		const navigationState = PatternNavigationService.moveColumnByDelta(state, context, delta);
 
 		selectedColumn = navigationState.selectedColumn;
 	}
@@ -1316,6 +1788,7 @@
 			},
 			onMoveRow: moveRow,
 			onMoveColumn: moveColumn,
+			onLeaveEditor: tryLeaveEditor,
 			onSetSelectedRow: setSelectedRow,
 			onSetSelectedColumn: (column: number) => {
 				selectedColumn = column;
@@ -1323,19 +1796,14 @@
 			onSetCurrentPatternOrderIndex: (index: number) => {
 				currentPatternOrderIndex = index;
 				selectedRow = 0;
-				pendingPlaybackPosition = null;
-				playbackStartTime = performance.now();
-				if (playbackRafId !== null) {
-					cancelAnimationFrame(playbackRafId);
-					playbackRafId = null;
-				}
+				discardPendingPlaybackPosition(index);
 			},
 			onClearSelection: () => {
 				selectionStartRow = null;
 				selectionStartColumn = null;
 				selectionEndRow = null;
 				selectionEndColumn = null;
-				draw();
+				scheduleDraw();
 			},
 			onSetSelectionAnchor: (row: number, column: number) => {
 				selectionStartRow = row;
@@ -1355,6 +1823,19 @@
 			},
 			onSwapChannelLeft: swapChannelLeft,
 			onSwapChannelRight: swapChannelRight,
+			onInsertPatternRow: insertPatternRow,
+			onRemovePatternRow: removePatternRow,
+			onToggleSolo: () => {
+				const chipIdx = getChipIndex();
+				if (chipIdx < 0) return;
+				const channelIndex = getChannelIndexAtCursor();
+				if (channelIndex < 0) return;
+				if (isPlayingSolo()) {
+					executeUnmuteAll();
+				} else {
+					executePlaySolo(chipIdx, channelIndex);
+				}
+			},
 			selectionStartRow,
 			selectionStartColumn,
 			selectionEndRow,
@@ -1378,6 +1859,103 @@
 			keybindingsStore.getShortcut(ACTION_PLAY_FROM_ROW)
 		);
 		return fromEvent === shortcut;
+	}
+
+	function buildEditingContext(): {
+		context: EditingContext;
+		fieldInfoBeforeEdit: FieldInfo | null;
+	} | null {
+		const patternId = patternOrder[currentPatternOrderIndex];
+		const pattern = findOrCreatePattern(patternId);
+		const rowString = getPatternRowData(pattern, selectedRow);
+		const cellPositions = getCellPositions(rowString, selectedRow);
+		const segments = textParser ? textParser.parseRowString(rowString, selectedRow) : undefined;
+		const context: EditingContext = {
+			pattern,
+			selectedRow,
+			selectedColumn,
+			cellPositions,
+			segments,
+			converter,
+			formatter,
+			schema,
+			instruments,
+			tuningTable
+		};
+		const fieldInfoBeforeEdit = PatternEditingService.getFieldAtCursor(context);
+		return { context, fieldInfoBeforeEdit };
+	}
+
+	function applyEditingResult(
+		editingResult: PatternEditingResult,
+		fieldInfoBeforeEdit: FieldInfo | null,
+		context: EditingContext,
+		previewKey?: string
+	): void {
+		let finalPattern = editingResult.updatedPattern;
+		const didMutate = editingResult.didChange !== false;
+
+		if (didMutate) {
+			finalPattern = AutoEnvService.applyAutoEnvelopeIfEligible(
+				finalPattern,
+				selectedRow,
+				fieldInfoBeforeEdit,
+				tuningTable,
+				autoEnvStore.currentRatio,
+				autoEnvStore.enabled
+			);
+
+			recordPatternEdit(context.pattern, finalPattern);
+			updatePatternInArray(finalPattern);
+		}
+
+		if (editingResult.shouldMoveNext) {
+			moveColumn(1);
+		}
+
+		const shouldPreviewField = fieldEditPreviews(schema, fieldInfoBeforeEdit);
+		const previewChannel = fieldInfoBeforeEdit
+			? previewChannelForFieldEdit(fieldInfoBeforeEdit)
+			: -1;
+		if (
+			previewKey !== undefined &&
+			editingResult.shouldPreview !== false &&
+			!playbackStore.isPlaying &&
+			shouldPreviewField &&
+			previewChannel >= 0 &&
+			chipProcessor &&
+			'playPreviewRow' in chipProcessor &&
+			!pressedKeyChannels.has(previewKey)
+		) {
+			const previewChipIndex = getChipIndex();
+			if (previewChipIndex >= 0) {
+				services.audioService.setPreviewActiveForChips(previewChipIndex);
+			}
+			const processor = chipProcessor as ChipProcessor & PreviewNoteSupport;
+			const previewChannelResult = previewService.playFromContext(
+				processor,
+				finalPattern,
+				previewChannel,
+				selectedRow,
+				schema,
+				converter,
+				{
+					previewFullRow: settingsStore.previewFullRow,
+					isGlobalField: fieldInfoBeforeEdit?.isGlobal ?? false
+				}
+			);
+			if (previewChannelResult !== undefined) {
+				pressedKeyChannels.set(previewKey, previewChannelResult);
+			}
+		}
+
+		const step = editorStateStore.step;
+		if (step > 0) {
+			moveRow(step);
+		}
+
+		clearAllCaches();
+		draw();
 	}
 
 	function handleKeyDown(event: KeyboardEvent) {
@@ -1404,114 +1982,83 @@
 			selection.removeAllRanges();
 		}
 
-		const patternId = patternOrder[currentPatternOrderIndex];
-		const pattern = findOrCreatePattern(patternId);
-
-		const rowString = getPatternRowData(pattern, selectedRow);
-		const cellPositions = getCellPositions(rowString, selectedRow);
-		const segments = textParser ? textParser.parseRowString(rowString, selectedRow) : undefined;
-
-		const fieldInfoBeforeEdit = PatternEditingService.getFieldAtCursor({
-			pattern,
-			selectedRow,
-			selectedColumn,
-			cellPositions,
-			segments,
-			converter,
-			formatter,
-			schema,
-			tuningTable
-		});
+		const built = buildEditingContext();
+		if (!built) return;
 
 		const editingResult = PatternEditingService.handleKeyInput(
-			{
-				pattern,
-				selectedRow,
-				selectedColumn,
-				cellPositions,
-				segments,
-				converter,
-				formatter,
-				schema,
-				tuningTable
-			},
-			event.key
+			built.context,
+			event.key,
+			event.code
 		);
 
 		if (editingResult) {
 			event.preventDefault();
-
-			let finalPattern = editingResult.updatedPattern;
-
-			if (
-				autoEnvStore.enabled &&
-				fieldInfoBeforeEdit &&
-				fieldInfoBeforeEdit.channelIndex >= 0 &&
-				(fieldInfoBeforeEdit.fieldType === 'note' ||
-					fieldInfoBeforeEdit.fieldKey === 'envelopeShape')
-			) {
-				const autoEnvPattern = AutoEnvService.applyAutoEnvelope(
-					finalPattern,
-					selectedRow,
-					fieldInfoBeforeEdit.channelIndex,
-					tuningTable,
-					autoEnvStore.currentRatio
-				);
-				if (autoEnvPattern) {
-					finalPattern = autoEnvPattern;
-				}
-			}
-
-			recordPatternEdit(pattern, finalPattern);
-			updatePatternInArray(finalPattern);
-
-			if (editingResult.shouldMoveNext) {
-				moveColumn(1);
-			}
-
-			const shouldPreview =
-				fieldInfoBeforeEdit &&
-				(fieldInfoBeforeEdit.channelIndex >= 0 ||
-					fieldInfoBeforeEdit.fieldKey === 'envelopeValue');
-			const previewChannel =
-				fieldInfoBeforeEdit?.fieldKey === 'envelopeValue'
-					? 0
-					: (fieldInfoBeforeEdit?.channelIndex ?? -1);
-			if (
-				!playbackStore.isPlaying &&
-				shouldPreview &&
-				previewChannel >= 0 &&
-				chipProcessor &&
-				'playPreviewRow' in chipProcessor &&
-				!pressedKeyChannels.has(event.key)
-			) {
-				services.audioService.setPreviewActiveForChips(songIndex);
-				const processor = chipProcessor as ChipProcessor & PreviewNoteSupport;
-				const isNoteField =
-					fieldInfoBeforeEdit.fieldType === 'note' ||
-					fieldInfoBeforeEdit.fieldKey === 'envelopeValue';
-				const previewChannelResult = previewService.playFromContext(
-					processor,
-					editingResult.updatedPattern,
-					previewChannel,
-					selectedRow,
-					schema,
-					isNoteField
-				);
-				if (previewChannelResult !== undefined) {
-					pressedKeyChannels.set(event.key, previewChannelResult);
-				}
-			}
-
-			const step = editorStateStore.step;
-			if (step > 0) {
-				moveRow(step);
-			}
-
-			clearAllCaches();
-			draw();
+			applyEditingResult(editingResult, built.fieldInfoBeforeEdit, built.context, event.key);
 		} else if (event.key.length === 1) {
 			event.preventDefault();
+		}
+	}
+
+	$effect(() => {
+		const enabled = !!settingsStore.midiInputDeviceId;
+		if (!enabled) return;
+		const remove = midiService.addNoteListener((midiNote: number, velocity: number) => {
+			if (!canvas || document.activeElement !== canvas) return;
+			if (velocity === 0) {
+				const previewKey = `midi-${midiNote}`;
+				const channel = pressedKeyChannels.get(previewKey);
+				if (channel !== undefined) {
+					if (chipProcessor && 'stopPreviewNote' in chipProcessor) {
+						const processor = chipProcessor as ChipProcessor & PreviewNoteSupport;
+						previewService.stopNote(processor, channel === -1 ? undefined : channel);
+					}
+					services.audioService.setPreviewActiveForChips(null);
+					pressedKeyChannels.delete(previewKey);
+				}
+				return;
+			}
+			const built = buildEditingContext();
+			if (!built) return;
+			const result = PatternEditingService.handleMidiNote(built.context, midiNote);
+			if (result) {
+				applyEditingResult(
+					result,
+					built.fieldInfoBeforeEdit,
+					built.context,
+					`midi-${midiNote}`
+				);
+			}
+		});
+		return remove;
+	});
+
+	function stopPreviewForKey(key: string): void {
+		const channel = pressedKeyChannels.get(key);
+		if (channel === undefined) return;
+		if (chipProcessor && 'stopPreviewNote' in chipProcessor) {
+			const processor = chipProcessor as ChipProcessor & PreviewNoteSupport;
+			previewService.stopNote(processor, channel === -1 ? undefined : channel);
+		}
+		services.audioService.setPreviewActiveForChips(null);
+		pressedKeyChannels.delete(key);
+	}
+
+	function releaseAllPressedPreviewNotes(): void {
+		if (pressedKeyChannels.size === 0) return;
+		if (chipProcessor && 'stopPreviewNote' in chipProcessor) {
+			const processor = chipProcessor as ChipProcessor & PreviewNoteSupport;
+			previewService.stopNote(processor, undefined);
+		}
+		services.audioService.setPreviewActiveForChips(null);
+		pressedKeyChannels.clear();
+	}
+
+	function releaseHeldInputOnFocusLoss(): void {
+		releaseAllPressedPreviewNotes();
+		if (isEnterKeyHeld) {
+			isEnterKeyHeld = false;
+			playbackStore.isPlaying = false;
+			pausePlayback();
 		}
 	}
 
@@ -1523,16 +2070,26 @@
 			return;
 		}
 
-		const channel = pressedKeyChannels.get(event.key);
-		if (channel !== undefined) {
-			if (chipProcessor && 'stopPreviewNote' in chipProcessor) {
-				const processor = chipProcessor as ChipProcessor & PreviewNoteSupport;
-				previewService.stopNote(processor, channel === -1 ? undefined : channel);
-			}
-			services.audioService.setPreviewActiveForChips(null);
-			pressedKeyChannels.delete(event.key);
-		}
+		stopPreviewForKey(event.key);
 	}
+
+	function handleCanvasBlur(): void {
+		releaseHeldInputOnFocusLoss();
+	}
+
+	$effect(() => {
+		const onWindowKeyUp = (event: KeyboardEvent) => {
+			if (canvas && document.activeElement === canvas) return;
+			stopPreviewForKey(event.key);
+			if (isPlayFromRowShortcut(event) && isEnterKeyHeld) {
+				isEnterKeyHeld = false;
+				playbackStore.isPlaying = false;
+				pausePlayback();
+			}
+		};
+		window.addEventListener('keyup', onWindowKeyUp);
+		return () => window.removeEventListener('keyup', onWindowKeyUp);
+	});
 
 	function handleWheel(event: WheelEvent) {
 		if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
@@ -1540,7 +2097,8 @@
 		}
 
 		event.preventDefault();
-		moveRow(Math.sign(event.deltaY));
+		const delta = patternEditorScrollDelta(event.deltaY);
+		if (delta !== 0) moveRow(delta);
 	}
 
 	function startAutoScroll(direction: number): void {
@@ -1592,25 +2150,27 @@
 
 	function handleMouseEnter(event: MouseEvent): void {
 		if (canvas) {
-			canvas.focus();
-			const selection = window.getSelection();
-			if (selection) {
-				selection.removeAllRanges();
-			}
-			onfocus?.();
-
 			const rect = canvas.getBoundingClientRect();
 			const y = event.clientY - rect.top;
 			isHoveringLabel = y <= lineHeight;
 			canvas.style.cursor = isHoveringLabel ? 'pointer' : 'default';
+
+			if (canFocusOnHover()) {
+				canvas.focus();
+				const selection = window.getSelection();
+				if (selection) {
+					selection.removeAllRanges();
+				}
+				onfocus?.();
+			}
 		}
 	}
 
-	function findCellAtPosition(x: number, y: number): { row: number; column: number } | null {
+	function findCellAtPosition(
+		x: number,
+		y: number
+	): { row: number; column: number; orderIndex: number } | null {
 		if (!canvas || !currentPattern || !renderer || !textParser) return null;
-
-		const patternToRender = findOrCreatePattern(currentPattern.id);
-
 		if (y <= lineHeight) return null;
 
 		const visibleRows = getVisibleRows(currentPattern);
@@ -1618,14 +2178,10 @@
 		let closestRow: (typeof visibleRows)[0] | null = null;
 		let minRowDistance = Infinity;
 
-		const patternId = patternOrder[currentPatternOrderIndex];
-
 		for (const row of visibleRows) {
-			if (row.isEmpty || row.rowIndex < 0 || row.isGhost || row.patternIndex !== patternId)
-				continue;
+			if (row.isEmpty || row.rowIndex < 0) continue;
 
-			const rowY = row.displayIndex * lineHeight;
-			const rowCenterY = rowY + lineHeight / 2;
+			const rowCenterY = row.displayIndex * lineHeight + lineHeight / 2;
 			const distance = Math.abs(y - rowCenterY);
 
 			if (distance < minRowDistance) {
@@ -1636,15 +2192,47 @@
 
 		if (!closestRow) return null;
 
-		const rowString = getPatternRowData(patternToRender, closestRow.rowIndex);
+		const pattern = findOrCreatePattern(closestRow.patternIndex);
+		const rowString = getPatternRowData(pattern, closestRow.rowIndex);
 		const cellPositions = getCellPositions(rowString, closestRow.rowIndex);
-		const closestColumn = getColumnAtX(cellPositions, x);
-		return { row: closestRow.rowIndex, column: closestColumn };
+		const column = getColumnAtX(cellPositions, x);
+		return { row: closestRow.rowIndex, column, orderIndex: closestRow.orderIndex };
+	}
+
+	function jumpToOrderRow(orderIndex: number, row: number, column: number): void {
+		selectionStartRow = null;
+		selectionStartColumn = null;
+		selectionEndRow = null;
+		selectionEndColumn = null;
+		mouseDownCell = null;
+		pressOnInactiveEditor = false;
+		if (currentPatternOrderIndex !== orderIndex) {
+			currentPatternOrderIndex = orderIndex;
+			discardPendingPlaybackPosition(orderIndex);
+		}
+		selectedRow = row;
+		selectedColumn = column;
 	}
 
 	function handleCanvasMouseDown(event: MouseEvent): void {
 		if (!canvas || !currentPattern || !renderer || !textParser) return;
 		if (event.button === 2) return;
+
+		if (
+			settingsStore.midiInputDeviceId &&
+			midiService.isSupported() &&
+			!midiService.hasAccess()
+		) {
+			midiService.requestAccess();
+		}
+
+		const placingCursor = !isActive;
+		canvas.focus();
+		const selection = window.getSelection();
+		if (selection) {
+			selection.removeAllRanges();
+		}
+		onfocus?.();
 
 		const rect = canvas.getBoundingClientRect();
 		const x = event.clientX - rect.left;
@@ -1653,17 +2241,18 @@
 		const patternToRender = findOrCreatePattern(currentPattern.id);
 
 		if (y <= lineHeight) {
-			const visibleRows = getVisibleRows(currentPattern);
-			const firstVisibleRow = visibleRows.find((r) => !r.isEmpty);
-			if (
-				!firstVisibleRow ||
-				firstVisibleRow.rowIndex < 0 ||
-				firstVisibleRow.rowIndex >= patternToRender.length
-			)
-				return;
+			const header = getHeaderRowContext(patternToRender);
+			if (!header) return;
 
-			const rowString = getPatternRowData(patternToRender, firstVisibleRow.rowIndex);
-			const channelPositions = renderer.calculateChannelPositions(rowString);
+			const effectControl = renderer.hitTestEffectColumnControl(x, y, header.rowString);
+			if (effectControl) {
+				changeChannelEffectColumnCount(
+					effectControl.channelIndex,
+					effectControl.action === 'add' ? 1 : -1
+				);
+				return;
+			}
+			const channelPositions = renderer.calculateChannelPositions(header.rowString);
 
 			for (let i = 0; i < channelPositions.length; i++) {
 				const channelStart = channelPositions[i];
@@ -1695,6 +2284,15 @@
 			return;
 		}
 
+		if (cell.orderIndex !== currentPatternOrderIndex) {
+			if (!playbackStore.isPlaying) {
+				jumpToOrderRow(cell.orderIndex, cell.row, cell.column);
+			}
+			canvas.focus();
+			draw();
+			return;
+		}
+
 		const selectShortcut = keybindingsStore.getShortcut(
 			ACTION_SELECT_INSTRUMENT_OR_TABLE_IN_EDITOR
 		);
@@ -1720,7 +2318,7 @@
 					: '';
 				const instrumentId = normalizeInstrumentId(instrumentValue);
 				if (isValidInstrumentId(instrumentId)) {
-					editorStateStore.requestSelectInstrument(instrumentId);
+					editorStateStore.requestSelectInstrument(instrumentId, schema.chipType);
 					event.preventDefault();
 					canvas.focus();
 					draw();
@@ -1757,12 +2355,21 @@
 		}
 
 		mouseDownCell = { row: cell.row, column: cell.column };
+		pressOnInactiveEditor = false;
 
-		if (event.shiftKey && selectionStartRow !== null) {
+		if (!placingCursor && event.shiftKey && selectionStartRow !== null) {
 			selectionEndRow = cell.row;
 			selectionEndColumn = cell.column;
 			selectedRow = cell.row;
 			selectedColumn = cell.column;
+		} else if (placingCursor) {
+			selectionStartRow = null;
+			selectionStartColumn = null;
+			selectionEndRow = null;
+			selectionEndColumn = null;
+			pressOnInactiveEditor = true;
+			window.addEventListener('mousemove', handleGlobalMouseMove);
+			window.addEventListener('mouseup', handleCanvasMouseUp);
 		} else {
 			window.addEventListener('mousemove', handleGlobalMouseMove);
 			window.addEventListener('mouseup', handleCanvasMouseUp);
@@ -1790,7 +2397,7 @@
 		if (!mouseDownCell || playbackStore.isPlaying) return;
 
 		const cell = findCellAtPosition(x, y);
-		if (!cell) return;
+		if (!cell || cell.orderIndex !== currentPatternOrderIndex) return;
 
 		if (!isSelecting) {
 			const movedToDifferentCell =
@@ -1820,9 +2427,13 @@
 			selectionEndColumn = null;
 			selectedRow = mouseDownCell.row;
 			selectedColumn = mouseDownCell.column;
+		} else if (mouseDownCell && pressOnInactiveEditor) {
+			selectedRow = mouseDownCell.row;
+			selectedColumn = mouseDownCell.column;
 		}
 		isSelecting = false;
 		mouseDownCell = null;
+		pressOnInactiveEditor = false;
 		draw();
 	}
 
@@ -1840,15 +2451,9 @@
 
 		if (y <= lineHeight && currentPattern) {
 			const patternToRender = findOrCreatePattern(currentPattern.id);
-			const visibleRows = getVisibleRows(currentPattern);
-			const firstVisibleRow = visibleRows.find((r) => !r.isEmpty);
-			if (
-				firstVisibleRow &&
-				firstVisibleRow.rowIndex >= 0 &&
-				firstVisibleRow.rowIndex < patternToRender.length
-			) {
-				const rowString = getPatternRowData(patternToRender, firstVisibleRow.rowIndex);
-				const channelPositions = renderer.calculateChannelPositions(rowString);
+			const header = getHeaderRowContext(patternToRender);
+			if (header) {
+				const channelPositions = renderer.calculateChannelPositions(header.rowString);
 				const song = projectStore.songs[songIndex];
 				const hwLabels = schema.channelLabels ?? ['A', 'B', 'C'];
 
@@ -1890,40 +2495,158 @@
 	function applyVirtualChannelChange(result: {
 		updatedMap: Record<number, number>;
 		updatedPatterns: Pattern[];
+		updatedRoles: VirtualChannelRoleMap;
 	}): void {
 		const song = projectStore.songs[songIndex]!;
 		const oldMap = { ...song.virtualChannelMap };
+		const oldRoles = cloneVirtualChannelRoles(song.virtualChannelRoles);
 		const oldPatterns = patterns;
 
 		song.virtualChannelMap = result.updatedMap;
+		song.virtualChannelRoles = result.updatedRoles;
 		updatePatterns(result.updatedPatterns);
-
-		const action = new VirtualChannelAction(
-			createVirtualChannelEditContext(),
-			oldPatterns,
-			result.updatedPatterns,
-			oldMap,
-			result.updatedMap,
-			getCursorPosition()
+		projectStore.recordHistory(
+			{
+				type: 'virtualChannels.update',
+				label: 'Update virtual channels',
+				affectedDomains: ['virtualChannels', 'patterns'],
+				beforeSelection: getCursorPosition(),
+				afterSelection: getCursorPosition()
+			},
+			[
+				projectStore.createSetDiff(
+					['songs', songIndex, 'virtualChannelMap'],
+					oldMap,
+					result.updatedMap
+				),
+				projectStore.createSetDiff(
+					['songs', songIndex, 'virtualChannelRoles'],
+					oldRoles,
+					result.updatedRoles
+				),
+				projectStore.createSetDiff(
+					['patterns', songIndex],
+					oldPatterns,
+					result.updatedPatterns
+				)
+			]
 		);
-		undoRedoStore.pushAction(action);
 
 		refreshAfterVirtualChannelChange();
 	}
 
+	function getChannelIndexAtCursor(): number {
+		const patternId = patternOrder[currentPatternOrderIndex];
+		const pattern = findOrCreatePattern(patternId);
+		if (!pattern) return -1;
+		const rowString = getPatternRowData(pattern, selectedRow);
+		const cellPositions = getCellPositions(rowString, selectedRow);
+		const segments = textParser ? textParser.parseRowString(rowString, selectedRow) : undefined;
+		const fieldInfo = PatternFieldDetection.detectFieldAtCursor({
+			pattern,
+			selectedRow,
+			selectedColumn,
+			cellPositions,
+			segments,
+			converter,
+			formatter,
+			schema
+		});
+		if (!fieldInfo) return -1;
+		if (fieldInfo.channelIndex < 0) return 0;
+		return fieldInfo.channelIndex;
+	}
+
+	function hardwareLabelsForChip(chipIdx: number): string[] {
+		const processor = services.audioService.chipProcessors[chipIdx];
+		const fromProcessor = processor?.chip.schema.channelLabels;
+		if (fromProcessor && fromProcessor.length > 0) return fromProcessor;
+		const fromSong = projectStore.songs[chipIdx]?.getSchema()?.channelLabels;
+		if (fromSong && fromSong.length > 0) return fromSong;
+		return ['A', 'B', 'C'];
+	}
+
+	function channelCountForChip(chipIdx: number): number {
+		const hwLabels = hardwareLabelsForChip(chipIdx);
+		const patternsForChip = projectStore.patterns[chipIdx] ?? [];
+		return channelCountForMute({
+			hardwareChannelCount: hwLabels.length,
+			virtualChannelMap: projectStore.songs[chipIdx]?.virtualChannelMap,
+			patternChannelCounts: patternsForChip.map((pattern) => pattern.channels.length),
+			existingMuteCount: channelMuteStore.getAllMuteStates().get(chipIdx)?.length ?? 0
+		});
+	}
+
+	function chipCountForMute(): number {
+		return Math.max(services.audioService.chipProcessors.length, projectStore.songs.length);
+	}
+
+	function applyChannelMutePlan(plan: Map<number, boolean[]>): void {
+		channelMuteStore.setAll(plan);
+		const processors = services.audioService.chipProcessors;
+		for (const [chipIdx, mutes] of plan) {
+			const processor = processors[chipIdx];
+			if (!processor) continue;
+			for (let channel = 0; channel < mutes.length; channel++) {
+				processor.updateParameter(`channelMute_${channel}`, mutes[channel]);
+			}
+		}
+		if (onChannelMutesChanged) onChannelMutesChanged();
+		else draw();
+	}
+
+	function isPlayingSolo(): boolean {
+		let unmutedCount = 0;
+		const chipCount = chipCountForMute();
+		for (let chipIdx = 0; chipIdx < chipCount; chipIdx++) {
+			const totalChannels = channelCountForChip(chipIdx);
+			for (let ch = 0; ch < totalChannels; ch++) {
+				if (!channelMuteStore.isChannelMuted(chipIdx, ch)) unmutedCount++;
+			}
+		}
+		return unmutedCount === 1;
+	}
+
+	function executePlaySolo(clickedChipIndex: number, soloChannel: number): void {
+		if (clickedChipIndex < 0 || soloChannel < 0) return;
+		const plan = new Map<number, boolean[]>();
+		const chipCount = chipCountForMute();
+		for (let chipIdx = 0; chipIdx < chipCount; chipIdx++) {
+			const totalChannels = channelCountForChip(chipIdx);
+			if (totalChannels <= 0) continue;
+			plan.set(
+				chipIdx,
+				soloChannelMutes(totalChannels, soloChannel, chipIdx === clickedChipIndex)
+			);
+		}
+		applyChannelMutePlan(plan);
+	}
+
+	function executeUnmuteAll(): void {
+		const plan = new Map<number, boolean[]>();
+		const chipCount = chipCountForMute();
+		for (let chipIdx = 0; chipIdx < chipCount; chipIdx++) {
+			const totalChannels = channelCountForChip(chipIdx);
+			if (totalChannels <= 0) continue;
+			plan.set(chipIdx, clearedChannelMutes(totalChannels));
+		}
+		applyChannelMutePlan(plan);
+	}
+
 	function handleChannelContextMenuAction(data: { action: string }): void {
 		closeChannelContextMenu();
-		if (playbackStore.isPlaying) return;
 		const song = projectStore.songs[songIndex];
 		if (!song) return;
 
 		const hwIndex = channelContextMenuHwIndex;
+		const isPlaying = playbackStore.isPlaying;
 
 		if (data.action === 'add_virtual_channel') {
-			applyVirtualChannelChange(
-				VirtualChannelService.addVirtualChannel(song, hwIndex, patterns)
-			);
+			if (isPlaying || !supportsVirtualChannels()) return;
+			const result = VirtualChannelService.addVirtualChannel(song, hwIndex, patterns);
+			if (result) applyVirtualChannelChange(result);
 		} else if (data.action === 'remove_virtual_channel') {
+			if (isPlaying || !supportsVirtualChannels()) return;
 			const result = VirtualChannelService.removeVirtualChannel(
 				song,
 				hwIndex,
@@ -1933,14 +2656,26 @@
 			if (result) {
 				applyVirtualChannelChange(result);
 			}
+		} else if (data.action.startsWith('toggle_virtual_role:')) {
+			if (isPlaying || !supportsVirtualChannels()) return;
+			const roleId = data.action.slice('toggle_virtual_role:'.length);
+			toggleVirtualChannelRoleOnSong(roleId);
+		} else if (data.action === 'play_solo') {
+			executePlaySolo(getChipIndex(), channelContextMenuVirtualIndex);
+		} else if (data.action === 'unmute_all') {
+			executeUnmuteAll();
 		}
 	}
 
-	function getChannelContextMenuItems(): import('../../components/Menu/types').MenuItem[] {
+	function supportsVirtualChannels(): boolean {
+		return Boolean(chipProcessor && 'sendVirtualChannelConfig' in chipProcessor);
+	}
+
+	function getChannelContextMenuItems(): MenuItem[] {
 		const song = projectStore.songs[songIndex];
 		const hwLabels = schema.channelLabels ?? ['A', 'B', 'C'];
 		const hwIndex = channelContextMenuHwIndex;
-		const currentCount = song?.virtualChannelMap?.[hwIndex] ?? 1;
+		const currentCount = clampVirtualChannelCount(song?.virtualChannelMap?.[hwIndex]);
 		const hwLabel = hwLabels[hwIndex] ?? '?';
 		const effectiveLabels = computeEffectiveChannelLabels(
 			hwLabels,
@@ -1948,19 +2683,85 @@
 		);
 		const clickedLabel = effectiveLabels[channelContextMenuVirtualIndex] ?? hwLabel;
 		const isPlaying = playbackStore.isPlaying;
+		const canUseVirtualChannels = supportsVirtualChannels();
 
-		return [
+		const items: MenuItem[] = [
 			{
-				label: `Add virtual channel to ${hwLabel}`,
-				action: 'add_virtual_channel',
-				disabled: isPlaying
+				label: 'Play solo',
+				action: 'play_solo'
 			},
 			{
-				label: `Remove virtual channel ${clickedLabel}`,
-				action: 'remove_virtual_channel',
-				disabled: currentCount <= 1 || isPlaying
+				label: 'Unmute all',
+				action: 'unmute_all'
 			}
 		];
+		if (canUseVirtualChannels) {
+			items.push({
+				label: `Add virtual channel to ${hwLabel}`,
+				action: 'add_virtual_channel',
+				disabled: isPlaying || currentCount >= MAX_VIRTUAL_CHANNELS_PER_HARDWARE_CHANNEL
+			});
+			if (currentCount > 1) {
+				items.push({
+					label: `Remove virtual channel ${clickedLabel}`,
+					action: 'remove_virtual_channel',
+					disabled: isPlaying
+				});
+				const indexInGroup = virtualIndexInClickedGroup(
+					hwIndex,
+					channelContextMenuVirtualIndex
+				);
+				const groupRoles = song?.virtualChannelRoles?.[hwIndex] ?? {};
+				for (const role of schema.virtualChannelRoles ?? []) {
+					const active = groupRoles[indexInGroup] === role.id;
+					items.push({
+						label: active
+							? `Stop using ${clickedLabel} for ${role.label.toLowerCase()}`
+							: `Use ${clickedLabel} for ${role.label.toLowerCase()}`,
+						action: `toggle_virtual_role:${role.id}`,
+						disabled: isPlaying || indexInGroup < 0
+					});
+				}
+			}
+		}
+		return items;
+	}
+
+	function virtualIndexInClickedGroup(hwIndex: number, flatIndex: number): number {
+		const song = projectStore.songs[songIndex];
+		const groups = getVirtualChannelGroups(
+			schema.channelLabels ?? ['A', 'B', 'C'],
+			song?.virtualChannelMap ?? {}
+		);
+		return groups[hwIndex]?.virtualChannelIndices.indexOf(flatIndex) ?? -1;
+	}
+
+	function toggleVirtualChannelRoleOnSong(roleId: string): void {
+		const song = projectStore.songs[songIndex];
+		if (!song) return;
+		if (!schema.virtualChannelRoles?.some((role) => role.id === roleId)) return;
+		const hwIndex = channelContextMenuHwIndex;
+		const indexInGroup = virtualIndexInClickedGroup(hwIndex, channelContextMenuVirtualIndex);
+		if (indexInGroup < 0) return;
+		const oldRoles = cloneVirtualChannelRoles(song.virtualChannelRoles);
+		const nextRoles = toggleVirtualChannelRole(oldRoles, hwIndex, indexInGroup, roleId);
+		song.virtualChannelRoles = nextRoles;
+		projectStore.recordHistory(
+			{
+				type: 'virtualChannels.update',
+				label: 'Update virtual channel role',
+				affectedDomains: ['virtualChannels', 'songs']
+			},
+			[
+				projectStore.createSetDiff(
+					['songs', songIndex, 'virtualChannelRoles'],
+					oldRoles,
+					nextRoles
+				)
+			]
+		);
+		sendVirtualChannelConfigToProcessor();
+		draw();
 	}
 
 	function sendVirtualChannelConfigToProcessor(): void {
@@ -1968,12 +2769,25 @@
 		if (!song) return;
 		const hwLabels = schema.channelLabels ?? ['A', 'B', 'C'];
 		if (chipProcessor && 'sendVirtualChannelConfig' in chipProcessor) {
-			(chipProcessor as AYProcessor).sendVirtualChannelConfig(
+			(chipProcessor as ChipProcessor & VirtualChannelSupport).sendVirtualChannelConfig(
 				song.virtualChannelMap,
-				hwLabels.length
+				hwLabels.length,
+				song.virtualChannelRoles ?? {}
 			);
 		}
 	}
+
+	$effect(() => {
+		const song = projectStore.songs[songIndex];
+		void song?.virtualChannelMap;
+		void song?.virtualChannelRoles;
+		void projectStore.songs;
+		void chipProcessor;
+		untrack(() => {
+			sendVirtualChannelConfigToProcessor();
+			if (canvas && ctx && fontReady && !document.hidden) draw();
+		});
+	});
 
 	function createClipboardContext(): ClipboardContext {
 		const patternId = patternOrder[currentPatternOrderIndex];
@@ -2005,7 +2819,10 @@
 				};
 			},
 			tuningTable,
-			getOctave: () => editorStateStore.octave
+			getOctave: () => editorStateStore.octave,
+			converter,
+			formatter,
+			schema
 		};
 	}
 
@@ -2014,8 +2831,20 @@
 	}
 
 	function cutSelection(): void {
-		copySelection();
-		deleteSelection();
+		const patternId = patternOrder[currentPatternOrderIndex];
+		const originalPattern = findOrCreatePattern(patternId);
+
+		ClipboardService.cutSelection(createClipboardContext(), (updatedPattern) => {
+			recordBulkPatternEdit(originalPattern, updatedPattern);
+			updatePatternInArray(updatedPattern);
+		});
+
+		selectionStartRow = null;
+		selectionStartColumn = null;
+		selectionEndRow = null;
+		selectionEndColumn = null;
+		clearAllCaches();
+		draw();
 	}
 
 	function pasteSelection(): void {
@@ -2108,7 +2937,6 @@
 	function deleteSelection(): void {
 		const patternId = patternOrder[currentPatternOrderIndex];
 		const originalPattern = findOrCreatePattern(patternId);
-		let pattern = originalPattern;
 
 		const bounds = hasSelection()
 			? getSelectionBounds()
@@ -2120,29 +2948,11 @@
 				};
 		if (!bounds) return;
 
-		const { minRow, maxRow, minCol, maxCol } = bounds;
-
-		const cellsToDelete: Array<{ row: number; col: number }> = [];
-
-		for (let row = minRow; row <= maxRow && row < pattern.length; row++) {
-			const rowString = getPatternRowData(pattern, row);
-			const cellPositions = getCellPositions(rowString, row);
-			for (let col = minCol; col <= maxCol && col < cellPositions.length; col++) {
-				cellsToDelete.push({ row, col });
-			}
+		const updatedPattern = ClipboardService.bulkDelete(createClipboardContext(), bounds);
+		if (updatedPattern) {
+			recordBulkPatternEdit(originalPattern, updatedPattern);
+			updatePatternInArray(updatedPattern);
 		}
-
-		const { createEditingContext } = createClipboardContext();
-		for (const { row, col } of cellsToDelete) {
-			const context = createEditingContext(pattern, row, col);
-			const result = PatternDeleteHandler.handleDelete(context);
-			if (result) {
-				pattern = result.updatedPattern;
-			}
-		}
-
-		recordBulkPatternEdit(originalPattern, pattern);
-		updatePatternInArray(pattern);
 
 		selectionStartRow = null;
 		selectionStartColumn = null;
@@ -2158,7 +2968,7 @@
 		row: number,
 		col: number,
 		fieldInfo: any,
-		currentValue: string | number | null,
+		currentValue: string | number | null | Record<string, unknown>,
 		delta: number,
 		isOctaveIncrement: boolean
 	): Pattern {
@@ -2240,12 +3050,42 @@
 				);
 			}
 			return pattern;
+		} else if (EffectField.isEffectField(fieldInfo.fieldKey)) {
+			const newValue = PatternValueUpdates.computeIncrementValue(
+				fieldInfo,
+				currentValue,
+				delta,
+				isOctaveIncrement,
+				fieldDefinition,
+				tuningTable,
+				editorStateStore.envelopeAsNote
+			);
+			if (newValue === null) {
+				return pattern;
+			}
+			return PatternValueUpdates.updateFieldValue(
+				{
+					pattern,
+					selectedRow: row,
+					selectedColumn: col,
+					cellPositions,
+					segments,
+					converter,
+					formatter,
+					schema
+				},
+				fieldInfo,
+				newValue
+			);
 		} else if (
 			(fieldInfo.fieldType === 'hex' ||
 				fieldInfo.fieldType === 'dec' ||
 				fieldInfo.fieldType === 'symbol') &&
 			!EffectField.isEffectField(fieldInfo.fieldKey)
 		) {
+			if (currentValue !== null && typeof currentValue === 'object') {
+				return pattern;
+			}
 			if (
 				PatternValueUpdates.isDisplayedAsEmpty(
 					currentValue,
@@ -2260,7 +3100,8 @@
 				currentValue as number,
 				delta,
 				fieldInfo.fieldType,
-				fieldDefinition?.length
+				fieldDefinition?.length,
+				fieldDefinition?.allowZeroValue
 			);
 			return PatternValueUpdates.updateFieldValue(
 				{
@@ -2424,28 +3265,40 @@
 				isOctaveIncrement
 			);
 
-			recordPatternEdit(pattern, updatedPattern);
-			updatePatternInArray(updatedPattern);
+			const finalPattern = AutoEnvService.applyAutoEnvelopeIfEligible(
+				updatedPattern,
+				selectedRow,
+				fieldInfo,
+				tuningTable,
+				autoEnvStore.currentRatio,
+				autoEnvStore.enabled
+			);
 
-			const previewChannel =
-				fieldInfo.fieldKey === 'envelopeValue' ? 0 : fieldInfo.channelIndex;
+			recordPatternEdit(pattern, finalPattern);
+			updatePatternInArray(finalPattern);
+
+			const previewChannel = previewChannelForFieldEdit(fieldInfo);
 			const shouldPreview =
 				keyForPreview === undefined &&
 				!playbackStore.isPlaying &&
-				previewChannel >= 0 &&
-				(fieldInfo.channelIndex >= 0 || fieldInfo.fieldKey === 'envelopeValue');
+				fieldEditPreviews(schema, fieldInfo);
 			if (shouldPreview && chipProcessor && 'playPreviewRow' in chipProcessor) {
-				services.audioService.setPreviewActiveForChips(songIndex);
+				const previewChipIndex = getChipIndex();
+				if (previewChipIndex >= 0) {
+					services.audioService.setPreviewActiveForChips(previewChipIndex);
+				}
 				const processor = chipProcessor as ChipProcessor & PreviewNoteSupport;
-				const isNoteField =
-					fieldInfo.fieldType === 'note' || fieldInfo.fieldKey === 'envelopeValue';
 				previewService.playFromContext(
 					processor,
-					updatedPattern,
+					finalPattern,
 					previewChannel,
 					selectedRow,
 					schema,
-					isNoteField
+					converter,
+					{
+						previewFullRow: settingsStore.previewFullRow,
+						isGlobalField: fieldInfo.isGlobal ?? false
+					}
 				);
 			}
 		}
@@ -2480,6 +3333,8 @@
 	}
 
 	let lastDrawnRow = -1;
+	let lastDrawnColumn = -1;
+	let lastDrawnPatternId = -1;
 	let lastDrawnOrderIndex = -1;
 	let lastPatternOrderLength = -1;
 	let lastPatternsLength = -1;
@@ -2490,25 +3345,49 @@
 	let lastFontFamily = '';
 	let lastChannelSeparatorWidth = -1;
 	let lastSelectionStyle: 'inverted' | 'filled' = 'inverted';
+	let lastEmptyNoteAlignment: 'center' | 'baseline' = 'center';
 	let lastChannelCount = -1;
+	let lastChipType = '';
 	let needsSetup = true;
+
+	function resetEditorSelectionState(): void {
+		selectedColumn = 0;
+		selectionStartRow = null;
+		selectionStartColumn = null;
+		selectionEndRow = null;
+		selectionEndColumn = null;
+		isSelecting = false;
+		mouseDownCell = null;
+		pressOnInactiveEditor = false;
+	}
 
 	$effect(() => {
 		if (!canvas) return;
 
+		const chipType = chip.type;
 		const currentPatternLength = currentPattern?.length ?? -1;
 		const currentChannelCount = currentPattern?.channels?.length ?? -1;
 		const fontSizeChanged = fontSize !== lastFontSize;
 		const fontFamilyChanged = fontFamily !== lastFontFamily;
 		const channelSeparatorWidthChanged = channelSeparatorWidth !== lastChannelSeparatorWidth;
 		const selectionStyleChanged = selectionStyle !== lastSelectionStyle;
+		const emptyNoteAlignmentChanged = emptyNoteAlignment !== lastEmptyNoteAlignment;
+		const chipTypeChanged = chipType !== lastChipType;
 
-		if (needsSetup || !ctx) {
+		if (chipTypeChanged) {
+			clearAllCaches();
+			resetEditorSelectionState();
+			needsSetup = true;
+		}
+
+		if (needsSetup || !ctx || chipTypeChanged) {
 			ctx = canvas.getContext('2d')!;
 			const ready = setupCanvas();
 			needsSetup = false;
 			if (ready && !document.hidden) draw();
 			lastDrawnRow = selectedRow;
+			lastDrawnColumn = selectedColumn;
+			lastDrawnPatternId = currentPattern?.id ?? -1;
 			lastDrawnOrderIndex = currentPatternOrderIndex;
 			lastPatternOrderLength = patternOrder.length;
 			lastPatternsLength = patterns.length;
@@ -2519,7 +3398,9 @@
 			lastFontFamily = fontFamily;
 			lastChannelSeparatorWidth = channelSeparatorWidth;
 			lastSelectionStyle = selectionStyle;
+			lastEmptyNoteAlignment = emptyNoteAlignment;
 			lastChannelCount = currentChannelCount;
+			lastChipType = chipType;
 			requestAnimationFrame(() => {
 				if (ctx && canvas && !document.hidden) {
 					updateSize();
@@ -2534,7 +3415,8 @@
 			fontSizeChanged ||
 			fontFamilyChanged ||
 			channelSeparatorWidthChanged ||
-			selectionStyleChanged
+			selectionStyleChanged ||
+			emptyNoteAlignmentChanged
 		) {
 			clearAllCaches();
 			const ready = setupCanvas();
@@ -2543,16 +3425,18 @@
 			lastFontFamily = fontFamily;
 			lastChannelSeparatorWidth = channelSeparatorWidth;
 			lastSelectionStyle = selectionStyle;
+			lastEmptyNoteAlignment = emptyNoteAlignment;
 			lastCanvasWidth = canvasWidth;
 			lastCanvasHeight = canvasHeight;
 			return;
 		}
 
-		const patternChanged = currentPattern !== undefined;
+		const patternChanged = (currentPattern?.id ?? -1) !== lastDrawnPatternId;
 		const patternLengthChanged = currentPatternLength !== lastDrawnPatternLength;
 		const channelCountChanged = currentChannelCount !== lastChannelCount;
 		const sizeChanged = canvasWidth !== lastCanvasWidth || canvasHeight !== lastCanvasHeight;
 		const rowChanged = selectedRow !== lastDrawnRow;
+		const columnChanged = selectedColumn !== lastDrawnColumn;
 		const orderChanged =
 			currentPatternOrderIndex !== lastDrawnOrderIndex ||
 			patternOrder.length !== lastPatternOrderLength ||
@@ -2572,14 +3456,28 @@
 
 		if (
 			rowChanged ||
+			columnChanged ||
 			orderChanged ||
 			patternChanged ||
 			patternLengthChanged ||
 			sizeChanged ||
 			channelCountChanged
 		) {
-			if (fontReady && !document.hidden) draw();
+			if (fontReady && patternEditorIsShown()) {
+				if (
+					(rowChanged || columnChanged) &&
+					!orderChanged &&
+					!patternChanged &&
+					!sizeChanged
+				) {
+					scheduleDraw();
+				} else {
+					draw();
+				}
+			}
 			lastDrawnRow = selectedRow;
+			lastDrawnColumn = selectedColumn;
+			lastDrawnPatternId = currentPattern?.id ?? -1;
 			lastDrawnOrderIndex = currentPatternOrderIndex;
 			lastPatternOrderLength = patternOrder.length;
 			lastPatternsLength = patterns.length;
@@ -2596,16 +3494,19 @@
 
 		const handleVisibilityChange = () => {
 			if (!document.hidden) {
+				syncPlaybackFollowFromWorklet();
 				updateSize();
 				if (setupCanvas()) draw();
 			}
 		};
 
 		window.addEventListener('resize', handleResize);
+		window.addEventListener('focus', handleVisibilityChange);
 		document.addEventListener('visibilitychange', handleVisibilityChange);
 
 		return () => {
 			window.removeEventListener('resize', handleResize);
+			window.removeEventListener('focus', handleVisibilityChange);
 			document.removeEventListener('visibilitychange', handleVisibilityChange);
 		};
 	});
@@ -2634,78 +3535,70 @@
 		};
 	});
 
-	let pendingPlaybackPosition: {
-		row: number;
-		orderIndex?: number;
-		timestamp: number;
-	} | null = null;
-	let playbackRafId: number | null = null;
-	let playbackStartTime = 0;
 	let lastPatternOrderIndexFromPlayback = currentPatternOrderIndex;
-	let userJustChangedPattern = false;
-	const USER_PATTERN_CHANGE_GRACE_MS = 800;
 
-	$effect(() => {
-		if (
-			currentPatternOrderIndex !== lastPatternOrderIndexFromPlayback &&
-			services.audioService.playing
-		) {
-			const indexToApply = currentPatternOrderIndex;
-			userJustChangedPattern = true;
-			pendingPlaybackPosition = null;
-			playbackStartTime = performance.now();
-			if (playbackRafId !== null) {
-				cancelAnimationFrame(playbackRafId);
-				playbackRafId = null;
-			}
-			selectedRow = 0;
-			const timeoutId = window.setTimeout(() => {
-				userJustChangedPattern = false;
-			}, USER_PATTERN_CHANGE_GRACE_MS);
-			if (isPlaybackMaster) {
-				if (initAllChips) {
-					initAllChips();
-					requestAnimationFrame(() => {
-						requestAnimationFrame(() => {
-							services.audioService.chipProcessors.forEach((processor, index) => {
-								const speed = getSpeedForChip ? getSpeedForChip(index) : undefined;
-								if (processor.changePatternDuringPlayback) {
-									processor.changePatternDuringPlayback(
-										0,
-										indexToApply,
-										undefined,
-										speed
-									);
-								} else {
-									processor.playFromRow(0, indexToApply, speed);
-								}
-							});
-						});
-					});
-				} else {
-					const pattern = findOrCreatePattern(patternOrder[indexToApply]);
-					services.audioService.chipProcessors.forEach((processor, index) => {
-						const speed = getSpeedForChip ? getSpeedForChip(index) : undefined;
-						if (processor.changePatternDuringPlayback) {
-							processor.changePatternDuringPlayback(0, indexToApply, pattern, speed);
-						} else {
-							processor.playFromRow(0, indexToApply, speed);
-						}
-					});
-				}
-			}
-			lastPatternOrderIndexFromPlayback = indexToApply;
-			return () => clearTimeout(timeoutId);
-		}
-	});
-
-	export function markPatternChangeFromUser(selectedIndex?: number): void {
-		pendingPlaybackPosition = null;
-		playbackStartTime = performance.now();
+	function applyPendingPlaybackPosition(): boolean {
 		if (playbackRafId !== null) {
 			cancelAnimationFrame(playbackRafId);
 			playbackRafId = null;
 		}
+		const pending = pendingPlaybackPosition;
+		pendingPlaybackPosition = null;
+		if (!pending || !services.audioService.playing) return false;
+		if (pending.timestamp < playbackStartTime) return false;
+		if (!orderIndexGate.consume(pending.orderIndex)) return false;
+
+		selectedRow = pending.row;
+		if (pending.orderIndex !== undefined && services.audioService.getPlayPatternId() === null) {
+			currentPatternOrderIndex = pending.orderIndex;
+			lastPatternOrderIndexFromPlayback = pending.orderIndex;
+		}
+		return true;
+	}
+
+	function syncPlaybackFollowFromWorklet(): void {
+		if (!playbackStore.isPlaying) return;
+		applyPendingPlaybackPosition();
+	}
+
+	$effect(() => {
+		return () => {
+			playbackSeekScheduler.cancel();
+			if (pendingDrawRaf !== null) {
+				cancelAnimationFrame(pendingDrawRaf);
+				pendingDrawRaf = null;
+			}
+		};
+	});
+
+	$effect(() => {
+		if (!playbackStore.isPlaying) {
+			lastPatternOrderIndexFromPlayback = currentPatternOrderIndex;
+			playbackSeekScheduler.cancel();
+			return;
+		}
+		if (currentPatternOrderIndex === lastPatternOrderIndexFromPlayback) {
+			return;
+		}
+		const indexToApply = currentPatternOrderIndex;
+		discardPendingPlaybackPosition(indexToApply);
+		selectedRow = 0;
+		lastPatternOrderIndexFromPlayback = indexToApply;
+		if (isPlaybackMaster) {
+			playbackSeekScheduler.schedule();
+		}
+	});
+
+	export function markPatternChangeFromUser(selectedIndex?: number, immediate = true): void {
+		const index = selectedIndex ?? currentPatternOrderIndex;
+		discardPendingPlaybackPosition(index);
+		lastPatternOrderIndexFromPlayback = index;
+		if (!isPlaybackMaster || !playbackStore.isPlaying) return;
+		if (immediate) {
+			playbackSeekScheduler.flush();
+			return;
+		}
+		playbackSeekScheduler.schedule();
 	}
 
 	$effect(() => {
@@ -2720,6 +3613,7 @@
 		) => {
 			if (!services.audioService.playing) return;
 			if (!isPlaybackMaster) return;
+			if (!orderIndexGate.allows(currentPatternOrderIndexUpdate)) return;
 
 			pendingPlaybackPosition = {
 				row: currentRow,
@@ -2731,18 +3625,7 @@
 				playbackRafId = requestAnimationFrame(() => {
 					playbackRafId = null;
 					const pending = pendingPlaybackPosition;
-					pendingPlaybackPosition = null;
-					if (!pending || !services.audioService.playing) return;
-					if (pending.timestamp < playbackStartTime) {
-						return;
-					}
-					if (
-						userJustChangedPattern &&
-						pending.orderIndex !== undefined &&
-						pending.orderIndex !== currentPatternOrderIndex
-					) {
-						return;
-					}
+					if (!pending) return;
 
 					if (settingsStore.debugMode) {
 						const orderIdx =
@@ -2759,17 +3642,7 @@
 						}
 					}
 
-					selectedRow = pending.row;
-					if (
-						pending.orderIndex !== undefined &&
-						services.audioService.getPlayPatternId() === null
-					) {
-						currentPatternOrderIndex = pending.orderIndex;
-						lastPatternOrderIndexFromPlayback = pending.orderIndex;
-					}
-					if (pending.orderIndex === currentPatternOrderIndex) {
-						userJustChangedPattern = false;
-					}
+					applyPendingPlaybackPosition();
 				});
 			}
 		};
@@ -2786,7 +3659,7 @@
 			) {
 				const requestedPattern =
 					latestPatterns.find((p) => p.id === patternId) ||
-					PatternService.createEmptyPattern(patternId);
+					createEmptyPatternForSong(patternId);
 
 				chipProcessor.sendRequestedPattern(
 					requestedPattern,
@@ -2795,11 +3668,7 @@
 			}
 		};
 
-		const handleSpeedUpdate = (newSpeed: number) => {
-			services.audioService.updateSpeed(newSpeed);
-		};
-
-		chipProcessor.setCallbacks(handlePatternUpdate, handlePatternRequest, handleSpeedUpdate);
+		chipProcessor.setCallbacks(handlePatternUpdate, handlePatternRequest);
 	});
 </script>
 
@@ -2814,6 +3683,7 @@
 			tabindex="0"
 			onkeydown={handleKeyDown}
 			onkeyup={handleKeyUp}
+			onblur={handleCanvasBlur}
 			onwheel={handleWheel}
 			onmouseenter={handleMouseEnter}
 			onmouseleave={handleMouseLeave}
@@ -2823,10 +3693,15 @@
 			oncontextmenu={handleContextMenu}
 			class="focus:border-opacity-50 border-pattern-empty focus:border-pattern-text block border transition-colors duration-150 focus:outline-none">
 		</canvas>
+		<canvas
+			bind:this={levelStripCanvas}
+			class="pointer-events-none absolute left-px z-[1]"
+			style="top: calc({lineHeight}px + 1px); width: {canvasWidth}px; height: {CHANNEL_LEVEL_STRIP_HEIGHT}px;">
+		</canvas>
 
 		<ContextMenu
 			position={contextMenuPosition}
-			items={editMenuItems}
+			items={editContextMenuItems}
 			onAction={handleContextMenuAction}
 			onClose={closeContextMenu} />
 

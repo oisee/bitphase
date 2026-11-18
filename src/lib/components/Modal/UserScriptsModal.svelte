@@ -1,14 +1,25 @@
 <script lang="ts">
 	import Button from '../Button/Button.svelte';
+	import { ModalPanel } from '../ModalPanel';
+	import { AlertBanner } from '../AlertBanner';
+	import type { ChipSchema } from '../../chips/base/schema';
 	import type { UserScript } from '../../services/user-scripts/types';
 	import { userScriptsStore } from '../../stores/user-scripts.svelte';
 	import ScriptEditorModal from './ScriptEditorModal.svelte';
 	import { open } from '../../services/modal/modal-service';
 
-	let { resolve, dismiss, hasSelection = false } = $props<{
+	let {
+		resolve,
+		dismiss,
+		hasSelection = false,
+		schema,
+		channelLabels
+	} = $props<{
 		resolve?: (script?: UserScript) => void;
 		dismiss?: () => void;
 		hasSelection?: boolean;
+		schema?: ChipSchema;
+		channelLabels?: string[];
 	}>();
 
 	let selectedScript = $state<UserScript | null>(null);
@@ -49,7 +60,7 @@
 	}
 
 	async function handleNewScript() {
-		const result = await open(ScriptEditorModal, { isNew: true });
+		const result = await open(ScriptEditorModal, { isNew: true, schema, channelLabels });
 		if (result) {
 			userScriptsStore.add(result);
 			selectedScript = result;
@@ -58,7 +69,12 @@
 
 	async function handleEditScript() {
 		if (!selectedScript || userScriptsStore.isBuiltIn(selectedScript.id)) return;
-		const result = await open(ScriptEditorModal, { script: selectedScript, isNew: false });
+		const result = await open(ScriptEditorModal, {
+			script: selectedScript,
+			isNew: false,
+			schema,
+			channelLabels
+		});
 		if (result) {
 			userScriptsStore.update(result);
 			selectedScript = result;
@@ -100,110 +116,108 @@
 		input.click();
 	}
 
-	const isBuiltIn = $derived(selectedScript ? userScriptsStore.isBuiltIn(selectedScript.id) : false);
+	const isBuiltIn = $derived(
+		selectedScript ? userScriptsStore.isBuiltIn(selectedScript.id) : false
+	);
 </script>
 
-<div class="flex max-h-[90vh] w-[450px] flex-col overflow-hidden">
-	<div
-		class="flex shrink-0 items-center justify-between border-b border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-4 py-3">
-		<h2 class="text-sm font-bold text-[var(--color-app-text-primary)]">Apply Script</h2>
-		<div class="flex gap-1">
-			<button
-				class="cursor-pointer rounded px-2 py-1 text-xs text-[var(--color-app-text-secondary)] hover:bg-[var(--color-app-surface-hover)]"
-				onclick={handleImportScript}
-				title="Import script">
-				Import
-			</button>
-			<button
-				class="cursor-pointer rounded px-2 py-1 text-xs text-[var(--color-app-text-secondary)] hover:bg-[var(--color-app-surface-hover)]"
-				onclick={handleNewScript}
-				title="Create new script">
-				+ New
-			</button>
-		</div>
-	</div>
+<ModalPanel title="Apply Script" width="w-[450px]" bodyClass="min-h-0 flex-1 overflow-y-auto">
+	{#snippet headerActions()}
+		<Button variant="ghost" size="sm" onclick={handleImportScript} title="Import script">
+			Import
+		</Button>
+		<Button variant="ghost" size="sm" onclick={handleNewScript} title="Create new script">
+			+ New
+		</Button>
+	{/snippet}
 
-	<div class="min-h-0 flex-1 overflow-y-auto">
+	{#snippet children()}
 		{#if !hasSelection}
-			<div class="shrink-0 border-b border-[var(--color-app-border)] bg-amber-900/20 px-4 py-2">
-				<p class="text-xs text-amber-400">
-					Select a region in the pattern editor first to apply a script.
-				</p>
-			</div>
+			<AlertBanner variant="callout">
+				Select a region in the pattern editor first to apply a script.
+			</AlertBanner>
 		{/if}
 
 		<div class="p-4">
-		<div class="mb-2">
-			<input
-				type="text"
-				bind:value={searchQuery}
-				placeholder="Search scripts..."
-				class="w-full rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] px-2 py-1.5 text-xs text-[var(--color-app-text-primary)] placeholder-[var(--color-app-text-tertiary)] focus:border-[var(--color-app-accent)] focus:outline-none" />
-		</div>
-
-		<div
-			class="h-48 overflow-y-auto rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)]">
-			{#each filteredScripts as script}
-				<button
-					class="w-full cursor-pointer border-b border-[var(--color-app-border)] px-3 py-2 text-left transition-colors last:border-b-0 {selectedScript?.id ===
-					script.id
-						? 'bg-[var(--color-app-surface-active)] border-l-2 border-l-[var(--color-app-primary)]'
-						: 'hover:bg-[var(--color-app-surface)] border-l-2 border-l-transparent'}"
-					onclick={() => selectScript(script)}
-					ondblclick={() => handleDoubleClick(script)}>
-					<div class="flex items-center gap-2">
-						<span class="text-xs font-medium {selectedScript?.id === script.id ? 'text-[var(--color-app-primary)]' : 'text-[var(--color-app-text-primary)]'}">
-							{script.name}
-						</span>
-						{#if userScriptsStore.isBuiltIn(script.id)}
-							<span class="rounded bg-[var(--color-app-surface)] px-1 py-0.5 text-[10px] text-[var(--color-app-text-tertiary)]">
-								built-in
-							</span>
-						{/if}
-					</div>
-					<div class="mt-0.5 text-xs text-[var(--color-app-text-tertiary)]">
-						{script.description}
-					</div>
-				</button>
-			{:else}
-				<div class="flex h-full items-center justify-center">
-					<p class="text-xs text-[var(--color-app-text-tertiary)]">No scripts found</p>
-				</div>
-			{/each}
-		</div>
-
-		{#if selectedScript}
-			<div class="mt-2 flex gap-1">
-				<button
-					class="cursor-pointer rounded px-2 py-1 text-xs text-[var(--color-app-text-secondary)] hover:bg-[var(--color-app-surface-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
-					onclick={handleEditScript}
-					disabled={isBuiltIn}
-					title={isBuiltIn ? 'Cannot edit built-in scripts' : 'Edit script'}>
-					Edit
-				</button>
-				<button
-					class="cursor-pointer rounded px-2 py-1 text-xs text-[var(--color-app-text-secondary)] hover:bg-[var(--color-app-surface-hover)]"
-					onclick={handleExportScript}
-					title="Export script">
-					Export
-				</button>
-				<button
-					class="cursor-pointer rounded px-2 py-1 text-xs text-red-400 hover:bg-red-900/20 disabled:opacity-50 disabled:cursor-not-allowed"
-					onclick={handleDeleteScript}
-					disabled={isBuiltIn}
-					title={isBuiltIn ? 'Cannot delete built-in scripts' : 'Delete script'}>
-					Delete
-				</button>
+			<div class="mb-2">
+				<input
+					type="text"
+					bind:value={searchQuery}
+					placeholder="Search scripts..."
+					class="w-full rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] px-2 py-1.5 text-xs text-[var(--color-app-text-primary)] placeholder-[var(--color-app-text-tertiary)] focus:border-[var(--color-app-primary)] focus:outline-none" />
 			</div>
-		{/if}
-	</div>
-	</div>
 
-	<div
-		class="flex shrink-0 justify-end gap-2 border-t border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-4 py-3">
+			<div
+				class="h-48 overflow-y-auto rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)]">
+				{#each filteredScripts as script (script.id)}
+					<button
+						class="w-full cursor-pointer border-b border-[var(--color-app-border)] px-3 py-2 text-left transition-colors last:border-b-0 {selectedScript?.id ===
+						script.id
+							? 'border-l-2 border-l-[var(--color-app-primary)] bg-[var(--color-app-surface-active)]'
+							: 'border-l-2 border-l-transparent hover:bg-[var(--color-app-surface)]'}"
+						onclick={() => selectScript(script)}
+						ondblclick={() => handleDoubleClick(script)}>
+						<div class="flex items-center gap-2">
+							<span
+								class="text-xs font-medium {selectedScript?.id === script.id
+									? 'text-[var(--color-app-primary)]'
+									: 'text-[var(--color-app-text-primary)]'}">
+								{script.name}
+							</span>
+							{#if userScriptsStore.isBuiltIn(script.id)}
+								<span
+									class="rounded bg-[var(--color-app-surface)] px-1 py-0.5 text-[10px] text-[var(--color-app-text-tertiary)]">
+									built-in
+								</span>
+							{/if}
+						</div>
+						<div class="mt-0.5 text-xs text-[var(--color-app-text-tertiary)]">
+							{script.description}
+						</div>
+					</button>
+				{:else}
+					<div class="flex h-full items-center justify-center">
+						<p class="text-xs text-[var(--color-app-text-tertiary)]">
+							No scripts found
+						</p>
+					</div>
+				{/each}
+			</div>
+
+			{#if selectedScript}
+				<div class="mt-2 flex gap-1">
+					<Button
+						variant="ghost"
+						size="sm"
+						onclick={handleEditScript}
+						disabled={isBuiltIn}
+						title={isBuiltIn ? 'Cannot edit built-in scripts' : 'Edit script'}>
+						Edit
+					</Button>
+					<Button
+						variant="ghost"
+						size="sm"
+						onclick={handleExportScript}
+						title="Export script">
+						Export
+					</Button>
+					<Button
+						variant="destructive"
+						size="sm"
+						onclick={handleDeleteScript}
+						disabled={isBuiltIn}
+						title={isBuiltIn ? 'Cannot delete built-in scripts' : 'Delete script'}>
+						Delete
+					</Button>
+				</div>
+			{/if}
+		</div>
+	{/snippet}
+
+	{#snippet footer()}
 		<Button variant="secondary" onclick={handleCancel}>Cancel</Button>
 		<Button variant="primary" onclick={handleApply} disabled={!selectedScript || !hasSelection}>
 			Apply
 		</Button>
-	</div>
-</div>
+	{/snippet}
+</ModalPanel>

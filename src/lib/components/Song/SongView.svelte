@@ -9,12 +9,16 @@
 	import type { AudioService } from '../../services/audio/audio-service';
 	import Card from '../Card/Card.svelte';
 	import PatternEditor from './PatternEditor.svelte';
+	import PianoRollView from './PianoRollView.svelte';
 	import PatternOrder from './PatternOrder.svelte';
 	import { TabView } from '../TabView';
 	import { TablesView } from '../Tables';
 	import { DetailsView } from '../Details';
 	import { InstrumentsView } from '../Instruments';
+	import { SelectionPalette } from '../SelectionPalette';
 	import IconCarbonChip from '~icons/carbon/chip';
+	import IconCarbonGrid from '~icons/carbon/grid';
+	import IconCarbonMusic from '~icons/carbon/music';
 	import IconCarbonListBoxes from '~icons/carbon/list-boxes';
 	import IconCarbonDataTable from '~icons/carbon/data-table';
 	import IconCarbonWaveform from '~icons/carbon/waveform';
@@ -22,17 +26,37 @@
 	import IconCarbonChevronUp from '~icons/carbon/chevron-up';
 	import IconCarbonChevronDown from '~icons/carbon/chevron-down';
 	import IconCarbonClose from '~icons/carbon/close';
-	import IconCarbonPlay from '~icons/carbon/play';
-	import { PATTERN_EDITOR_CONSTANTS } from './types';
 	import { getContext, setContext, tick } from 'svelte';
 	import Input from '../Input/Input.svelte';
 	import { playbackStore } from '../../stores/playback.svelte';
 	import StatusBar from './StatusBar.svelte';
+	import PlaybackToneDebug from './PlaybackToneDebug.svelte';
 	import ChannelOscilloscopes from './ChannelOscilloscopes.svelte';
 	import { PatternService } from '../../services/pattern/pattern-service';
+	import type {
+		PatternEditorDirection,
+		PatternEditorLanding
+	} from '../../services/pattern/pattern-navigation';
 	import { settingsStore } from '../../stores/settings.svelte';
 	import { editorStateStore } from '../../stores/editor-state.svelte';
 	import { projectStore } from '../../stores/project.svelte';
+	import { channelMuteStore } from '../../stores/channel-mute.svelte';
+	import { keybindingsStore } from '../../stores/keybindings.svelte';
+	import { undoRedoStore } from '../../stores/undo-redo.svelte';
+	import { ShortcutString } from '../../utils/shortcut-string';
+	import { isEditableElement } from '../../utils/shortcut-input-exclusion';
+	import { ACTION_REDO, ACTION_TOGGLE_PLAYBACK, ACTION_UNDO } from '../../config/keybindings';
+	import {
+		filterInstrumentsForChip,
+		getOrderedProjectChipTypes,
+		resolveInstrumentPreviewChip
+	} from '../../services/instrument/instrument-filter';
+	import { EmptyState } from '../EmptyState';
+	import { newSongOptions } from '../../config/app-menu';
+	import IconCarbonChevronRight from '~icons/carbon/chevron-right';
+	import EmptySongPatternBackdrop from './EmptySongPatternBackdrop.svelte';
+	import { getVirtualIndicesForHardwareChannel } from '../../models/virtual-channels';
+	import { findLastSpeedCommand } from '../../services/audio/playback-speed';
 
 	let {
 		chipProcessors,
@@ -47,6 +71,7 @@
 	} = $props();
 
 	let sharedPatternOrderIndex = $state(0);
+	let orderListPick = $state(0);
 	let sharedSelectedRow = $state(0);
 	let songViewContainer: HTMLDivElement;
 	let patternEditors: PatternEditor[] = $state([]);
@@ -97,6 +122,23 @@
 		};
 	});
 	let selectedFieldKey = $state<string | null>(null);
+	let selectedChannelIndex = $state(-1);
+	let instrumentsChipType = $state('');
+
+	function clampPatternOrderIndex(index: number, patternOrderLength: number): number {
+		if (patternOrderLength <= 0) return 0;
+		return Math.min(Math.max(index, 0), patternOrderLength - 1);
+	}
+
+	$effect(() => {
+		const clampedIndex = clampPatternOrderIndex(
+			sharedPatternOrderIndex,
+			projectStore.patternOrder.length
+		);
+		if (sharedPatternOrderIndex !== clampedIndex) {
+			sharedPatternOrderIndex = clampedIndex;
+		}
+	});
 
 	$effect(() => {
 		if (rightPanelActiveTabId === 'details') {
@@ -125,30 +167,271 @@
 		}
 	});
 
+	export function resetEditorState(): void {
+		activeEditorIndex = 0;
+		sharedPatternOrderIndex = 0;
+		sharedSelectedRow = 0;
+		selectedColumn = 0;
+		selectedFieldKey = null;
+		selectedChannelIndex = -1;
+		if (projectStore.songs.length === 0) {
+			patternEditors = [];
+			patternEditor = null;
+			return;
+		}
+		tick().then(() => {
+			const firstEditor = patternEditors[0];
+			patternEditor = firstEditor ?? null;
+			firstEditor?.resetToBeginning?.();
+			firstEditor?.requestRedraw?.();
+		});
+	}
+
+	export function toggleExpandPanel(): void {
+		if (rightPanelActiveTabId === 'details') return;
+		isRightPanelExpanded = !isRightPanelExpanded;
+		if (!isRightPanelExpanded) {
+			tick().then(() => {
+				patternEditor?.focusCanvas?.();
+			});
+		}
+	}
+
 	$effect(() => {
+		if (pianoRollActive) return;
 		const activeEditor = patternEditors[activeEditorIndex];
 		if (activeEditor) {
 			selectedColumn = activeEditor.getSelectedColumn();
 			selectedFieldKey = activeEditor.getSelectedFieldKey();
+			selectedChannelIndex = activeEditor.getSelectedChannelIndex();
 			const interval = setInterval(() => {
 				selectedColumn = activeEditor.getSelectedColumn();
 				selectedFieldKey = activeEditor.getSelectedFieldKey();
+				selectedChannelIndex = activeEditor.getSelectedChannelIndex();
 			}, 100);
 			return () => clearInterval(interval);
 		}
 	});
 
+	$effect(() => {
+		if (pianoRollActive) return;
+		tick().then(() => {
+			patternEditors.forEach((editor) => editor?.requestRedraw?.());
+		});
+	});
+
+	function togglePlaybackFromPiano(): void {
+		if (playbackStore.isPlaying || services.audioService.playing) {
+			playbackStore.isPlaying = false;
+			services.audioService.stop();
+			return;
+		}
+		playbackStore.isPlaying = true;
+		patternEditors[0]?.togglePlayback?.();
+	}
+
 	let patternLengthValue = $state('');
+	let viewSwitchWidth = $state(0);
 
 	const blurredContentClass = $derived(
 		isRightPanelExpanded ? 'pointer-events-none opacity-50' : ''
 	);
+	const pianoRollActive = $derived(
+		settingsStore.experimentalFeatures &&
+			editorStateStore.editView === 'piano-roll' &&
+			projectStore.songs.length > 0
+	);
+
+	const activeChipProcessor = $derived(chipProcessors[activeEditorIndex]);
+	const paletteChips = $derived.by(() => {
+		const byType = new Map(
+			chipProcessors.map((processor) => [processor.chip.type, processor.chip])
+		);
+		return getOrderedProjectChipTypes(chipProcessors)
+			.map((type) => byType.get(type))
+			.filter((chip) => chip != null);
+	});
+
+	function wrappedEditorIndex(direction: PatternEditorDirection): number {
+		if (direction === 'next') {
+			for (let index = 0; index < patternEditors.length; index++) {
+				if (patternEditors[index]) return index;
+			}
+			return -1;
+		}
+		for (let index = patternEditors.length - 1; index >= 0; index--) {
+			if (patternEditors[index]) return index;
+		}
+		return -1;
+	}
+
+	function focusAdjacentEditor(
+		fromIndex: number,
+		direction: PatternEditorDirection,
+		landing: PatternEditorLanding,
+		wrap = false
+	): boolean {
+		const step = direction === 'next' ? 1 : -1;
+		let targetIndex = fromIndex + step;
+		while (
+			targetIndex >= 0 &&
+			targetIndex < patternEditors.length &&
+			!patternEditors[targetIndex]
+		) {
+			targetIndex += step;
+		}
+		if (!patternEditors[targetIndex] && wrap) {
+			targetIndex = wrappedEditorIndex(direction);
+			if (targetIndex === fromIndex) return false;
+		}
+		const target = patternEditors[targetIndex];
+		if (!target) return false;
+		target.placeCursor(landing);
+		activeEditorIndex = targetIndex;
+		patternEditor = target;
+		target.focusCanvas();
+		target.scrollCursorIntoView();
+		return true;
+	}
+
+	function getHardwareChannelLabels(chipIndex: number): string[] {
+		return chipProcessors[chipIndex]?.chip.schema.channelLabels ?? ['A', 'B', 'C'];
+	}
+
+	function oscilloscopeChannelLabel(label: string): string {
+		const parts = label.split(' ');
+		if (parts.length === 2 && /^\d+$/.test(parts[1] ?? '')) {
+			return `${parts[0]?.[0] ?? ''}${parts[1]}`;
+		}
+		if (label.length <= 4) return label;
+		return label.slice(0, 3);
+	}
+
+	function oscilloscopeChipNumber(songIndex: number): number | null {
+		const type = chipProcessors[songIndex]?.chip.type;
+		if (!type) return null;
+		const count = chipProcessors.filter((processor) => processor.chip.type === type).length;
+		if (count < 2) return null;
+		return songIndex + 1;
+	}
+
+	function getVirtualIndicesForOscilloscopeChannel(chipIndex: number, hwIndex: number): number[] {
+		return getVirtualIndicesForHardwareChannel(
+			hwIndex,
+			getHardwareChannelLabels(chipIndex),
+			projectStore.songs[chipIndex]?.virtualChannelMap ?? {}
+		);
+	}
+
+	function isHardwareChannelMuted(chipIndex: number, hwIndex: number): boolean {
+		return channelMuteStore.areChannelsMuted(
+			chipIndex,
+			getVirtualIndicesForOscilloscopeChannel(chipIndex, hwIndex)
+		);
+	}
+
+	function toggleOscilloscopeChannelMute(flatIndex: number): void {
+		let remaining = flatIndex;
+		for (let chipIndex = 0; chipIndex < chipProcessors.length; chipIndex++) {
+			const labels = getHardwareChannelLabels(chipIndex);
+			if (remaining < labels.length) {
+				const virtualIndices = getVirtualIndicesForOscilloscopeChannel(
+					chipIndex,
+					remaining
+				);
+				const muted = !channelMuteStore.areChannelsMuted(chipIndex, virtualIndices);
+				channelMuteStore.setChannelsMuted(chipIndex, virtualIndices, muted);
+				const processor = chipProcessors[chipIndex];
+				for (const virtualIndex of virtualIndices) {
+					processor?.updateParameter(`channelMute_${virtualIndex}`, muted);
+				}
+				patternEditors.forEach((editor) => editor?.requestRedraw?.());
+				return;
+			}
+			remaining -= labels.length;
+		}
+	}
+	const previewChip = $derived(
+		resolveInstrumentPreviewChip(
+			chipProcessors.map((processor) => processor.chip),
+			instrumentsChipType,
+			activeChipProcessor?.chip
+		)
+	);
+	const previewChannelLabels = $derived.by(() => {
+		const chip = previewChip;
+		const activeChip = activeChipProcessor?.chip;
+		if (!chip || !activeChip || chip.type !== activeChip.type) return undefined;
+		const labels = projectStore.songs[activeEditorIndex]?.getEffectiveChannelLabels();
+		return labels && labels.length > 0 ? labels : undefined;
+	});
+	const previewChannelIndex = $derived.by(() => {
+		const labels = previewChannelLabels;
+		if (!labels || selectedChannelIndex < 0) return 0;
+		return Math.min(selectedChannelIndex, labels.length - 1);
+	});
+	const previewInstrumentId = $derived.by(() => {
+		const chipType = previewChip?.type;
+		if (!chipType) return '';
+		const chipInstruments = filterInstrumentsForChip(projectStore.instruments, chipType);
+		const selectedId = editorStateStore.getCurrentInstrument(chipType);
+		if (selectedId && chipInstruments.some((instrument) => instrument.id === selectedId)) {
+			return selectedId;
+		}
+		return chipInstruments[0]?.id ?? '';
+	});
+	const previewTuningTable = $derived.by(() => {
+		void tuningTableVersion;
+		const chipType = previewChip?.type;
+		if (!chipType) return [];
+		const songIndex = chipProcessors.findIndex((processor) => processor.chip.type === chipType);
+		if (songIndex >= 0) {
+			return projectStore.songs[songIndex]?.tuningTable ?? [];
+		}
+		return projectStore.songs[activeEditorIndex]?.tuningTable ?? [];
+	});
 
 	const services: { audioService: AudioService } = getContext('container');
+
+	let previewSpaceHandler = $state<(() => void) | null>(null);
+	let rightPanelEl: HTMLDivElement | null = $state(null);
+	setContext('registerPreviewSpaceHandler', (fn: (() => void) | null) => {
+		previewSpaceHandler = fn;
+	});
 
 	setContext('requestPatternRedraw', () => {
 		patternEditors.forEach((editor) => editor?.requestRedraw?.());
 	});
+
+	const undoRedoActionIds = new Set([ACTION_UNDO, ACTION_REDO]);
+	const previewPlaybackActionIds = new Set([ACTION_TOGGLE_PLAYBACK]);
+
+	function getScopedShortcutAction(
+		event: KeyboardEvent,
+		container: HTMLElement,
+		actionIds: ReadonlySet<string>
+	): string | null {
+		const shortcut = ShortcutString.fromEvent(event);
+		const action = keybindingsStore.getActionForShortcut(shortcut);
+		if (!action || !actionIds.has(action)) return null;
+		if (!container.contains(document.activeElement)) return null;
+		if (isEditableElement(document.activeElement)) return null;
+		return action;
+	}
+
+	function addScopedShortcutListener(
+		container: HTMLElement,
+		actionIds: ReadonlySet<string>,
+		onAction: (event: KeyboardEvent, action: string, container: HTMLElement) => void
+	): () => void {
+		function onKeyDownCapture(event: KeyboardEvent) {
+			const action = getScopedShortcutAction(event, container, actionIds);
+			if (!action) return;
+			onAction(event, action, container);
+		}
+		container.addEventListener('keydown', onKeyDownCapture, { capture: true });
+		return () => container.removeEventListener('keydown', onKeyDownCapture, { capture: true });
+	}
 
 	$effect(() => {
 		if (editorStateStore.selectInstrumentRequest) {
@@ -162,71 +445,94 @@
 		}
 	});
 
-	const SPEED_EFFECT_TYPE = 'S'.charCodeAt(0);
+	$effect(() => {
+		const container = songViewContainer;
+		if (!container) return;
+		return addScopedShortcutListener(container, undoRedoActionIds, (event, action) => {
+			if (playbackStore.isPlaying) return;
+
+			event.preventDefault();
+			event.stopPropagation();
+			if (action === ACTION_UNDO) {
+				undoRedoStore.undo();
+			} else {
+				undoRedoStore.redo();
+			}
+		});
+	});
+
+	$effect(() => {
+		const el = rightPanelEl;
+		const handler = previewSpaceHandler;
+		if (!el) return;
+		return addScopedShortcutListener(
+			el,
+			previewPlaybackActionIds,
+			(event, _action, container) => {
+				if (event.repeat) return;
+				if (handler) {
+					event.preventDefault();
+					event.stopPropagation();
+					const active = document.activeElement as HTMLElement | null;
+					if (active && active !== container) {
+						active.blur?.();
+						container.focus();
+					}
+					handler();
+				}
+			}
+		);
+	});
 
 	function handleMakeUnique(index: number): void {
+		const beforePatterns = projectStore.patterns.map((songPatterns) => [...songPatterns]);
+		const beforePatternOrder = [...projectStore.patternOrder];
 		const result = PatternService.makePatternUniqueMultiChip(
 			projectStore.patterns,
 			projectStore.patternOrder,
 			index,
 			(i) => chipProcessors[i]?.chip?.schema
 		);
+		if (!result) return;
 		result.updatedPatterns.forEach((newPatterns, i) => {
 			projectStore.updatePatterns(i, newPatterns);
 		});
 		projectStore.patternOrder = result.newPatternOrder;
+		projectStore.recordHistory(
+			{
+				type: 'patternOrder.makeUnique',
+				label: `Make pattern ${beforePatternOrder[index]} unique`,
+				affectedDomains: ['patterns', 'patternOrder']
+			},
+			[
+				projectStore.createSetDiff(['patterns'], beforePatterns, projectStore.patterns),
+				projectStore.createSetDiff(
+					['patternOrder'],
+					beforePatternOrder,
+					projectStore.patternOrder
+				)
+			]
+		);
 		if (index === sharedPatternOrderIndex) {
 			sharedSelectedRow = 0;
 		}
 		patternEditors.forEach((editor) => editor?.requestRedraw?.());
 	}
 
-	function findLastSpeedCommand(
-		songPatterns: Pattern[],
-		order: number[],
-		startPatternOrderIndex: number,
-		startRow: number
-	): number | null {
-		for (
-			let patternOrderIdx = startPatternOrderIndex;
-			patternOrderIdx >= 0;
-			patternOrderIdx--
-		) {
-			const patternId = order[patternOrderIdx];
-			const pattern = songPatterns.find((p) => p.id === patternId);
-			if (!pattern) continue;
-
-			const startRowIdx =
-				patternOrderIdx === startPatternOrderIndex ? startRow : pattern.length - 1;
-
-			for (let rowIdx = startRowIdx; rowIdx >= 0; rowIdx--) {
-				for (const channel of pattern.channels) {
-					const row = channel.rows[rowIdx];
-					if (row.effects[0] && row.effects[0].effect === SPEED_EFFECT_TYPE) {
-						const speed = row.effects[0].parameter;
-						if (speed > 0) {
-							return speed;
-						}
-					}
-				}
-			}
-		}
-
-		return null;
+	function resolveSpeedAt(orderIndex: number, row: number): number | null {
+		if (projectStore.songs.length === 0) return null;
+		const lastSpeed = findLastSpeedCommand(
+			projectStore.patterns,
+			projectStore.patternOrder,
+			orderIndex,
+			row,
+			projectStore.tables
+		);
+		return lastSpeed?.speed ?? projectStore.getInitialSpeed();
 	}
 
-	function getSpeedForChip(chipIndex: number): number | null {
-		const song = projectStore.songs[chipIndex];
-		const songPatterns = projectStore.patterns[chipIndex];
-		if (!song || !songPatterns) return null;
-
-		const lastSpeed = findLastSpeedCommand(
-			songPatterns,
-			projectStore.patternOrder,
-			sharedPatternOrderIndex,
-			sharedSelectedRow
-		);
-		return lastSpeed !== null ? lastSpeed : song.initialSpeed;
+	function getSpeedForChip(_chipIndex: number): number | null {
+		return resolveSpeedAt(sharedPatternOrderIndex, sharedSelectedRow);
 	}
 
 	function initAllChips(playPattern: boolean) {
@@ -236,9 +542,10 @@
 		if (playPattern) {
 			services.audioService.setPlayPatternRestoreOrder(
 				[...projectStore.patternOrder],
-				patternId
+				patternId,
+				projectStore.loopPointId
 			);
-			services.audioService.updateOrder([patternId]);
+			services.audioService.updateOrder([patternId], 0);
 		}
 
 		chipProcessors.forEach((chipProcessor, index) => {
@@ -246,19 +553,16 @@
 			const songPatterns = projectStore.patterns[index];
 			if (!song || !songPatterns) return;
 
-			const currentPattern = songPatterns.find((p) => p.id === patternId);
-			if (!currentPattern) return;
-
 			const withVirtual = chipProcessor as ChipProcessor & Partial<VirtualChannelSupport>;
 			if (withVirtual.sendVirtualChannelConfig) {
 				const hwLabels = chipProcessor.chip?.schema?.channelLabels ?? ['A', 'B', 'C'];
 				withVirtual.sendVirtualChannelConfig(
 					song.virtualChannelMap ?? {},
-					hwLabels.length
+					hwLabels.length,
+					song.virtualChannelRoles ?? {}
 				);
 			}
 
-			chipProcessor.sendInitPattern(currentPattern, patternOrderIndexForInit);
 			chipProcessor.sendInitTables(projectStore.tables);
 
 			const withTuningTables = chipProcessor as ChipProcessor & Partial<TuningTableSupport>;
@@ -267,14 +571,28 @@
 				withTuningTables.sendInitTuningTable(song.tuningTable);
 			}
 			if ('sendInitInstruments' in chipProcessor && withInstruments.sendInitInstruments) {
-				withInstruments.sendInitInstruments(projectStore.instruments);
+				withInstruments.sendInitInstruments(
+					filterInstrumentsForChip(projectStore.instruments, chipProcessor.chip.type)
+				);
 			}
+
+			const currentPattern = songPatterns.find((p) => p.id === patternId);
+			if (!currentPattern) return;
+
+			chipProcessor.sendInitPattern(currentPattern, patternOrderIndexForInit);
 		});
 
 		if (!playPattern) {
-			services.audioService.updateOrder(projectStore.patternOrder);
+			services.audioService.updateOrder(projectStore.patternOrder, projectStore.loopPointId);
 		}
 	}
+
+	$effect(() => {
+		projectStore.patternOrder;
+		projectStore.loopPointId;
+		if (services.audioService.getPlayPatternId() !== null) return;
+		services.audioService.updateOrder([...projectStore.patternOrder], projectStore.loopPointId);
+	});
 
 	function initAllChipsForPlayback() {
 		initAllChips(false);
@@ -284,48 +602,15 @@
 		initAllChips(true);
 	}
 
-	function getSpeedForPlayPattern(chipIndex: number): number | null {
-		const song = projectStore.songs[chipIndex];
-		const songPatterns = projectStore.patterns[chipIndex];
-		if (!song || !songPatterns) return null;
-
-		const lastSpeed = findLastSpeedCommand(
-			songPatterns,
-			projectStore.patternOrder,
-			sharedPatternOrderIndex,
-			0
-		);
-		return lastSpeed !== null ? lastSpeed : song.initialSpeed;
+	function getSpeedForPlayPattern(_chipIndex: number): number | null {
+		return resolveSpeedAt(sharedPatternOrderIndex, 0);
 	}
-
-	let patternOrderHeight = $state(PATTERN_EDITOR_CONSTANTS.DEFAULT_CANVAS_HEIGHT);
 
 	const rightPanelTabs = [
 		{ id: 'instruments', label: 'Instruments', icon: IconCarbonWaveform },
 		{ id: 'tables', label: 'Tables', icon: IconCarbonDataTable },
 		{ id: 'details', label: 'Details', icon: IconCarbonInformationSquare }
 	];
-
-	$effect(() => {
-		if (!songViewContainer) return;
-
-		const resizeObserver = new ResizeObserver(() => {
-			if (songViewContainer.clientHeight > 0) {
-				const availableHeight = songViewContainer.clientHeight;
-				const gap = 8;
-				patternOrderHeight = Math.max(
-					PATTERN_EDITOR_CONSTANTS.MIN_CANVAS_HEIGHT,
-					availableHeight - gap
-				);
-			}
-		});
-
-		resizeObserver.observe(songViewContainer);
-
-		return () => {
-			resizeObserver.disconnect();
-		};
-	});
 
 	const currentPatternId = $derived(projectStore.patternOrder[sharedPatternOrderIndex]);
 	const currentPatternLength = $derived.by(() => {
@@ -350,15 +635,29 @@
 
 	function applyLengthToAllSongs(length: number) {
 		const patternId = projectStore.patternOrder[sharedPatternOrderIndex];
+		const beforePatterns = projectStore.patterns.map((songPatterns) => [...songPatterns]);
+		let changed = false;
 		for (let j = 0; j < projectStore.patterns.length; j++) {
 			const songPatterns = projectStore.patterns[j];
 			const pattern = songPatterns.find((p) => p.id === patternId);
 			if (!pattern || pattern.length === length) continue;
-			const schema = chipProcessors[j].chip.schema;
+			const schema = chipProcessors[j]?.chip.schema;
+			if (!schema) continue;
 			const resized = PatternService.resizePattern(pattern, length, schema);
+			changed = true;
 			projectStore.updatePatterns(
 				j,
 				PatternService.updatePatternInArray(songPatterns, resized)
+			);
+		}
+		if (changed) {
+			projectStore.recordHistory(
+				{
+					type: 'pattern.resize',
+					label: `Resize pattern ${patternId}`,
+					affectedDomains: ['patterns']
+				},
+				[projectStore.createSetDiff(['patterns'], beforePatterns, projectStore.patterns)]
 			);
 		}
 		if (sharedSelectedRow >= length) {
@@ -397,7 +696,10 @@
 
 <div bind:this={songViewContainer} class="relative flex h-full flex-col overflow-hidden">
 	<div class="flex flex-1 overflow-hidden">
-		<div class="relative flex min-w-0 flex-1 flex-nowrap overflow-x-auto overflow-y-hidden">
+		<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+		<div
+			class="relative flex min-h-0 min-w-0 flex-1 flex-nowrap overflow-x-auto overflow-y-hidden overscroll-x-none"
+			data-song-pattern-scroll>
 			<div
 				class="sticky left-0 z-20 h-full shrink-0 bg-[var(--color-app-surface-secondary)] transition-all duration-300 {blurredContentClass}">
 				<Card
@@ -408,144 +710,306 @@
 					<PatternOrder
 						bind:currentPatternOrderIndex={sharedPatternOrderIndex}
 						bind:selectedRow={sharedSelectedRow}
-						chipSchemas={chipProcessors.map((p) => p?.chip?.schema)}
-						canvasHeight={patternOrderHeight}
 						onMakeUnique={handleMakeUnique}
 						onPatternOrderEdited={async () => {
 							await tick();
 							patternEditors.forEach((e) => e?.requestRedraw?.());
 						}}
-						onPatternSelect={(index) =>
-							patternEditors[0]?.markPatternChangeFromUser?.(index)} />
+						onPatternSelect={(index, immediate) => {
+							orderListPick += 1;
+							patternEditors[0]?.markPatternChangeFromUser?.(index, immediate);
+						}} />
 				</Card>
 			</div>
 			<div
-				class="flex min-h-0 min-w-max flex-1 flex-col overflow-hidden transition-all duration-300 {blurredContentClass}">
-				<div class="flex min-h-0 min-w-0 flex-1 flex-nowrap justify-center">
-					{#each projectStore.songs as song, i}
-						<Card
-							title={`${chipProcessors[i].chip.name} - (${i + 1})`}
-							fullHeight={true}
-							icon={IconCarbonChip}
-							class="flex shrink-0 flex-col p-0">
-							{#snippet headerContent()}
-								<div class="flex items-center gap-1">
-									<div
-										class="flex items-center rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] {playbackStore.isPlaying
-											? 'opacity-50'
-											: ''}">
-										<Input
-											value={patternLengthValue}
-											id="pattern-length-input-{i}"
-											type="number"
-											min="1"
-											max="256"
-											step="1"
-											disabled={playbackStore.isPlaying}
-											class="h-5 w-10 border-0 bg-transparent px-1 py-0 text-center font-mono text-xs leading-none focus:ring-0 disabled:cursor-not-allowed"
-											onfocus={() => {
-												if (!playbackStore.isPlaying) {
-													activeEditorIndex = i;
-													patternEditor = patternEditors[i];
-												}
-											}}
-											oninput={(e) => {
-												if (!playbackStore.isPlaying) {
-													patternLengthValue = (
-														e.target as HTMLInputElement
-													).value;
-												}
-											}}
-											onblur={() => {
-												if (!playbackStore.isPlaying) {
-													commitPatternLength();
-												}
-											}}
-											onkeydown={(e: KeyboardEvent) => {
-												if (playbackStore.isPlaying) {
-													e.preventDefault();
-													return;
-												}
-												if (e.key === 'Enter') {
-													e.preventDefault();
-													commitPatternLength();
-													(e.target as HTMLInputElement)?.blur();
-												}
-											}} />
-										<div
-											class="flex flex-col border-l border-[var(--color-app-border)]">
+				class="relative flex min-h-0 flex-1 flex-col overflow-hidden transition-all duration-300 {pianoRollActive
+					? 'min-w-0'
+					: 'min-w-max'} {blurredContentClass}"
+				style:--view-switch-width="{settingsStore.experimentalFeatures ? viewSwitchWidth + 8 : 0}px">
+				{#if projectStore.songs.length > 0 && settingsStore.experimentalFeatures}
+					<div
+						bind:clientWidth={viewSwitchWidth}
+						class="absolute top-0.5 left-1 z-30 flex items-center gap-1.5">
+						<div
+							class="flex shrink-0 items-center rounded-sm border border-[var(--color-app-border)] bg-[var(--color-app-surface)]">
+							<button
+								type="button"
+								class="flex cursor-pointer items-center gap-1 px-2 py-1 text-[11px] whitespace-nowrap {editorStateStore.editView ===
+								'tracker'
+									? 'bg-[var(--color-app-surface-active)] text-[var(--color-app-text-primary)]'
+									: 'text-[var(--color-app-text-secondary)] hover:bg-[var(--color-app-surface-hover)]'}"
+								onclick={() => editorStateStore.setEditView('tracker')}>
+								<IconCarbonGrid class="h-3.5 w-3.5" />
+								Tracker
+							</button>
+							<button
+								type="button"
+								class="flex cursor-pointer items-center gap-1 border-l border-[var(--color-app-border)] px-2 py-1 text-[11px] whitespace-nowrap {editorStateStore.editView ===
+								'piano-roll'
+									? 'bg-[var(--color-app-surface-active)] text-[var(--color-app-text-primary)]'
+									: 'text-[var(--color-app-text-secondary)] hover:bg-[var(--color-app-surface-hover)]'}"
+								onclick={() => editorStateStore.setEditView('piano-roll')}>
+								<IconCarbonMusic class="h-3.5 w-3.5" />
+								Piano roll
+							</button>
+						</div>
+						{#if editorStateStore.editView === 'piano-roll'}
+							<div
+								class="flex items-center rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] {playbackStore.isPlaying
+									? 'opacity-50'
+									: ''}">
+								<Input
+									value={patternLengthValue}
+									id="pattern-length-input-piano"
+									type="number"
+									min="1"
+									max="256"
+									step="1"
+									disabled={playbackStore.isPlaying}
+									class="h-5 w-12 border-0 bg-transparent px-1 py-0 text-center font-mono text-xs leading-none focus:ring-0 disabled:cursor-not-allowed"
+									oninput={(e) => {
+										if (!playbackStore.isPlaying) {
+											patternLengthValue = (e.target as HTMLInputElement).value;
+										}
+									}}
+									onblur={() => {
+										if (!playbackStore.isPlaying) commitPatternLength();
+									}}
+									onkeydown={(e: KeyboardEvent) => {
+										if (playbackStore.isPlaying) {
+											e.preventDefault();
+											return;
+										}
+										if (e.key === 'Enter') {
+											e.preventDefault();
+											commitPatternLength();
+											(e.target as HTMLInputElement)?.blur();
+										}
+									}} />
+								<span class="pr-1 text-[10px] text-[var(--color-app-text-muted)]">rows</span>
+							</div>
+						{/if}
+					</div>
+				{/if}
+				{#if pianoRollActive}
+					<div class="flex min-h-0 min-w-0 flex-1 flex-col">
+					<PianoRollView
+						{chipProcessors}
+						{orderListPick}
+						bind:currentPatternOrderIndex={sharedPatternOrderIndex}
+						bind:selectedRow={sharedSelectedRow}
+						onchannelchange={(songIndex, channelIndex, fieldKey) => {
+							activeEditorIndex = songIndex;
+							selectedChannelIndex = channelIndex;
+							selectedFieldKey = fieldKey;
+							patternEditor = patternEditors[songIndex] ?? null;
+						}}
+						ontoggleplayback={togglePlaybackFromPiano}
+						onseekplayback={(orderIndex, row) => {
+							patternEditors[0]?.playFromPosition?.(orderIndex, row);
+						}} />
+					</div>
+				{/if}
+				<div
+					class={pianoRollActive
+						? 'hidden'
+						: 'flex min-h-0 min-w-0 flex-1 flex-nowrap justify-center px-8'}>
+					{#if projectStore.songs.length === 0}
+						<div
+							class="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden">
+							<EmptySongPatternBackdrop />
+							<div
+								class="pointer-events-none absolute inset-0 bg-[var(--color-app-surface-secondary)]/50">
+							</div>
+							<div
+								class="pointer-events-auto relative z-10 flex items-center justify-center p-8">
+								<EmptyState
+									icon={IconCarbonChip}
+									title="No songs yet"
+									message="Add a song to start tracking."
+									class="w-full max-w-sm gap-3 border-[var(--color-app-border)] bg-[var(--color-app-surface)]/90 px-8 py-10 shadow-lg backdrop-blur-sm">
+									<div class="flex flex-col gap-2">
+										{#each newSongOptions as option (option.action)}
 											<button
 												type="button"
-												disabled={playbackStore.isPlaying}
-												class="flex h-2.5 w-3.5 cursor-pointer items-center justify-center border-b border-[var(--color-app-border)] transition-colors hover:bg-[var(--color-app-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
-												onclick={() => {
-													if (!playbackStore.isPlaying) {
-														activeEditorIndex = i;
-														patternEditor = patternEditors[i];
-														incrementPatternLength();
-													}
-												}}
-												title="Increment pattern length">
-												<IconCarbonChevronUp
-													class="h-2 w-2 text-[var(--color-app-text-muted)]" />
+												class="group flex w-full cursor-pointer items-center gap-3 rounded-sm border border-[var(--color-app-border)] bg-[var(--color-app-surface)] px-3 py-2.5 text-left text-[var(--color-app-text-secondary)] transition-colors hover:border-[var(--color-app-border-hover)] hover:bg-[var(--color-app-surface-hover)]"
+												onclick={() =>
+													onaction?.({ action: option.action })}>
+												<span
+													class="flex h-7 w-7 shrink-0 items-center justify-center rounded-sm bg-[var(--color-app-surface-secondary)]">
+													<IconCarbonChip
+														class="h-3.5 w-3.5 text-[var(--color-app-text-muted)]" />
+												</span>
+												<span class="min-w-0 flex-1">
+													<span
+														class="block text-xs font-medium text-[var(--color-app-text-primary)]">
+														{option.label}
+													</span>
+													<span
+														class="mt-0.5 block text-[10px] text-[var(--color-app-text-tertiary)]">
+														{option.examples}
+													</span>
+												</span>
+												<IconCarbonChevronRight
+													class="h-3.5 w-3.5 shrink-0 text-[var(--color-app-text-muted)] opacity-60 transition-transform group-hover:translate-x-0.5" />
 											</button>
+										{/each}
+									</div>
+								</EmptyState>
+							</div>
+						</div>
+					{:else}
+						{#each projectStore.songs as song, i (song)}
+							{@const chipProcessor = chipProcessors[i]}
+							{#if chipProcessor}
+								<Card
+									title={`${chipProcessor.chip.name} - (${i + 1})`}
+									fullHeight={true}
+									icon={IconCarbonChip}
+									class="flex shrink-0 flex-col p-0">
+									{#snippet headerContent()}
+										<div class="flex items-center gap-1">
+											<div
+												class="flex items-center rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)] {playbackStore.isPlaying
+													? 'opacity-50'
+													: ''}">
+												<Input
+													value={patternLengthValue}
+													id="pattern-length-input-{i}"
+													type="number"
+													min="1"
+													max="256"
+													step="1"
+													disabled={playbackStore.isPlaying}
+													class="h-5 w-10 border-0 bg-transparent px-1 py-0 text-center font-mono text-xs leading-none focus:ring-0 disabled:cursor-not-allowed"
+													onfocus={() => {
+														if (!playbackStore.isPlaying) {
+															activeEditorIndex = i;
+															patternEditor = patternEditors[i];
+														}
+													}}
+													oninput={(e) => {
+														if (!playbackStore.isPlaying) {
+															patternLengthValue = (
+																e.target as HTMLInputElement
+															).value;
+														}
+													}}
+													onblur={() => {
+														if (!playbackStore.isPlaying) {
+															commitPatternLength();
+														}
+													}}
+													onkeydown={(e: KeyboardEvent) => {
+														if (playbackStore.isPlaying) {
+															e.preventDefault();
+															return;
+														}
+														if (e.key === 'Enter') {
+															e.preventDefault();
+															commitPatternLength();
+															(e.target as HTMLInputElement)?.blur();
+														}
+													}} />
+												<div
+													class="flex flex-col border-l border-[var(--color-app-border)]">
+													<button
+														type="button"
+														disabled={playbackStore.isPlaying}
+														class="flex h-2.5 w-3.5 cursor-pointer items-center justify-center border-b border-[var(--color-app-border)] transition-colors hover:bg-[var(--color-app-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+														onclick={() => {
+															if (!playbackStore.isPlaying) {
+																activeEditorIndex = i;
+																patternEditor = patternEditors[i];
+																incrementPatternLength();
+															}
+														}}
+														title="Increment pattern length">
+														<IconCarbonChevronUp
+															class="h-2 w-2 text-[var(--color-app-text-muted)]" />
+													</button>
+													<button
+														type="button"
+														disabled={playbackStore.isPlaying}
+														class="flex h-2.5 w-3.5 cursor-pointer items-center justify-center transition-colors hover:bg-[var(--color-app-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+														onclick={() => {
+															if (!playbackStore.isPlaying) {
+																activeEditorIndex = i;
+																patternEditor = patternEditors[i];
+																decrementPatternLength();
+															}
+														}}
+														title="Decrement pattern length">
+														<IconCarbonChevronDown
+															class="h-2 w-2 text-[var(--color-app-text-muted)]" />
+													</button>
+												</div>
+											</div>
 											<button
 												type="button"
 												disabled={playbackStore.isPlaying}
-												class="flex h-2.5 w-3.5 cursor-pointer items-center justify-center transition-colors hover:bg-[var(--color-app-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
-												onclick={() => {
-													if (!playbackStore.isPlaying) {
-														activeEditorIndex = i;
-														patternEditor = patternEditors[i];
-														decrementPatternLength();
-													}
-												}}
-												title="Decrement pattern length">
-												<IconCarbonChevronDown
-													class="h-2 w-2 text-[var(--color-app-text-muted)]" />
+												class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-[var(--color-pattern-note-off)] transition-colors hover:bg-[var(--color-app-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+												title="Remove song"
+												onclick={() =>
+													onaction?.({
+														action: 'remove-song',
+														songIndex: i
+													})}>
+												<IconCarbonClose class="h-3.5 w-3.5" />
 											</button>
 										</div>
+									{/snippet}
+									<div class="flex flex-1 flex-col overflow-hidden">
+										{#key `${i}-${chipProcessor.chip.type}`}
+											<PatternEditor
+												bind:this={patternEditors[i]}
+												songIndex={i}
+												bind:currentPatternOrderIndex={
+													sharedPatternOrderIndex
+												}
+												bind:selectedRow={sharedSelectedRow}
+												isActive={activeEditorIndex === i}
+												isPlaybackMaster={i === 0}
+												onfocus={() => {
+													activeEditorIndex = i;
+													patternEditor = patternEditors[i];
+												}}
+												onLeaveEditor={(direction, landing, wrap) =>
+													focusAdjacentEditor(
+														i,
+														direction,
+														landing,
+														wrap
+													)}
+												canFocusOnHover={() =>
+													!patternEditors.some(
+														(e) =>
+															e?.getCanvas?.() ===
+															document.activeElement
+													)}
+												{onaction}
+												initAllChips={initAllChipsForPlayback}
+												{initAllChipsForPlayPattern}
+												{getSpeedForChip}
+												{getSpeedForPlayPattern}
+												{tuningTableVersion}
+												chip={chipProcessor.chip}
+												{chipProcessor}
+												onChannelMutesChanged={() => {
+													patternEditors.forEach((editor) =>
+														editor?.requestRedraw?.()
+													);
+												}} />
+										{/key}
 									</div>
-									{#if projectStore.songs.length > 1}
-										<button
-											type="button"
-											disabled={playbackStore.isPlaying}
-											class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-[var(--color-pattern-note-off)] transition-colors hover:bg-[var(--color-app-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"
-											title="Remove song"
-											onclick={() =>
-												onaction?.({
-													action: 'remove-song',
-													songIndex: i
-												})}>
-											<IconCarbonClose class="h-3.5 w-3.5" />
-										</button>
-									{/if}
-								</div>
-							{/snippet}
-							<div class="flex flex-1 flex-col overflow-hidden">
-								<PatternEditor
-									bind:this={patternEditors[i]}
-									songIndex={i}
-									bind:currentPatternOrderIndex={sharedPatternOrderIndex}
-									bind:selectedRow={sharedSelectedRow}
-									isActive={activeEditorIndex === i}
-									isPlaybackMaster={i === 0}
-									onfocus={() => {
-										activeEditorIndex = i;
-										patternEditor = patternEditors[i];
-									}}
-									{onaction}
-									initAllChips={initAllChipsForPlayback}
-									{initAllChipsForPlayPattern}
-									{getSpeedForChip}
-									{getSpeedForPlayPattern}
-									{tuningTableVersion}
-									chip={chipProcessors[i].chip}
-									chipProcessor={chipProcessors[i]} />
-							</div>
-						</Card>
-					{/each}
+								</Card>
+							{/if}
+						{/each}
+					{/if}
 				</div>
+				{#if settingsStore.debugMode}
+					<PlaybackToneDebug {chipProcessors} />
+				{/if}
 			</div>
 			{#if isRightPanelExpanded}
 				<button
@@ -555,11 +1019,27 @@
 					aria-label="Collapse panel"></button>
 			{/if}
 		</div>
+		</div>
+		<SelectionPalette chip={previewChip} chips={paletteChips} chipType={instrumentsChipType} />
+		<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 		<div
-			class="relative z-10 flex h-full shrink-0 flex-col border-l border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] {isRightPanelExpanded
+			bind:this={rightPanelEl}
+			role="region"
+			aria-label="Instruments and tables"
+			tabindex={0}
+			class="relative z-10 flex h-full shrink-0 flex-col border-l border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] outline-none focus:outline-none {isRightPanelExpanded
 				? 'w-[1200px] transition-all duration-300'
 				: ''}"
-			style={isRightPanelExpanded ? '' : `width: ${rightPanelWidth}px`}>
+			style={isRightPanelExpanded ? '' : `width: ${rightPanelWidth}px`}
+			onmousedown={(e: MouseEvent) => {
+				const target = e.target as HTMLElement;
+				if (
+					!target.closest('input, textarea, button, select, [contenteditable="true"], a')
+				) {
+					rightPanelEl?.focus();
+				}
+			}}>
 			{#if !isRightPanelExpanded}
 				<div
 					class="absolute top-0 left-0 z-20 h-full w-1 cursor-col-resize hover:bg-[var(--color-app-primary)]/50 {isResizingPanel ? 'bg-[var(--color-app-primary)]/50' : ''}"
@@ -576,7 +1056,10 @@
 						{:else if tabId === 'instruments'}
 							<InstrumentsView
 								bind:isExpanded={isRightPanelExpanded}
-								chip={chipProcessors[0].chip} />
+								bind:selectedChipType={instrumentsChipType}
+								{chipProcessors}
+								{activeEditorIndex}
+								syncChipType={activeChipProcessor?.chip.type} />
 						{:else if tabId === 'details'}
 							<DetailsView
 								{chipProcessors}
@@ -589,45 +1072,56 @@
 			</div>
 			{#if projectStore.songs.length > 0 && activeEditorIndex < projectStore.songs.length}
 				<div class="flex shrink-0 flex-col border-t border-[var(--color-app-border)]/50">
-					{#if settingsStore.showInstrumentPreview && chipProcessors[activeEditorIndex].chip.previewRow}
-						{@const PreviewRow = chipProcessors[activeEditorIndex].chip.previewRow}
-						<div class="flex flex-col gap-2 bg-[var(--color-app-surface)] px-2 py-3">
-							<span
-								class="flex items-center gap-1.5 text-xs text-[var(--color-app-text-muted)]">
-								<IconCarbonPlay class="h-3.5 w-3.5 shrink-0" />Preview playground</span>
-							<PreviewRow
-								chip={chipProcessors[activeEditorIndex].chip}
-								instrumentId={editorStateStore.currentInstrument}
-								tuningTable={projectStore.songs[activeEditorIndex]?.tuningTable ??
-									[]} />
-						</div>
+					{#if settingsStore.showInstrumentPreview && previewChip?.previewRow}
+						{#key previewChip.type}
+							{@const PreviewRow = previewChip.previewRow}
+							<div
+								class="flex flex-col gap-2 bg-[var(--color-app-surface)] px-2 py-3">
+								<PreviewRow
+									chip={previewChip}
+									instrumentId={previewInstrumentId}
+									tuningTable={previewTuningTable}
+									channelIndex={previewChannelIndex}
+									channelLabels={previewChannelLabels} />
+							</div>
+						{/key}
 					{/if}
 					{#if settingsStore.showOscilloscopes}
+						{@const muteTick = channelMuteStore.muteState}
 						<div class="border-t border-[var(--color-app-border)]/50">
 							<ChannelOscilloscopes
-								channelLabels={projectStore.songs.flatMap((_, i) =>
-									(
-										chipProcessors[i]?.chip.schema.channelLabels ?? [
-											'A',
-											'B',
-											'C'
-										]
-									).map((l) =>
-										projectStore.songs.length > 1 ? `${i + 1}${l}` : l
-									)
-								)} />
+								groups={projectStore.songs.map((_, songIndex) => {
+									muteTick;
+									const labels = getHardwareChannelLabels(songIndex);
+									const multiple = projectStore.songs.length > 1;
+									const ordinal = oscilloscopeChipNumber(songIndex);
+									const chipName = chipProcessors[songIndex]?.chip.name ?? '';
+									const numberedChipName = ordinal
+										? `${ordinal} ${chipName}`
+										: chipName;
+									return {
+										title: multiple ? numberedChipName : '',
+										channels: labels.map((label, hwIndex) => ({
+											label: oscilloscopeChannelLabel(label),
+											title: ordinal ? `${ordinal} ${label}` : label,
+											muted: isHardwareChannelMuted(songIndex, hwIndex)
+										}))
+									};
+								})}
+								onChannelClick={toggleOscilloscopeChannelMute} />
 						</div>
 					{/if}
 				</div>
 			{/if}
 		</div>
 	</div>
-	{#if projectStore.songs.length > 0 && activeEditorIndex < projectStore.songs.length}
+	{#if projectStore.songs.length > 0 && activeEditorIndex < projectStore.songs.length && activeChipProcessor}
 		<StatusBar
 			songIndex={activeEditorIndex}
 			selectedRow={sharedSelectedRow}
 			{selectedFieldKey}
+			{selectedChannelIndex}
 			currentPatternOrderIndex={sharedPatternOrderIndex}
-			chip={chipProcessors[activeEditorIndex].chip} />
+			chip={activeChipProcessor.chip} />
 	{/if}
 </div>

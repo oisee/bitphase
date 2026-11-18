@@ -9,6 +9,12 @@ function keyFromEvent(event: KeyboardEvent): string {
 		}
 		return code;
 	}
+	if (event.code === 'Minus') {
+		return '-';
+	}
+	if (event.code === 'Backquote') {
+		return '`';
+	}
 	const key = event.key;
 	if (key.length === 1 && key >= 'A' && key <= 'Z') {
 		return key.toLowerCase();
@@ -66,6 +72,7 @@ export class ShortcutString {
 
 	private static readonly KEY_DISPLAY_NAMES: Record<string, string> = {
 		' ': 'Space',
+		CapsLock: 'Caps Lock',
 		LMB: 'LMB',
 		MMB: 'MMB',
 		RMB: 'RMB'

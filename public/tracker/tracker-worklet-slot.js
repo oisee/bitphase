@@ -1,0 +1,550 @@
+import { releaseChannelInstrument } from './tracker-instrument-channel.js';
+import { WorkletSlotBase } from './worklet-slot-base.js';
+
+function playbackEffectCommand(command) {
+	const effect = {
+		effect: command.effect,
+		delay: command.delay ?? 0,
+		parameter: command.parameter ?? 0
+	};
+	if (typeof command.tableIndex === 'number' && command.tableIndex >= 0) {
+		effect.tableIndex = command.tableIndex;
+	}
+	return effect;
+}
+
+function silentPatternChannels(channelCount) {
+	const channels = [];
+	for (let ch = 0; ch < channelCount; ch++) {
+		channels.push({
+			rows: [{ note: { name: 0, octave: 0 }, effects: [null] }]
+		});
+	}
+	return channels;
+}
+
+export class TrackerWorkletSlot extends WorkletSlotBase {
+	constructor(port, chipIndex) {
+		super(port, chipIndex);
+		this.previewActiveChannels = new Set();
+		this.previewTickSampleCounter = 0;
+		this.previewIdentity = '';
+		this._rowParsePrimed = -1;
+	}
+
+	_playbackWorkersReady() {
+		return Boolean(this.patternProcessor && this.audioDriver);
+	}
+
+	_chipEngineReady() {
+		return this._playbackWorkersReady();
+	}
+
+	_resizeForPatternChannels(channelCount) {
+		if (channelCount <= this.registerState.channelCount) return;
+		this.state.resizeChannels(channelCount);
+		this.registerState.resize(channelCount);
+		if (this.audioDriver) {
+			this.audioDriver.resizeChannels(channelCount);
+		}
+	}
+
+	_replayCatchUpSegments(catchUpSegments) {
+		if (!catchUpSegments?.length || !this._chipEngineReady()) {
+			return;
+		}
+		for (const segment of catchUpSegments) {
+			if (segment.pattern?.channels?.length) {
+				this._resizeForPatternChannels(segment.pattern.channels.length);
+			}
+			this.state.setPattern(segment.pattern, segment.patternOrderIndex);
+			const numRows = segment.numRows ?? 0;
+			for (let row = 0; row < numRows; row++) {
+				this._simulateRow(this.state.currentPattern, row, false);
+			}
+		}
+	}
+
+	_applyPlaybackCarry(carry) {
+		if (!carry) return;
+		if (typeof carry.speedTable === 'number') {
+			this.state.speedTable = carry.speedTable;
+			this.state.speedTablePosition =
+				typeof carry.speedTablePosition === 'number' && carry.speedTablePosition >= 0
+					? carry.speedTablePosition
+					: 0;
+		}
+		if (carry.speed > 0) {
+			this._publishLeaderPlaybackSpeed(carry.speed);
+		}
+		const channelFields = carry.channelFields;
+		const globalFields = carry.globalFields;
+		const channelSticky = carry.channelStickyEffects;
+		const globalSticky = carry.globalStickyEffects;
+		const globalCommands = Array.isArray(globalSticky?.commands) ? globalSticky.commands : [];
+		const hasChannelFields = channelFields?.some(
+			(fields) => fields && Object.keys(fields).length > 0
+		);
+		const hasGlobalFields = Boolean(globalFields && Object.keys(globalFields).length > 0);
+		const hasChannelSticky = channelSticky?.some((commands) => commands?.length);
+		const hasGlobalSticky = Boolean(globalSticky?.fieldKey) && globalCommands.length > 0;
+		if (!hasChannelFields && !hasGlobalFields && !hasChannelSticky && !hasGlobalSticky) return;
+		if (!this._chipEngineReady()) return;
+
+		const channelCount = Math.max(channelFields?.length ?? 0, channelSticky?.length ?? 0, 1);
+		this._resizeForPatternChannels(channelCount);
+		if (hasChannelFields || hasGlobalFields || hasChannelSticky) {
+			const channels = [];
+			for (let ch = 0; ch < channelCount; ch++) {
+				const effects = (channelSticky?.[ch] ?? [])
+					.filter(Boolean)
+					.map((command) => playbackEffectCommand(command));
+				channels.push({
+					rows: [
+						{
+							note: { name: 0, octave: 0 },
+							effects: effects.length > 0 ? effects : [null],
+							...(channelFields?.[ch] ?? {})
+						}
+					]
+				});
+			}
+			this.patternProcessor.parsePatternRow(
+				{
+					length: 1,
+					channels,
+					patternRows: [{ ...(globalFields ?? {}) }]
+				},
+				0,
+				this.registerState
+			);
+		}
+		for (const command of globalCommands) {
+			this.patternProcessor.parsePatternRow(
+				{
+					length: 1,
+					channels: silentPatternChannels(channelCount),
+					patternRows: [
+						{
+							[globalSticky.fieldKey]: playbackEffectCommand(command),
+							...(command.patternRowFields ?? {})
+						}
+					]
+				},
+				0,
+				this.registerState
+			);
+		}
+	}
+
+	_runCatchUpRows(upToRow) {
+		if (
+			!this.state.currentPattern ||
+			this.state.currentPattern.length === 0 ||
+			upToRow <= 0 ||
+			!this._chipEngineReady()
+		) {
+			return;
+		}
+		for (let row = 0; row < upToRow; row++) {
+			this._simulateRow(this.state.currentPattern, row, false);
+		}
+	}
+
+	_afterPlaybackPositionSet(rowIndex) {
+		this._primePatternRowForPlayback(rowIndex);
+	}
+
+	_onPatternIdentityChanged() {
+		this._rowParsePrimed = -1;
+	}
+
+	_primePatternRowForPlayback(rowIndex) {
+		if (!this._chipEngineReady()) {
+			return;
+		}
+		const pattern = this.state.currentPattern;
+		if (!pattern?.length || rowIndex < 0 || rowIndex >= pattern.length) {
+			return;
+		}
+		if (pattern.channels?.length) {
+			this._resizeForPatternChannels(pattern.channels.length);
+		}
+		this.patternProcessor.parsePatternRow(pattern, rowIndex, this.registerState);
+		this.patternProcessor.processSpeedTable();
+		this._rowParsePrimed = rowIndex;
+		this.enforceMuteState();
+		this._applyRegisterStateToEngine();
+	}
+
+	_afterTransportStop() {
+		this.handleStopPreview();
+	}
+
+	_preparePatternWorkersForPlay() {
+		this.ensurePlaybackWorkers();
+		this.enforceMuteState();
+	}
+
+	_simulateRow(pattern, rowIndex, applyToEngine = true) {
+		this.patternProcessor.parsePatternRow(pattern, rowIndex, this.registerState);
+		this.patternProcessor.processSpeedTable();
+		const ticksPerRow = this.state.timeline.currentSpeed;
+		for (let tick = 0; tick < ticksPerRow; tick++) {
+			this._processTrackerTick();
+		}
+		if (applyToEngine) {
+			this._applyRegisterStateToEngine();
+		}
+	}
+
+	_processTrackerTick() {
+		this.patternProcessor.processTrackerTick(this.registerState);
+	}
+
+	dispatchPortMessages(type, data) {
+		if (this._dispatchChipPortMessage(type, data)) {
+			return;
+		}
+
+		switch (type) {
+			case 'play':
+				this.handlePlay(data);
+				break;
+			case 'play_from_row':
+				this.handlePlayFromRow(data);
+				break;
+			case 'play_from_position':
+				this.handlePlayFromPosition(data);
+				break;
+			case 'stop':
+				this.handleStop();
+				break;
+			case 'init_pattern':
+				this.handleInitPattern(data);
+				break;
+			case 'update_order':
+				this.handleUpdateOrder(data);
+				break;
+			case 'set_pattern_data':
+				this.handleSetPatternData(data);
+				break;
+			case 'init_tuning_table':
+				this.handleInitTuningTable(data);
+				break;
+			case 'init_speed':
+				this.handleInitSpeed(data);
+				break;
+			case 'update_tempo':
+				this.handleUpdateTempo(data);
+				break;
+			case 'init_tables':
+				this.handleInitTables(data);
+				break;
+			case 'init_instruments':
+				this.handleInitInstruments(data);
+				break;
+			case 'change_pattern_during_playback':
+				this.handleChangePatternDuringPlayback(data);
+				break;
+			case 'preview_row':
+				this.handlePreviewRow(data);
+				break;
+			case 'stop_preview':
+				this.handleStopPreview(data.channel);
+				break;
+			case 'release_preview':
+				this.handleReleasePreview(data.channel);
+				break;
+			case 'set_channel_mute':
+				this.handleSetChannelMute(data);
+				break;
+			default:
+				break;
+		}
+	}
+
+	_dispatchChipPortMessage(_type, _data) {
+		return false;
+	}
+
+	handleInitTuningTable({ tuningTable }) {
+		this.state.setTuningTable(tuningTable);
+	}
+
+	handleInitSpeed({ speed }) {
+		if (!(speed > 0)) return;
+		if (this.chipIndex !== 0) return;
+		this.state.publishPlaybackSpeed(speed);
+	}
+
+	handleUpdateTempo({ tempo }) {
+		if (this.chipIndex !== 0) return;
+		this.state.setTempo(tempo);
+	}
+
+	handleInitTables({ tables }) {
+		this.state.setTables(tables);
+	}
+
+	_previewChannelInstrumentIds() {
+		const ids = [];
+		const assigned = this.state.channelInstruments;
+		if (!assigned) return ids;
+		for (let channel = 0; channel < assigned.length; channel++) {
+			const index = assigned[channel];
+			ids[channel] = index >= 0 ? (this.state.instruments?.[index]?.id ?? null) : null;
+		}
+		return ids;
+	}
+
+	_rebindPreviewInstruments(instrumentIds) {
+		const instruments = this.state.instruments ?? [];
+		const assigned = this.state.channelInstruments;
+		if (!assigned) return;
+		for (const channel of this.previewActiveChannels) {
+			const id = instrumentIds[channel];
+			if (!id) continue;
+			const index = instruments.findIndex((instrument) => instrument?.id === id);
+			if (index >= 0) assigned[channel] = index;
+		}
+	}
+
+	handleInitInstruments({ instruments }) {
+		const previewInstrumentIds = this.isPreviewActive()
+			? this._previewChannelInstrumentIds()
+			: null;
+		this.state.setInstruments(instruments);
+		if (!previewInstrumentIds) return;
+		this._rebindPreviewInstruments(previewInstrumentIds);
+		this.audioDriver?.refreshSoundingRow?.(this.state, this.registerState);
+		this._applyRegisterStateToEngine();
+	}
+
+	_canPreview() {
+		return this.initialized && this.state.wasmModule;
+	}
+
+	_beforePreviewRow(_data) {}
+
+	_resetEnginesForPreview() {}
+
+	_beforeStopPreviewAll() {}
+
+	_silencePreviewChannel(_channelIndex) {}
+
+	_previewIdentity(pattern, rowIndex, channelIndex) {
+		const channels = pattern?.channels;
+		if (!channels || rowIndex < 0 || rowIndex >= (pattern.length ?? 0)) return '';
+		const singleChannel = typeof channelIndex === 'number' && channelIndex >= 0;
+		const notes = [];
+		for (let ch = 0; ch < channels.length; ch++) {
+			if (singleChannel && ch !== channelIndex) {
+				notes.push('_');
+				continue;
+			}
+			const row = channels[ch]?.rows?.[rowIndex];
+			const note = row?.note;
+			const instrumentId = row?.instrument ?? 0;
+			if (!note || note.name === 0 || note.name === 1) {
+				notes.push(`${instrumentId}:off`);
+			} else {
+				notes.push(`${instrumentId}:${note.name}.${note.octave}`);
+			}
+		}
+		const globals = this._previewGlobalIdentity(pattern, rowIndex);
+		return `${singleChannel ? `ch${channelIndex}` : 'all'}:${notes.join('|')}|${globals}`;
+	}
+
+	_previewGlobalIdentity(pattern, rowIndex) {
+		const row = pattern?.patternRows?.[rowIndex];
+		if (!row || typeof row !== 'object') return '';
+		const parts = [];
+		for (const key of Object.keys(row).sort()) {
+			const value = row[key];
+			if (typeof value === 'function') continue;
+			parts.push(`${key}=${value}`);
+		}
+		return parts.join(',');
+	}
+
+	_syncPreviewTable(channelIndex, row) {
+		if (!this.patternProcessor || row?.table === undefined) return;
+		const current = this.state.channelTables?.[channelIndex];
+		if (row.table === -1) {
+			if (current !== -1) this.patternProcessor._disableTable?.(channelIndex);
+			return;
+		}
+		if (row.table > 0 && current !== row.table - 1) {
+			this.patternProcessor._enableTable?.(channelIndex, row.table - 1);
+		}
+	}
+
+	_updateLivePreview({ pattern, rowIndex, instrument, channelIndex }) {
+		if (instrument) {
+			this.state.setInstruments([instrument]);
+			for (const channel of this.previewActiveChannels) {
+				if (this.state.channelInstruments) {
+					this.state.channelInstruments[channel] = 0;
+				}
+			}
+		}
+		if (pattern.channels.length) {
+			this._resizeForPatternChannels(pattern.channels.length);
+		}
+		const singleChannel = typeof channelIndex === 'number' && channelIndex >= 0;
+		for (let ch = 0; ch < pattern.channels.length; ch++) {
+			if (singleChannel && ch !== channelIndex) continue;
+			if (!this.previewActiveChannels.has(ch)) continue;
+			const row = pattern.channels[ch]?.rows?.[rowIndex];
+			if (!row) continue;
+			this.patternProcessor?._processVolume?.(ch, row);
+			this._syncPreviewTable(ch, row);
+		}
+		this.audioDriver?.refreshSoundingRow?.(this.state, this.registerState);
+		this._applyRegisterStateToEngine();
+	}
+
+	handlePreviewRow({ pattern, rowIndex, instrument, channelIndex }) {
+		if (!this._canPreview()) {
+			return;
+		}
+		const previewData = { pattern, rowIndex, instrument, channelIndex };
+		const identity = this._previewIdentity(pattern, rowIndex, channelIndex);
+		const liveUpdate =
+			this.isPreviewActive() && identity !== '' && identity === this.previewIdentity;
+		if (!liveUpdate) {
+			this._beforePreviewRow(previewData);
+		}
+		this.paused = true;
+		if (!pattern?.channels || !pattern.patternRows || rowIndex < 0) {
+			return;
+		}
+		if (rowIndex >= pattern.length) {
+			return;
+		}
+		if (!this._chipEngineReady()) {
+			return;
+		}
+		if (liveUpdate) {
+			this._updateLivePreview(previewData);
+			return;
+		}
+		if (pattern.channels.length) {
+			this._resizeForPatternChannels(pattern.channels.length);
+		}
+		if (instrument) {
+			this.state.setInstruments([instrument]);
+		}
+
+		this.state.reset({ resetTimeline: false });
+		const songEndPending = this.state.timeline.songEndPending;
+		const songEndRow = this.state.timeline._songEndRow;
+		this.registerState.reset();
+		this._resetEnginesForPreview();
+
+		for (let row = 0; row < rowIndex; row++) {
+			this._simulateRow(pattern, row, false);
+		}
+		this.patternProcessor.parsePatternRow(pattern, rowIndex, this.registerState);
+		this.patternProcessor.processTables();
+		this.audioDriver.processInstruments(this.state, this.registerState);
+		this._applyRegisterStateToEngine();
+
+		this.previewActiveChannels = new Set();
+		const singleChannelPreview = typeof channelIndex === 'number' && channelIndex >= 0;
+		if (singleChannelPreview) {
+			this.previewActiveChannels.add(channelIndex);
+			for (let ch = 0; ch < this.registerState.channelCount; ch++) {
+				if (ch === channelIndex) continue;
+				this._silencePreviewChannel(ch);
+				this.state.channelSoundEnabled[ch] = false;
+			}
+			this._applyRegisterStateToEngine();
+		} else {
+			for (let ch = 0; ch < this.registerState.channelCount; ch++) {
+				this.previewActiveChannels.add(ch);
+			}
+		}
+		this.previewTickSampleCounter = 0;
+		this.previewIdentity = identity;
+		this.state.timeline.songEndPending = songEndPending;
+		this.state.timeline._songEndRow = songEndRow;
+	}
+
+	handleStopPreview(channel) {
+		if (channel === undefined) {
+			this._beforeStopPreviewAll();
+		}
+		if (channel !== undefined) {
+			this.previewActiveChannels.delete(channel);
+			this._silencePreviewChannel(channel);
+			this.state.channelSoundEnabled[channel] = false;
+			this._applyRegisterStateToEngine();
+		} else {
+			this.previewActiveChannels.clear();
+			this.registerState.reset();
+			this._resetEnginesForPreview();
+			this._applyRegisterStateToEngine();
+		}
+		if (this.previewActiveChannels.size === 0) {
+			this.previewIdentity = '';
+		}
+	}
+
+	handleReleasePreview(channel) {
+		if (!this.isPreviewActive()) return;
+		const channels = channel === undefined ? [...this.previewActiveChannels] : [channel];
+		for (const channelIndex of channels) {
+			if (!this.previewActiveChannels.has(channelIndex)) continue;
+			releaseChannelInstrument(this.state, channelIndex);
+		}
+	}
+
+	isPreviewActive() {
+		return this.previewActiveChannels.size > 0;
+	}
+
+	runSharedPlaybackQuantum() {
+		if (!this.state.currentPattern || this.state.currentPattern.length === 0) return;
+		if (this.state.timeline.currentTick === 0) {
+			this.timelinePattern.maybeRequestPrefetchForSharedTimeline(
+				this.state.currentPattern,
+				this.state.timeline
+			);
+
+			if (this.state.currentPattern.channels) {
+				this._resizeForPatternChannels(this.state.currentPattern.channels.length);
+			}
+			const rowIndex = this.state.timeline.currentRow;
+			if (this._rowParsePrimed !== rowIndex) {
+				this.patternProcessor.parsePatternRow(
+					this.state.currentPattern,
+					rowIndex,
+					this.registerState
+				);
+				this.patternProcessor.processSpeedTable();
+			} else {
+				this._rowParsePrimed = -1;
+			}
+			this.timelinePattern.queueOrSendPositionUpdate();
+		}
+
+		this.enforceMuteState();
+		this._processTrackerTick();
+		this.enforceMuteState();
+		this._applyRegisterStateToEngine();
+	}
+
+	runPreviewStep() {
+		this.previewTickSampleCounter++;
+		if (this.previewTickSampleCounter >= this.state.timeline.samplesPerTick) {
+			this.previewTickSampleCounter = 0;
+			this.patternProcessor.processTables();
+			if (this.state.channelInstruments) {
+				this.audioDriver.processInstruments(this.state, this.registerState);
+			}
+		}
+		this._applyRegisterStateToEngine();
+	}
+}

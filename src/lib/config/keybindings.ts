@@ -1,6 +1,6 @@
 import type { MenuItem } from '../components/Menu/types';
+import { playbackStore } from '../stores/playback.svelte';
 import { undoRedoStore } from '../stores/undo-redo.svelte';
-import { clipboardStore } from '../stores/clipboard.svelte';
 
 export const ACTION_UNDO = 'undo';
 export const ACTION_REDO = 'redo';
@@ -13,6 +13,7 @@ export const ACTION_INCREMENT_VALUE = 'increment-value';
 export const ACTION_DECREMENT_VALUE = 'decrement-value';
 export const ACTION_TRANSPOSE_OCTAVE_UP = 'transpose-octave-up';
 export const ACTION_TRANSPOSE_OCTAVE_DOWN = 'transpose-octave-down';
+export const ACTION_TRANSPOSE_SONG = 'transpose-song';
 export const ACTION_APPLY_SCRIPT = 'apply-script';
 export const ACTION_TOGGLE_PLAYBACK = 'toggle-playback';
 export const ACTION_PLAY_FROM_ROW = 'play-from-row';
@@ -20,8 +21,11 @@ export const ACTION_PLAY_FROM_CURSOR = 'play-from-cursor';
 export const ACTION_PLAY_FROM_BEGINNING = 'play-from-beginning';
 export const ACTION_PLAY_PATTERN = 'play-pattern';
 export const ACTION_CYCLE_CHANNEL = 'cycle-channel';
+export const ACTION_CYCLE_CHANNEL_REVERSE = 'cycle-channel-reverse';
 export const ACTION_SWAP_CHANNEL_LEFT = 'swap-channel-left';
 export const ACTION_SWAP_CHANNEL_RIGHT = 'swap-channel-right';
+export const ACTION_INSERT_PATTERN_ROW = 'insert-pattern-row';
+export const ACTION_REMOVE_PATTERN_ROW = 'remove-pattern-row';
 export const ACTION_TOGGLE_AUTO_ENVELOPE = 'toggle-auto-envelope';
 export const ACTION_TOGGLE_ENVELOPE_AS_NOTE = 'toggle-envelope-as-note';
 export const ACTION_PAGE_UP = 'page-up';
@@ -32,11 +36,9 @@ export const ACTION_END = 'end';
 export const ACTION_END_COLUMN = 'end-column';
 export const ACTION_OCTAVE_UP = 'octave-up';
 export const ACTION_OCTAVE_DOWN = 'octave-down';
-export const ACTION_JUMP_CHANNEL_LEFT = 'jump-channel-left';
-export const ACTION_JUMP_CHANNEL_RIGHT = 'jump-channel-right';
-export const ACTION_CURSOR_HOME = 'cursor-home';
-export const ACTION_CURSOR_END = 'cursor-end';
 export const ACTION_SELECT_INSTRUMENT_OR_TABLE_IN_EDITOR = 'select-instrument-or-table-in-editor';
+export const ACTION_PLAY_SOLO = 'play-solo';
+export const ACTION_TOGGLE_EXPAND_PANEL = 'toggle-expand-panel';
 
 export interface BindableAction {
 	id: string;
@@ -60,6 +62,11 @@ export const BINDABLE_ACTIONS: BindableAction[] = [
 		label: 'Transpose Octave Down',
 		defaultShortcut: 'Shift+-'
 	},
+	{
+		id: ACTION_TRANSPOSE_SONG,
+		label: 'Transpose Song…',
+		defaultShortcut: 'Mod+Shift+T'
+	},
 	{ id: ACTION_OCTAVE_UP, label: 'Octave Up (Editor)', defaultShortcut: '*' },
 	{ id: ACTION_OCTAVE_DOWN, label: 'Octave Down (Editor)', defaultShortcut: '/' },
 	{ id: ACTION_TOGGLE_PLAYBACK, label: 'Play / Pause', defaultShortcut: ' ' },
@@ -69,6 +76,11 @@ export const BINDABLE_ACTIONS: BindableAction[] = [
 	{ id: ACTION_PLAY_PATTERN, label: 'Play pattern (loop)', defaultShortcut: 'F6' },
 	{ id: ACTION_CYCLE_CHANNEL, label: 'Cycle channel', defaultShortcut: '`' },
 	{
+		id: ACTION_CYCLE_CHANNEL_REVERSE,
+		label: 'Cycle channel (reverse)',
+		defaultShortcut: 'Shift+`'
+	},
+	{
 		id: ACTION_SWAP_CHANNEL_LEFT,
 		label: 'Swap channels left',
 		defaultShortcut: 'Mod+Alt+ArrowLeft'
@@ -77,6 +89,16 @@ export const BINDABLE_ACTIONS: BindableAction[] = [
 		id: ACTION_SWAP_CHANNEL_RIGHT,
 		label: 'Swap channels right',
 		defaultShortcut: 'Mod+Alt+ArrowRight'
+	},
+	{
+		id: ACTION_INSERT_PATTERN_ROW,
+		label: 'Insert pattern row',
+		defaultShortcut: 'Mod+I'
+	},
+	{
+		id: ACTION_REMOVE_PATTERN_ROW,
+		label: 'Remove pattern row',
+		defaultShortcut: 'Mod+R'
 	},
 	{ id: ACTION_APPLY_SCRIPT, label: 'Apply Script...', defaultShortcut: 'Mod+Shift+S' },
 	{
@@ -104,34 +126,21 @@ export const BINDABLE_ACTIONS: BindableAction[] = [
 		defaultShortcut: 'Mod+End'
 	},
 	{
-		id: ACTION_JUMP_CHANNEL_LEFT,
-		label: 'Jump to previous channel',
-		defaultShortcut: 'Mod+ArrowLeft'
-	},
-	{
-		id: ACTION_JUMP_CHANNEL_RIGHT,
-		label: 'Jump to next channel',
-		defaultShortcut: 'Mod+ArrowRight'
-	},
-	{
-		id: ACTION_CURSOR_HOME,
-		label: 'Cursor to first row',
-		defaultShortcut: 'Mod+ArrowUp'
-	},
-	{
-		id: ACTION_CURSOR_END,
-		label: 'Cursor to last row',
-		defaultShortcut: 'Mod+ArrowDown'
-	},
-	{
 		id: ACTION_SELECT_INSTRUMENT_OR_TABLE_IN_EDITOR,
 		label: 'Select instrument or table in editor',
 		defaultShortcut: 'Mod+LMB'
+	},
+	{ id: ACTION_PLAY_SOLO, label: 'Play solo / Unmute all', defaultShortcut: 'F8' },
+	{
+		id: ACTION_TOGGLE_EXPAND_PANEL,
+		label: 'Toggle expand panel',
+		defaultShortcut: 'Mod+\\'
 	}
 ];
 
 export const GLOBAL_ACTION_IDS = new Set([
 	ACTION_APPLY_SCRIPT,
+	ACTION_TRANSPOSE_SONG,
 	ACTION_TOGGLE_PLAYBACK,
 	ACTION_PLAY_FROM_ROW,
 	ACTION_PLAY_FROM_CURSOR,
@@ -140,25 +149,27 @@ export const GLOBAL_ACTION_IDS = new Set([
 	ACTION_TOGGLE_AUTO_ENVELOPE,
 	ACTION_TOGGLE_ENVELOPE_AS_NOTE,
 	ACTION_OCTAVE_UP,
-	ACTION_OCTAVE_DOWN
+	ACTION_OCTAVE_DOWN,
+	ACTION_TOGGLE_EXPAND_PANEL
 ]);
 
 export const PATTERN_EDITOR_ACTION_IDS = new Set(
 	BINDABLE_ACTIONS.filter(
 		(a) =>
 			a.id !== ACTION_APPLY_SCRIPT &&
+			a.id !== ACTION_TRANSPOSE_SONG &&
 			a.id !== ACTION_PLAY_FROM_ROW &&
 			a.id !== ACTION_PLAY_FROM_CURSOR &&
 			a.id !== ACTION_PLAY_FROM_BEGINNING &&
-			a.id !== ACTION_PLAY_PATTERN
+			a.id !== ACTION_PLAY_PATTERN &&
+			a.id !== ACTION_TOGGLE_EXPAND_PANEL
 	).map((a) => a.id)
 );
 
 const DISABLED_GETTERS: Partial<Record<string, () => boolean>> = {
-	[ACTION_UNDO]: () => !undoRedoStore.canUndo,
-	[ACTION_REDO]: () => !undoRedoStore.canRedo,
-	[ACTION_PASTE]: () => !clipboardStore.hasData,
-	[ACTION_PASTE_WITHOUT_ERASING]: () => !clipboardStore.hasData
+	[ACTION_UNDO]: () => playbackStore.isPlaying || !undoRedoStore.canUndo,
+	[ACTION_REDO]: () => playbackStore.isPlaying || !undoRedoStore.canRedo,
+	[ACTION_TRANSPOSE_SONG]: () => playbackStore.isPlaying
 };
 
 const EDIT_MENU_ACTION_IDS = [
@@ -172,14 +183,21 @@ const EDIT_MENU_ACTION_IDS = [
 	ACTION_DECREMENT_VALUE,
 	ACTION_TRANSPOSE_OCTAVE_UP,
 	ACTION_TRANSPOSE_OCTAVE_DOWN,
+	ACTION_TRANSPOSE_SONG,
 	ACTION_SWAP_CHANNEL_LEFT,
 	ACTION_SWAP_CHANNEL_RIGHT,
+	ACTION_INSERT_PATTERN_ROW,
+	ACTION_REMOVE_PATTERN_ROW,
 	ACTION_APPLY_SCRIPT
 ] as const;
 
 const actionById = Object.fromEntries(BINDABLE_ACTIONS.map((a) => [a.id, a]));
 
-const dividerAfter = new Set([ACTION_PASTE_WITHOUT_ERASING, ACTION_DECREMENT_VALUE]);
+const dividerAfter = new Set([
+	ACTION_PASTE_WITHOUT_ERASING,
+	ACTION_DECREMENT_VALUE,
+	ACTION_TRANSPOSE_SONG
+]);
 
 export function buildEditMenuItems(): MenuItem[] {
 	const items: MenuItem[] = [];
@@ -187,7 +205,12 @@ export function buildEditMenuItems(): MenuItem[] {
 		const action = actionById[id];
 		if (!action) continue;
 		items.push({
-			label: action.label,
+			label:
+				action.id === ACTION_UNDO
+					? undoRedoStore.nextUndoLabel
+					: action.id === ACTION_REDO
+						? undoRedoStore.nextRedoLabel
+						: action.label,
 			type: 'normal',
 			action: action.id,
 			disabled: DISABLED_GETTERS[action.id]

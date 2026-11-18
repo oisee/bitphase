@@ -1,66 +1,86 @@
 # Bitphase
 
 <div align="center">
-  <img src="public/logo.svg" alt="Logo" width="300" />
+  <img src="public/logo.svg" alt="Logo" width="200"/>
+  <br /><br />
+  <img width="3020" height="1972" alt="bitphase app_" src="https://github.com/user-attachments/assets/e64270d0-891a-46e3-829f-c264b8e74d36" />
 </div>
 
 [Bitphase](https://bitphase.app/)
 
-A modern web-based chiptune tracker designed for creating music on retro sound chips. Currently supports the AY-3-8910 / YM2149F chip (used in ZX Spectrum and other 8-bit computers), with plans to support additional chips in the future.
+A modern web-based chiptune tracker for composing on retro sound chips. A project can hold several songs, and each song uses its own chip.
 
-## Changelog
+- **AY-3-8910 / YM2149F** - ZX Spectrum, MSX, Atari ST, and other 8-bit machines
+- **2A03 / 2A07** - NES / Famicom. Each song is NTSC, PAL, or Dendy
+- **SAA1099** (work in progress) - SAM Coupé and Creative Music System / Game Blaster
 
-### Pattern Editor Navigation
-- **Ctrl+Left / Ctrl+Right** — Jump between channels
-- **Ctrl+Up / Ctrl+Down** — Jump to first / last row (Home / End)
+User documentation lives in [`docs/`](docs/index.md) (`pnpm docs:dev`).
 
-### Natural Tuning Tables
-- Natural (just intonation) tuning now supports **all 12 root notes** (C through B)
-- Root note selector appears when Natural tuning table is selected
-- Uses just intonation ratios: 1, 16/15, 9/8, 6/5, 5/4, 4/3, 64/45, 3/2, 8/5, 5/3, 16/9, 15/8
+## Features
 
-### Instrument Editor
-- **Duplicate row** button (copy icon) per row
-- **Add new row** button at the top of the table
-- Row actions always visible: delete, duplicate, delete-below
+### Tracking
 
-### Table Editor (Arpeggios)
-- **Duplicate row** button (copy icon) per row
-- **Add new row** button at the top of the table
+- Canvas-based pattern editor with order list
+- Piano roll (experimental): draw, move, and resize notes on a pitch grid, with a lane for the other pattern fields. Turn it on under **Settings → Experimental features**, then **View → Piano roll**
+- Field-based editing with selection, copy/cut/paste, and magic paste
+- Virtual channels - map multiple pattern columns onto a single hardware channel
+- Transpose, increment/decrement, and channel swap editing tools
+- AY auto envelope and envelope-as-note modes
+- Customizable keybindings
 
-### Resizable Right Panel
-- Drag the left edge of the right panel to resize
-- Panel width persisted across sessions (localStorage)
+### Instruments and tables
 
-### Persistent Settings
-- **Hex mode** toggle persisted across browser sessions (shared between Instruments and Tables views)
+- AY/YM instrument editor with tone, noise, envelope, and sample playback
+- Timer effects (waveform, PWM, and related AY timer instruments)
+- NES instrument editor for the five 2A03 channels: two pulses, triangle, noise, and DPCM
+- SAA1099 instrument editor (work in progress) with stereo volume, tone, noise, and envelope macros
+- Tables (known as Ornaments in Vortex Tracker 2)
+- Built-in instrument presets
+- Instrument preview playground
 
-### Alpha Mask (Virtual Channel Gating)
+### Playback
 
-Each instrument row has an **alpha** field (0–F), visible as the **α** column in the instrument editor. Alpha controls **virtual channel priority** — it determines which virtual channel gets to play on a shared hardware channel.
+- Play, pause, play from cursor, play pattern, and solo/mute controls
+- Real-time channel oscilloscopes
+- MIDI keyboard input for note entry
 
-**How it works:**
+### Project I/O
 
-When multiple virtual channels (e.g. A, A', A'') share one hardware channel, alpha on the **primary** (leftmost) channel acts as a gate:
+- Open and save Bitphase projects (`.btp`)
+- Import ProTracker 3 (`.pt3`), Vortex Tracker 2 (`.vt2`), TAYM (`.taym`), and PSG (`.psg`)
+- Import FamiTracker (`.ftm`) and 0CC-FamiTracker (`.0cc`) as a 2A03 song, and Dn-FamiTracker (`.dnm`) when the module is NES or NES plus Sunsoft 5B. A Sunsoft 5B module also adds an AY song.
+- Import E-Tracker SAA1099 modules (`.cop`, `.etc`, `.saa`, `.sng`, `.m`) as an SAA song
+- Export WAV for any project, PSG / TAYM / SNDH for AY songs, VGM for AY, NES, and SAA (at most two of each), and NSF when the project has at most one AY song and one NES song (SAA songs are not included in NSF)
+- AY timer effects are rendered in WAV and written into TAYM and VGM. PSG and SNDH stay one register frame per interrupt
+- Several AY songs export as a ZIP of PSG or TAYM files
+- Command-line export: `pnpm btp-to-wav`, `pnpm btp-to-psg`, `pnpm btp-to-taym`
 
-- **Alpha = F (15)**: Fully opaque — primary channel always wins, even if silent. This is the default, so existing songs are unaffected.
-- **Alpha = 0**: Fully transparent — any active underlying channel punches through.
-- **Alpha 1–E**: Threshold gate — an underlying channel wins only if its alpha **exceeds** the primary's alpha.
-- Among qualifying underlying channels, **leftmost** (highest priority) wins.
-- If no underlying channel qualifies, the primary still plays.
+### Workflow
 
-**Key detail:** Alpha is the **sole gating mechanism**. A silent primary with alpha=F produces opaque silence (blocks underlying channels). A silent primary with alpha=0 is transparent (lets underlying channels through). Volume and mixer state do not affect priority.
+- Undo/redo with labeled history
+- Lua user scripts for batch edits on selections
+- Automatic project backup with recovery on reload
+- Custom themes and appearance settings
 
-**Gating instrument pattern:**
-Create a looping instrument on the primary channel with volume=0 throughout. Set alpha=F on ticks where you want silence, and alpha=0 on ticks where underlying channels should play. This creates rhythmic punch-through patterns without the primary producing any sound.
+## Fork additions (oisee/bitphase)
 
-Alpha values are stored in `.btp` files and default to 15 for older files and VT2/PT3 imports. Single-channel playback (no virtual channels) is unaffected by alpha.
+Features that are not in upstream `paator/bitphase`:
+
+- **Alpha mask for virtual channels.** The AY mixer macros have an **Alpha** lane (0-F, default F). While the primary (first) virtual channel of a hardware channel plays an instrument step whose alpha is below F, that alpha gates the channels below it: **0** - transparent, any sounding channel below plays; **1-E** - a lower channel wins only if its alpha is higher than the primary's (leftmost qualifying channel first); if none qualifies the primary stays. **F**, an idle/released/muted primary, and sample instruments use the normal rule (first sounding channel wins), so files without an alpha lane play exactly as in upstream. Gating pattern: a looping instrument on the primary channel with alpha 0 on the ticks where the channels below should play.
+- **Natural tuning, all 12 roots.** The Natural tuning table (just intonation) has a root-note selector; the chip frequency list also has 12 "Natural C..B" entries (base period 2880).
+- **BAC stereo layout** (B left, A centre, C right); also known to the TAYM export/import.
+- **Speed spinner** in the top bar (project initial speed, undoable).
+- **Resizable right panel** (width kept in localStorage).
+- `.txt` is accepted by the module import (content is sniffed: VT2 text modules written by autosiril/autooisee).
+- **Electron wrapper** and release workflow (`pnpm electron:dev`, `pnpm electron:pack`, [docs/electron-build.md](docs/electron-build.md)).
+- Design notes and session reports: [docs/GenPlan.md](docs/GenPlan.md), `reports/`.
 
 ## Prerequisites
 
-- **Node.js** (v18 or higher)
-- **pnpm** (v10.11.0 or higher) - Package manager
-- **Emscripten SDK** - Required for building WebAssembly modules
+- **Node.js** (v18 or higher; v20 recommended)
+- **pnpm** (v10.11.0 or higher)
+- **Emscripten SDK** - required for building WebAssembly modules (AY, NES, and SAA)
+- **Git submodules** - the Ayumi emulator lives in `external/ayumi`. NES APU sources ship in `external/nsfplug`. SAA1099 sources ship in `external/saasound`
 
 ### Installing Emscripten
 
@@ -73,8 +93,14 @@ Alpha values are stored in `.btp` files and default to 15 for older files and VT
 1. **Clone the repository**
 
    ```bash
-   git clone <repository-url>
+   git clone --recurse-submodules https://github.com/paator/bitphase.git
    cd bitphase
+   ```
+
+   If you already cloned without submodules:
+
+   ```bash
+   git submodule update --init --recursive
    ```
 
 2. **Install dependencies**
@@ -83,21 +109,16 @@ Alpha values are stored in `.btp` files and default to 15 for older files and VT
    pnpm install
    ```
 
-3. **Build WebAssembly modules**
-
-   ```bash
-   pnpm build:wasm
-   ```
-
-   This compiles the Ayumi chip emulator to WebAssembly. You only need to run this once, or when the WASM code changes.
-
-4. **Start the development server**
+3. **Start the development server**
 
    ```bash
    pnpm dev
    ```
 
-5. **Open your browser**
+   This builds the WASM modules (Ayumi, NES, and SAA) and starts Vite. You can also run `pnpm build:wasm` on its own when the C sources change.
+
+4. **Open your browser**
+
    Navigate to `http://localhost:5173` (or the port shown in the terminal)
 
 ## Desktop App (Electron)
@@ -112,57 +133,98 @@ pnpm electron:pack  # Build installer for current platform
 
 ## Available Scripts
 
-- `pnpm dev` - Build WASM and start development server with hot module replacement
-- `pnpm build` - Build WASM and create production build
-- `pnpm build:wasm` - Build only the WebAssembly modules
-- `pnpm preview` - Preview the production build locally
-- `pnpm check` - Run TypeScript and Svelte type checking
-- `pnpm test` - Run tests in watch mode
-- `pnpm test:run` - Run tests once
-- `pnpm electron:dev` - Build and launch Electron app for development
-- `pnpm electron:pack` - Build platform-native installer (output in `release/`)
+- `pnpm dev` - build WASM and start the development server with hot module replacement
+- `pnpm build` - build WASM, the tracker production bundle, and the docs site into `dist/`
+- `pnpm build:wasm` - build only the WebAssembly modules (`public/ay/ayumi.wasm`, `public/nes/*.wasm`, `public/saa/saasound.wasm`)
+- `pnpm docs:dev` - run the VitePress docs site locally
+- `pnpm docs:build` - build docs into `dist/docs`
+- `pnpm preview` - preview the production tracker build locally
+- `pnpm check` - run TypeScript and Svelte type checking
+- `pnpm test` - run tests in watch mode
+- `pnpm test:run` - run tests once
+- `pnpm btp-to-wav` - export a `.btp` project to WAV from the command line
+- `pnpm btp-to-psg` - export a `.btp` project to PSG from the command line
+- `pnpm btp-to-taym` - export a `.btp` project to TAYM from the command line
+- `pnpm electron:dev` - build and launch the Electron app for development (fork addition)
+- `pnpm electron:pack` - build a platform-native installer into `release/` (fork addition)
 
 ## Project Structure
 
 ```
 bitphase/
-├── external/            # Ayumi chip emulator C source by Peter Sovietov
-├── public/              # Static assets and compiled WASM (ayumi.wasm, fonts, etc.)
+├── cli/                     # Command-line tools (btp-to-wav, BTP loading)
+├── docs/                    # User docs (VitePress) and format specs
+├── external/
+│   ├── ayumi/               # AY-8910 emulator C source (git submodule)
+│   ├── nsfplug/             # NES APU C sources compiled to WASM
+│   └── saasound/            # SAA1099 emulator C++ sources compiled to WASM
+├── public/                  # Static assets and runtime audio code
+│   ├── audio/               # AudioWorklet processor
+│   ├── ay/                  # AY runtime and ayumi.wasm
+│   ├── nes/                 # 2A03 runtime and nes_apu.wasm
+│   ├── saa/                 # SAA1099 runtime and saasound.wasm
+│   ├── tracker/             # Shared tracker playback pipeline
+│   ├── fonts/
+│   └── worklet/
 ├── src/
-│   ├── app.css          # Global styles
-│   ├── main.ts          # App entry point
-│   ├── App.svelte       # Root component
+│   ├── app.css              # Global styles
+│   ├── main.ts              # App entry point
+│   ├── App.svelte           # Root component
+│   ├── demo/                # Bundled demo songs (.btp)
+│   ├── presets/             # Built-in instrument preset JSON files
 │   └── lib/
-│       ├── chips/       # Chip implementations (AY, future chips)
-│       │   ├── ay/      # AY-3-8910 implementation
-│       │   └── base/    # Base interfaces and utilities
-│       ├── components/  # Svelte UI components
+│       ├── chips/           # Chip implementations and registry
+│       │   ├── ay/          # AY-8910 (schema, adapter, renderer, processor)
+│       │   ├── nes/         # 2A03 (schema, adapter, renderer, processor)
+│       │   ├── saa/         # SAA1099, work in progress
+│       │   └── base/        # Shared chip interfaces
+│       ├── components/      # Svelte UI components
 │       │   ├── AppLayout/
-│       │   ├── Menu/    # Menu bar and navigation
-│       │   ├── Song/    # Pattern editor and song view
+│       │   ├── Menu/
+│       │   ├── Song/        # Pattern editor and song view
 │       │   ├── Instruments/
 │       │   ├── Modal/
 │       │   ├── Settings/
 │       │   ├── Tables/
 │       │   ├── Theme/
-│       │   └── ...
-│       ├── config/      # App configuration (menu, settings, themes)
-│       ├── models/      # Domain models (Project, Song, etc.)
-│       │   ├── pt3/     # PT3 tuning tables
-│       │   └── song/    # Song model utilities
-│       ├── services/    # Business logic services
-│       │   ├── app/     # Menu actions and app context
-│       │   ├── audio/   # Audio service and chip processors
-│       │   ├── backup/  # Autobackup
-│       │   ├── file/    # Import/export functionality
-│       │   ├── modal/   # Modal service
-│       │   ├── pattern/ # Pattern editing (incl. editing/ subdir)
-│       │   ├── project/ # Project service and migration
-│       │   ├── theme/   # Theme service
-│       │   └── user-scripts/  # User scripts (Lua) execution
-│       ├── stores/      # Reactive state (Svelte 5 runes, .svelte.ts)
-│       ├── types/       # Shared TypeScript types
-│       ├── ui-rendering/# Canvas-based pattern and order list rendering
-│       └── utils/       # Utility functions
-└── tests/               # Tests mirroring src structure
+│       │   ├── History/
+│       │   ├── Details/
+│       │   ├── Audio/
+│       │   └── ...          # Shared UI primitives (Button, Input, etc.)
+│       ├── config/          # Menu, keybindings, settings, themes, export formats
+│       ├── models/          # Domain models (project, song, history, virtual channels)
+│       │   ├── pt3/         # PT3 tuning tables
+│       │   └── song/        # Song model utilities
+│       ├── presets/         # Preset loading utilities
+│       ├── services/        # Business logic
+│       │   ├── app/         # Menu actions and app context
+│       │   ├── audio/       # Playback and AudioWorklet bridge
+│       │   ├── backup/      # Autobackup
+│       │   ├── file/        # Import/export (BTP, PT3, VT2, TAYM, PSG, FTM, DNM, E-Tracker, WAV, VGM, SNDH)
+│       │   ├── history/     # Undo/redo diff tracking
+│       │   ├── midi/        # MIDI input
+│       │   ├── modal/
+│       │   ├── pattern/     # Pattern editing, navigation, clipboard
+│       │   ├── piano-roll/  # Piano roll notes, lanes, and editing
+│       │   │   └── editing/ # Field-based editing strategies
+│       │   ├── project/     # Project management and migration
+│       │   ├── theme/
+│       │   └── user-scripts/  # Lua user scripts
+│       ├── stores/          # Reactive state (Svelte 5 runes, .svelte.ts)
+│       ├── types/
+│       ├── ui-rendering/    # Canvas renderers (pattern editor, order list, piano roll)
+│       └── utils/
+└── tests/                   # Tests mirroring src/ structure
+    ├── fixtures/
+    ├── lib/
+    ├── public/              # Tests for public/ runtime scripts
+    └── psg/
 ```
+
+## AI assistance disclaimer
+
+Bitphase is NOT vibe coded. I (Pator) use AI tools as a coding assistant. I design the features, review the changes, and understand all the code that ships. Hand crafted code is still there.
+
+## License
+
+Bitphase is [MIT licensed](LICENSE). Third-party software distributed with the app is listed in [`public/THIRD_PARTY_NOTICES.txt`](public/THIRD_PARTY_NOTICES.txt). The running app links to that file from About.

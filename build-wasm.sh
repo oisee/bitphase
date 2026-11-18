@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 # Source Emscripten environment if EMSDK is set
 if [ -n "$EMSDK" ]; then
@@ -10,14 +11,54 @@ if ! command -v emcc &> /dev/null; then
     exit 1
 fi
 
-emcc external/ayumi/ayumi.c \
-    -o public/ayumi.wasm \
+if ! command -v em++ &> /dev/null; then
+    echo "Error: em++ not found. Please install Emscripten first."
+    exit 1
+fi
+
+mkdir -p public/ay public/nes public/saa
+
+EMCC_ARGS="\
     -O3 \
+    -DNDEBUG \
     -s WASM=1 \
-    -s EXPORTED_FUNCTIONS='["_ayumi_configure", "_ayumi_set_pan", "_ayumi_set_tone", "_ayumi_set_noise", "_ayumi_set_mixer", "_ayumi_set_volume", "_ayumi_set_envelope", "_ayumi_set_envelope_shape", "_ayumi_process", "_ayumi_remove_dc", "_malloc", "_free"]' \
     -s ALLOW_MEMORY_GROWTH=1 \
     -s INITIAL_MEMORY=16777216 \
     -s MAXIMUM_MEMORY=16777216 \
     -s ENVIRONMENT='web' \
     -s STANDALONE_WASM=1 \
-    --no-entry
+    --no-entry \
+	"
+
+emcc ${EMCC_ARGS} \
+	-Iexternal/chip_output_resampler \
+	external/ayumi/ayumi.c \
+	external/chip_output_resampler/chip_output_resampler.c \
+    -o public/ay/ayumi.wasm \
+    -s EXPORTED_FUNCTIONS='["_ayumi_configure", "_ayumi_set_pan", "_ayumi_set_tone", "_ayumi_set_noise", "_ayumi_set_mixer", "_ayumi_set_volume", "_ayumi_set_timer_effect", "_ayumi_set_timer_effect_slot", "_ayumi_set_timer_effect_waveform", "_ayumi_timer_effect_reset", "_ayumi_get_timer_effect_active_period", "_ayumi_get_registers", "_ayumi_struct_size", "_ayumi_set_envelope", "_ayumi_set_envelope_shape", "_ayumi_process", "_ayumi_remove_dc", "_malloc", "_free"]'
+
+emcc ${EMCC_ARGS} \
+	-Iexternal/chip_output_resampler \
+	external/nsfplug/nes_apu.c external/nsfplug/nes_dmc.c \
+	external/chip_output_resampler/chip_output_resampler.c \
+    -o public/nes/nes_apu.wasm \
+    -s EXPORTED_FUNCTIONS='["_nes_apu_Init", "_nes_apu_Reset", "_nes_apu_Tick", "_nes_apu_Render", "_nes_apu_Write", "_nes_apu_SetMask", "_nes_apu_SetStereoMix", "_nes_apu_GetOut", "_nes_apu_GetMixOut", "_nes_dmc_Init", "_nes_dmc_Reset", "_nes_dmc_Tick", "_nes_dmc_Render", "_nes_dmc_Write", "_nes_dmc_SetMask", "_nes_dmc_SetOption", "_nes_dmc_SetStereoMix", "_nes_dmc_SetPal", "_nes_dmc_SetAPU", "_nes_dmc_SetMemory_Read", "_nes_dmc_SetSampleMemory", "_nes_dmc_StructSize", "_nes_dmc_TickFrameSequence", "_nes_dmc_GetOut", "_nes_dmc_GetMixOut", "_chip_output_resampler_create", "_chip_output_resampler_destroy", "_chip_output_resampler_configure", "_chip_output_resampler_reset", "_chip_output_resampler_samples_for_frame", "_chip_output_resampler_process_frame", "_chip_output_resampler_source", "_chip_output_resampler_output", "_chip_output_resampler_max_source", "_malloc", "_free"]'
+
+emcc ${EMCC_ARGS} \
+	external/nsfplug/nes_mmc5.c \
+    -o public/nes/nes_mmc5.wasm \
+    -s EXPORTED_FUNCTIONS='["_nes_mmc5_Init", "_nes_mmc5_Reset", "_nes_mmc5_Tick", "_nes_mmc5_Render", "_nes_mmc5_Write", "_nes_mmc5_SetMask", "_nes_mmc5_SetStereoMix", "_nes_mmc5_TickFrameSequence"]'
+
+em++ ${EMCC_ARGS} \
+	-fno-exceptions \
+	-fno-rtti \
+	external/saasound/SAAAmp.cpp \
+	external/saasound/SAADevice.cpp \
+	external/saasound/SAAEnv.cpp \
+	external/saasound/SAAFreq.cpp \
+	external/saasound/SAAImpl.cpp \
+	external/saasound/SAANoise.cpp \
+	external/saasound/SAASndC.cpp \
+	external/saasound/SAASound.cpp \
+    -o public/saa/saasound.wasm \
+    -s EXPORTED_FUNCTIONS='["_newSAASND", "_deleteSAASND", "_SAASNDSetSoundParameters", "_SAASNDWriteAddress", "_SAASNDWriteData", "_SAASNDWriteAddressData", "_SAASNDClear", "_SAASNDGetCurrentSoundParameters", "_SAASNDGetCurrentBytesPerSample", "_SAASNDGetBytesPerSample", "_SAASNDGetCurrentSampleRate", "_SAASNDGetSampleRate", "_SAASNDGenerateMany", "_SAASNDSetClockRate", "_SAASNDSetSampleRate", "_SAASNDSetOversample", "_SAASNDSetHighpass", "_SAASNDGenerateManySeparate", "_SAASNDSetOutputMixerBitmask", "_malloc", "_free"]'

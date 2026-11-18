@@ -1,0 +1,543 @@
+import NesState from './nes-state.js';
+import NesAudioDriver from './nes-audio-driver.js';
+import NesApuEngine, { createNesApuEngine } from './nes-apu-engine.js';
+import NesChipRegisterState from './nes-chip-register-state.js';
+import NesVirtualChannelMixer from './nes-virtual-channel-mixer.js';
+import {
+	NesWaveformCapture,
+	noiseChannelLevelFromEmulator,
+	noiseScopeSampleFromChannel
+} from './nes-waveform-capture.js';
+import { isNesHardwareEnvelopeReg } from './nes-instrument-utils.js';
+import TrackerPatternProcessor from '../tracker/tracker-pattern-processor.js';
+import { TrackerWorkletSlot } from '../tracker/tracker-worklet-slot.js';
+import { NES_CHANNEL_COUNT } from './nes-constants.js';
+import { nesDpcmSampleRateHz, nesNoiseRepeatHz } from './nes-playback-hz.js';
+
+export class NesWorkletSlot extends TrackerWorkletSlot {
+	constructor(port, chipIndex, sharedTimeline) {
+		super(port, chipIndex);
+		this.state = new NesState(sharedTimeline);
+		this.initialized = false;
+		this.audioDriver = null;
+		this.patternProcessor = null;
+		this.apuEngine = null;
+		this.registerState = new NesChipRegisterState(NES_CHANNEL_COUNT);
+		this.virtualChannelMixer = new NesVirtualChannelMixer();
+		this.virtualChannelMap = {};
+		this.virtualChannelRoles = {};
+		this.hwChannelCount = NES_CHANNEL_COUNT;
+		this.channelWaveformBuf = Array.from(
+			{ length: NES_CHANNEL_COUNT },
+			() => new Float32Array(512)
+		);
+		this.channelWaveformWriteIndex = 0;
+		this.waveformPostCounter = 0;
+		this.waveformPostInterval = 6;
+		this.waveformCapture = new NesWaveformCapture(NES_CHANNEL_COUNT);
+		this._hwLevelPeaks = new Float32Array(NES_CHANNEL_COUNT);
+	}
+
+	_slotState() {
+		return this.state;
+	}
+
+	_isReadyForPlayback() {
+		return this.initialized && this.state.wasmModule && this.state.apuPtr;
+	}
+
+	_applyPlaybackSpeed(speed) {
+		if (!(speed > 0)) return;
+		this.state.publishPlaybackSpeed(speed);
+	}
+
+	_chipEngineReady() {
+		return this._playbackWorkersReady() && this.apuEngine;
+	}
+
+	_silencePlaybackOutput() {
+		this.registerState.reset();
+		this.audioDriver?.resetChannelMixerState?.();
+		this._applyRegisterStateToEngine();
+	}
+
+	_prepareOutputForPlay() {
+		this.resetChannelWaveformCapture();
+		this._silencePlaybackOutput();
+	}
+
+	_onTransportStop() {
+		this.resetChannelWaveformCapture();
+		this._silencePlaybackOutput();
+	}
+
+	_applyRegisterStateToEngine() {
+		if (!this.apuEngine) return;
+		this.enforceMuteState();
+		this.apuEngine.applyRegisterState(this._getEngineRegisterState());
+	}
+
+	_getEngineRegisterState() {
+		if (this.virtualChannelMixer.hasVirtualChannels()) {
+			return this.virtualChannelMixer.merge(this.registerState, this.state);
+		}
+		return this.registerState;
+	}
+
+	_dispatchChipPortMessage(type, data) {
+		if (type !== 'set_virtual_channel_config') {
+			return false;
+		}
+		this.handleSetVirtualChannelConfig(data);
+		return true;
+	}
+
+	_resizeForPatternChannels(channelCount) {
+		this._ensureChannelCapacity(channelCount);
+	}
+
+	handleSetVirtualChannelConfig({ virtualChannelMap, hwChannelCount, virtualChannelRoles }) {
+		const nextMap = virtualChannelMap || {};
+		const nextRoles = virtualChannelRoles || {};
+		const nextHw = hwChannelCount || NES_CHANNEL_COUNT;
+		const configUnchanged =
+			this.hwChannelCount === nextHw &&
+			JSON.stringify(this.virtualChannelMap) === JSON.stringify(nextMap) &&
+			JSON.stringify(this.virtualChannelRoles ?? {}) === JSON.stringify(nextRoles);
+		this.virtualChannelMap = nextMap;
+		this.virtualChannelRoles = nextRoles;
+		this.hwChannelCount = nextHw;
+		this.virtualChannelMixer.configure(
+			this.virtualChannelMap,
+			this.hwChannelCount,
+			this.virtualChannelRoles
+		);
+
+		const totalChannels = this.virtualChannelMixer.getTotalVirtualChannelCount();
+		this.state.resizeChannels(totalChannels);
+		this.registerState.resize(totalChannels);
+		this._bindAudioDriverHardwareResolver();
+		if (this.audioDriver) {
+			this.audioDriver.resizeChannels(totalChannels);
+		}
+		if (this.apuEngine && !configUnchanged) {
+			this._silencePlaybackOutput();
+		}
+	}
+
+	_bindAudioDriverHardwareResolver() {
+		this.audioDriver?.setHardwareChannelResolver?.((logicalIndex) =>
+			this.virtualChannelMixer.hasVirtualChannels()
+				? this.virtualChannelMixer.getHardwareChannelIndex(logicalIndex)
+				: logicalIndex
+		);
+	}
+
+	_applyVirtualChannelResize() {
+		if (!this.virtualChannelMixer.hasVirtualChannels()) return;
+		const totalChannels = this.virtualChannelMixer.getTotalVirtualChannelCount();
+		this.state.resizeChannels(totalChannels);
+		this.registerState.resize(totalChannels);
+		this._bindAudioDriverHardwareResolver();
+		if (this.audioDriver) {
+			this.audioDriver.resizeChannels(totalChannels);
+		}
+	}
+
+	_ensureChannelCapacity(channelCount) {
+		if (channelCount <= this.registerState.channelCount) return;
+		this.state.resizeChannels(channelCount);
+		this.registerState.resize(channelCount);
+		this._bindAudioDriverHardwareResolver();
+		if (this.audioDriver) {
+			this.audioDriver.resizeChannels(channelCount);
+		}
+	}
+
+	ensurePlaybackWorkers() {
+		if (!this.audioDriver || !this.patternProcessor || !this.apuEngine) {
+			this.audioDriver = new NesAudioDriver();
+			this.apuEngine = new NesApuEngine(
+				this.state.wasmModule,
+				this.state.apuPtr,
+				this.state.dmcPtr
+			);
+			this.apuEngine.setCpuFrequency(this.state.cpuFrequency);
+			this.apuEngine.setChipVariant(this.state.chipVariant);
+			this.patternProcessor = new TrackerPatternProcessor(
+				this.state,
+				this.audioDriver,
+				this.port
+			);
+			this._bindAudioDriverHardwareResolver();
+			this._applyVirtualChannelResize();
+		}
+	}
+
+	_processTrackerTick() {
+		super._processTrackerTick();
+		this.audioDriver.advancePulseWidthTable(this.state);
+		this.audioDriver.advanceSweepTable(this.state);
+		this.audioDriver.advanceDeltaCounterTable(this.state);
+		this.audioDriver.syncSweepTableRegisterState(this.state, this.registerState);
+	}
+
+	runPreviewStep() {
+		this.previewTickSampleCounter++;
+		if (this.previewTickSampleCounter >= this.state.timeline.samplesPerTick) {
+			this.previewTickSampleCounter = 0;
+			this.patternProcessor.processTables();
+			if (this.state.channelInstruments) {
+				this.audioDriver.processInstruments(this.state, this.registerState);
+				this.audioDriver.advancePulseWidthTable(this.state);
+				this.audioDriver.advanceSweepTable(this.state);
+				this.audioDriver.advanceDeltaCounterTable(this.state);
+				this.audioDriver.syncSweepTableRegisterState(this.state, this.registerState);
+			}
+			this._applyRegisterStateToEngine();
+		}
+	}
+
+	resetChannelWaveformCapture() {
+		for (const buf of this.channelWaveformBuf) {
+			buf.fill(0);
+		}
+		this.channelWaveformWriteIndex = 0;
+		this.waveformPostCounter = 0;
+		this.waveformCapture.reset();
+		this._hwLevelPeaks.fill(0);
+	}
+
+	enforceMuteState() {
+		for (let ch = 0; ch < this.registerState.channelCount; ch++) {
+			if (this.state.channelMuted[ch]) {
+				this.audioDriver._silenceChannel(this.registerState, ch);
+			}
+		}
+	}
+
+	async handleMessage(payload) {
+		if (payload == null || typeof payload !== 'object') return;
+		const { type, ...data } = payload;
+		if (type === undefined) return;
+
+		switch (type) {
+			case 'init':
+				await this.handleInit(data);
+				break;
+			case 'update_cpu_frequency':
+				this.handleUpdateCpuFrequency(data);
+				break;
+			case 'update_chip_variant':
+				this.handleUpdateChipVariant(data);
+				break;
+			case 'update_int_frequency':
+				this.handleUpdateIntFrequency(data);
+				break;
+			default:
+				this.dispatchPortMessages(type, data);
+		}
+	}
+
+	async handleInit({ wasmBuffer }) {
+		if (!wasmBuffer) return;
+
+		if (this._isReadyForPlayback()) {
+			this.apuEngine?.setCpuFrequency(this.state.cpuFrequency);
+			this.apuEngine?.setChipVariant(this.state.chipVariant);
+			return;
+		}
+
+		try {
+			const result = await WebAssembly.instantiate(wasmBuffer, {
+				env: { emscripten_notify_memory_growth: () => {} }
+			});
+			const wasmModule = result.instance.exports;
+			const { engine, apuPtr, dmcPtr } = createNesApuEngine(wasmModule);
+
+			this.state.setWasmModule(wasmModule, apuPtr, dmcPtr, wasmBuffer);
+			this.state.updateSamplesPerTick(sampleRate);
+			this.audioDriver = new NesAudioDriver();
+			this.apuEngine = engine;
+			this.apuEngine.setCpuFrequency(this.state.cpuFrequency);
+			this.apuEngine.setChipVariant(this.state.chipVariant);
+			this.patternProcessor = new TrackerPatternProcessor(
+				this.state,
+				this.audioDriver,
+				this.port
+			);
+			this._bindAudioDriverHardwareResolver();
+			this._applyVirtualChannelResize();
+			this.registerState.reset();
+			this.initialized = true;
+			this._applyRegisterStateToEngine();
+		} catch (error) {
+			console.error('Failed to initialize NES APU:', error);
+		}
+	}
+
+	handleUpdateCpuFrequency({ cpuFrequency }) {
+		if (!(cpuFrequency > 0)) return;
+		this.state.setCpuFrequency(cpuFrequency);
+		this.apuEngine?.setCpuFrequency(cpuFrequency);
+	}
+
+	handleUpdateChipVariant({ chipVariant }) {
+		this.state.setChipVariant(chipVariant);
+		this.apuEngine?.setChipVariant(chipVariant);
+	}
+
+	handleUpdateIntFrequency({ intFrequency }) {
+		this.state.setIntFrequency(intFrequency, sampleRate);
+	}
+
+	_clearHardwareWaveformChannel(hardwareChannelIndex) {
+		if (hardwareChannelIndex < 0 || hardwareChannelIndex >= this.channelWaveformBuf.length) {
+			return;
+		}
+		this.channelWaveformBuf[hardwareChannelIndex].fill(0);
+		this._hwLevelPeaks[hardwareChannelIndex] = 0;
+	}
+
+	handleSetChannelMute({ channelIndex, muted }) {
+		const totalChannels = this.virtualChannelMixer.getTotalVirtualChannelCount();
+		if (channelIndex >= 0 && channelIndex < totalChannels) {
+			this.state.channelMuted[channelIndex] = muted;
+			const hwType = this.virtualChannelMixer.hasVirtualChannels()
+				? this.virtualChannelMixer.getHardwareChannelIndex(channelIndex)
+				: channelIndex;
+			this._clearHardwareWaveformChannel(hwType);
+			if (muted) {
+				this.audioDriver?._silenceChannel(this.registerState, channelIndex);
+				this._applyRegisterStateToEngine();
+			}
+		}
+	}
+
+	_beforePreviewRow() {
+		this.resetChannelWaveformCapture();
+	}
+
+	_beforeStopPreviewAll() {
+		this.resetChannelWaveformCapture();
+	}
+
+	_silencePreviewChannel(channelIndex) {
+		this.audioDriver?._silenceChannel(this.registerState, channelIndex);
+	}
+
+	canRender() {
+		return Boolean(this.initialized && this.state.wasmModule && this.state.apuPtr);
+	}
+
+	shouldAccumulateStereoOutput() {
+		return this.canRender();
+	}
+
+	_isHardwareChannelMuted(hardwareChannelIndex) {
+		if (this.virtualChannelMixer.hasVirtualChannels()) {
+			const total = this.virtualChannelMixer.getTotalVirtualChannelCount();
+			let mapped = false;
+			for (let logical = 0; logical < total; logical++) {
+				if (
+					this.virtualChannelMixer.getHardwareChannelIndex(logical) !==
+					hardwareChannelIndex
+				) {
+					continue;
+				}
+				mapped = true;
+				if (!this.state.channelMuted[logical]) {
+					return false;
+				}
+			}
+			return mapped;
+		}
+		return Boolean(this.state.channelMuted[hardwareChannelIndex]);
+	}
+
+	_isLogicalChannelAudible(channelIndex) {
+		return (
+			!this.state.channelMuted[channelIndex] && this.state.channelSoundEnabled[channelIndex]
+		);
+	}
+
+	_isHardwareChannelAudible(hardwareChannelIndex) {
+		if (this.virtualChannelMixer.hasVirtualChannels()) {
+			const total = this.virtualChannelMixer.getTotalVirtualChannelCount();
+			for (let logical = 0; logical < total; logical++) {
+				if (
+					this.virtualChannelMixer.getHardwareChannelIndex(logical) !==
+					hardwareChannelIndex
+				) {
+					continue;
+				}
+				if (this._isLogicalChannelAudible(logical)) {
+					return true;
+				}
+			}
+			return false;
+		}
+		return this._isLogicalChannelAudible(hardwareChannelIndex);
+	}
+
+	_collectChannelLevels() {
+		const channelCount = this.registerState.channelCount;
+		const levels = new Array(channelCount).fill(0);
+		const audibleIndices = this.virtualChannelMixer.hasVirtualChannels()
+			? new Set(this.virtualChannelMixer.getAudibleVirtualChannelIndices(this.registerState))
+			: null;
+		const hwPeaks = Array.from(this._hwLevelPeaks);
+		this._hwLevelPeaks.fill(0);
+		const canReadOutputs = this.apuEngine?.canReadChannelOutputs?.() === true;
+
+		for (let i = 0; i < channelCount; i++) {
+			if (this.state.channelMuted[i]) continue;
+
+			const channel = this.registerState.channels[i];
+			const hwType = this.virtualChannelMixer.hasVirtualChannels()
+				? this.virtualChannelMixer.getHardwareChannelIndex(i)
+				: i;
+
+			if (hwType === 3) {
+				levels[i] = noiseChannelLevelFromEmulator(hwPeaks[3] ?? 0, channel);
+				continue;
+			}
+
+			if (!this._isLogicalChannelAudible(i)) continue;
+			if (audibleIndices && !audibleIndices.has(i)) continue;
+			if (!channel?.enabled && (channel?.volume ?? 0) <= 0) continue;
+
+			if (hwType === 2) {
+				levels[i] = channel.enabled ? 1 : 0;
+			} else if (hwType === 4) {
+				const raw =
+					channel.dpcmDelta == null ? (hwPeaks[hwType] ?? 0) : (channel.volume ?? 0);
+				levels[i] = Math.min(1, raw / 127);
+			} else if (isNesHardwareEnvelopeReg(channel?.volumeReg) && canReadOutputs) {
+				levels[i] = Math.min(1, Math.max(0, (hwPeaks[hwType] ?? 0) / 15));
+			} else {
+				levels[i] = Math.min(1, Math.max(0, (channel.volume ?? 0) / 15));
+			}
+		}
+		return levels;
+	}
+
+	_collectPlaybackHz() {
+		const toneHz = [];
+		const cpuFrequency = this.state.cpuFrequency;
+		const isPal = this.state.chipVariant === 'PAL';
+		const channelCount = this.registerState.channelCount;
+		for (let i = 0; i < channelCount; i++) {
+			const channel = this.registerState.channels[i];
+			const hwType = this.virtualChannelMixer.hasVirtualChannels()
+				? this.virtualChannelMixer.getHardwareChannelIndex(i)
+				: i;
+			toneHz.push(this._channelPlaybackHz(channel, hwType, cpuFrequency, isPal));
+		}
+		return { toneHz };
+	}
+
+	_channelPlaybackHz(channel, hwType, cpuFrequency, isPal) {
+		if (!channel?.enabled) return null;
+		if (hwType === 3) {
+			return nesNoiseRepeatHz(cpuFrequency, channel.noisePeriod, isPal);
+		}
+		if (hwType === 4) {
+			return nesDpcmSampleRateHz(cpuFrequency, channel.dpcmPitch, isPal);
+		}
+		const period = channel.period ?? 0;
+		if (period <= 0) return null;
+		if (hwType <= 1) return cpuFrequency / (16 * period);
+		if (hwType === 2) return cpuFrequency / (32 * period);
+		return null;
+	}
+
+	_captureHardwareWaveformSample(channelIndex, channel, emulatorOutputs, cpuFrequency) {
+		if (this._isHardwareChannelMuted(channelIndex)) return 0;
+
+		if (channelIndex === 3) {
+			const rawOut = this.apuEngine?.getChannelRawOut?.(3) ?? 0;
+			return noiseScopeSampleFromChannel(rawOut, channel);
+		}
+
+		if (!this._isHardwareChannelAudible(channelIndex)) return 0;
+		if (!channel?.enabled) return 0;
+		if (emulatorOutputs == null) {
+			return this.waveformCapture.sample(channelIndex, channel, cpuFrequency, sampleRate);
+		}
+		return emulatorOutputs[channelIndex];
+	}
+
+	accumulateStereoOutput(sampleIndex, mix) {
+		if (!this.apuEngine) return;
+		const { left, right } = this.apuEngine.process(sampleRate);
+		mix.l += left;
+		mix.r += right;
+
+		if (this.paused && !this.isPreviewActive()) {
+			return;
+		}
+
+		if (this.apuEngine.canReadChannelOutputs?.()) {
+			for (let ch = 0; ch < this._hwLevelPeaks.length; ch++) {
+				if (this._isHardwareChannelMuted(ch)) continue;
+				const raw = this.apuEngine.getChannelRawOut(ch);
+				if (raw > this._hwLevelPeaks[ch]) {
+					this._hwLevelPeaks[ch] = raw;
+				}
+			}
+		}
+
+		const wi = this.channelWaveformWriteIndex;
+		const emulatorOutputs = this.waveformCapture.readChannelOutputs(this.apuEngine);
+		const cpuFrequency = this.state.cpuFrequency;
+		const hwState = this._getEngineRegisterState();
+		for (let ch = 0; ch < this.channelWaveformBuf.length; ch++) {
+			this.channelWaveformBuf[ch][(wi + sampleIndex) % 512] =
+				this._captureHardwareWaveformSample(
+					ch,
+					hwState.channels[ch],
+					emulatorOutputs,
+					cpuFrequency
+				);
+		}
+	}
+
+	finishAudioBlock(numSamples) {
+		if (this.paused && !this.isPreviewActive()) {
+			this.finishAudioBlockFlushTransport(numSamples, this.paused);
+			return;
+		}
+		this.channelWaveformWriteIndex = (this.channelWaveformWriteIndex + numSamples) % 512;
+		this.waveformPostCounter++;
+		if (this.waveformPostCounter >= this.waveformPostInterval) {
+			this.waveformPostCounter = 0;
+			const wi = this.channelWaveformWriteIndex;
+			const channels = this.channelWaveformBuf.map((buf) => {
+				const out = new Float32Array(512);
+				for (let j = 0; j < 512; j++) {
+					out[j] = buf[(wi + j) % 512];
+				}
+				return out;
+			});
+			this._post({ type: 'channel_waveform', channels });
+			this._post({ type: 'channel_levels', levels: this._collectChannelLevels() });
+			const playbackHz = this._collectPlaybackHz();
+			this._post({
+				type: 'channel_tone_hz',
+				frequencies: playbackHz.toneHz,
+				sidTimerHz: [],
+				syncbuzzerTimerHz: [],
+				registers: this.apuEngine?.getApuRegisters?.() ?? []
+			});
+		}
+		this.finishAudioBlockFlushTransport(numSamples, this.paused);
+	}
+
+	handleStop() {
+		this.resetChannelWaveformCapture();
+		super.handleStop();
+	}
+}
+
+export default NesWorkletSlot;

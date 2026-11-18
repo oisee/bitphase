@@ -1,6 +1,6 @@
 import type { Project } from '../../models/project';
-import { FileExportService } from '../file/file-export';
-import { FileImportService } from '../file/file-import';
+import { FileExportService } from '../file/project/file-export';
+import { FileImportService } from '../file/project/file-import';
 
 const DB_NAME = 'bitphase';
 const DB_VERSION = 1;
@@ -69,9 +69,27 @@ async function runSaveQueue(project: Project): Promise<void> {
 	}
 }
 
+const AUTOBACKUP_DELAY_MS = 1000;
+let scheduledSave: ReturnType<typeof setTimeout> | null = null;
+
+function cancelScheduledSave(): void {
+	if (scheduledSave === null) return;
+	clearTimeout(scheduledSave);
+	scheduledSave = null;
+}
+
 export const autobackupService = {
 	saveAutobackup(project: Project): void {
+		cancelScheduledSave();
 		void runSaveQueue(project);
+	},
+
+	scheduleAutobackup(readProject: () => Project): void {
+		cancelScheduledSave();
+		scheduledSave = setTimeout(() => {
+			scheduledSave = null;
+			void runSaveQueue(readProject());
+		}, AUTOBACKUP_DELAY_MS);
 	},
 
 	async getAutobackup(): Promise<Project | null> {

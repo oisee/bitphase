@@ -3,7 +3,9 @@ import { Song } from '../../models/song';
 import type { Chip } from '../../chips/types';
 import type { AudioService } from '../audio/audio-service';
 import { applySchemaDefaults, type ChipSchema } from '../../chips/base/schema';
+import { normalizeChipSettingsRecord } from '../../chips/base/chip-settings';
 import { getChipByType } from '../../chips/registry';
+import { AY_CHIP } from '../../chips/ay';
 
 export class ProjectService {
 	constructor(private audioService: AudioService) {}
@@ -12,16 +14,9 @@ export class ProjectService {
 		return new Project();
 	}
 
-	async resetProject(chip: Chip): Promise<Project> {
+	async resetProject(): Promise<Project> {
 		this.audioService.clearChipProcessors();
-		const newProject = this.createNewProject();
-		const song = new Song(chip.schema);
-		song.chipType = chip.type;
-		applySchemaDefaults(song, chip.schema);
-		this.applyChipDefaults(song, chip.schema);
-		newProject.songs = [song];
-		await this.audioService.addChipProcessor(chip);
-		return newProject;
+		return this.createNewProject();
 	}
 
 	async createNewSong(chip: Chip, existingSongs: Song[] = []): Promise<Song> {
@@ -29,9 +24,23 @@ export class ProjectService {
 		newSong.chipType = chip.type;
 		applySchemaDefaults(newSong, chip.schema);
 		this.applyChipDefaults(newSong, chip.schema);
+		if (existingSongs.length > 0) {
+			newSong.defaultPatternLength = existingSongs[0].defaultPatternLength;
+		}
 		this.syncFromPeerSongs(newSong, existingSongs, chip.schema);
+		if (existingSongs.length > 0 && existingSongs[0].interruptFrequency > 0) {
+			newSong.interruptFrequency = existingSongs[0].interruptFrequency;
+		}
 		await this.audioService.addChipProcessor(chip);
 		return newSong;
+	}
+
+	async restoreChipProcessorsForSongs(songs: { chipType?: string }[]): Promise<void> {
+		this.audioService.clearChipProcessors();
+		for (const song of songs) {
+			const chip = song.chipType ? getChipByType(song.chipType) : null;
+			await this.audioService.addChipProcessor(chip ?? AY_CHIP);
+		}
 	}
 
 	private syncFromPeerSongs(targetSong: Song, existingSongs: Song[], schema: ChipSchema): void {
@@ -50,12 +59,23 @@ export class ProjectService {
 			}
 		}
 
-		targetSong.initialSpeed = peer.initialSpeed;
+		targetSong.defaultPatternLength = peer.defaultPatternLength;
 		targetSong.tuningTable = [...peer.tuningTable];
+	}
+
+	static shareInterruptFrequency(songs: Song[], frequency: number): void {
+		if (!(frequency > 0)) return;
+		for (const song of songs) {
+			if (song.interruptFrequency !== frequency) {
+				song.interruptFrequency = frequency;
+			}
+		}
 	}
 
 	static ensureChipSettingsConsistency(songs: Song[]): void {
 		if (songs.length <= 1) return;
+
+		ProjectService.shareInterruptFrequency(songs, songs[0].interruptFrequency);
 
 		const grouped = new Map<string, Song[]>();
 		for (const song of songs) {
@@ -88,8 +108,16 @@ export class ProjectService {
 					}
 				}
 
-				if (target.initialSpeed !== source.initialSpeed) {
-					target.initialSpeed = source.initialSpeed;
+				if (chip.schema.normalizeSettings) {
+					const normalized = normalizeChipSettingsRecord(
+						chip.schema,
+						targetRecord
+					);
+					Object.assign(targetRecord, normalized);
+				}
+
+				if (target.defaultPatternLength !== source.defaultPatternLength) {
+					target.defaultPatternLength = source.defaultPatternLength;
 				}
 			}
 

@@ -1,9 +1,10 @@
 <script lang="ts">
 	import MenuBar from './lib/components/Menu/MenuBar.svelte';
 	import './app.css';
-	import { menuItems } from './lib/config/app-menu';
-	import { handleFileImport } from './lib/services/file/file-import';
-	import { handleFileExport } from './lib/services/file/file-export';
+	import { buildMenuItems } from './lib/config/app-menu';
+	import { buildChipConfiguration } from './lib/config/export-formats';
+	import { handleFileImport } from './lib/services/file/project/file-import';
+	import { handleFileExport } from './lib/services/file/project/file-export';
 	import type { Song } from './lib/models/song';
 	import PatternEditor from './lib/components/Song/PatternEditor.svelte';
 	import ModalContainer from './lib/components/Modal/ModalContainer.svelte';
@@ -11,7 +12,6 @@
 	import { setContext } from 'svelte';
 	import { AudioService } from './lib/services/audio/audio-service';
 	import { ProjectService } from './lib/services/project/project-service';
-	import { AY_CHIP } from './lib/chips/ay';
 	import { getChipByType } from './lib/chips/registry';
 	import SongView from './lib/components/Song/SongView.svelte';
 	import { playbackStore } from './lib/stores/playback.svelte';
@@ -30,13 +30,18 @@
 		ACTION_OCTAVE_DOWN,
 		GLOBAL_ACTION_IDS
 	} from './lib/config/keybindings';
+	import { isEditableElement } from './lib/utils/shortcut-input-exclusion';
 	import { autobackupService } from './lib/services/backup/autobackup-service';
 	import { runAppBootstrap } from './lib/app-bootstrap';
 	import { createMenuActionHandler } from './lib/services/app/menu-action-handler';
 	import type { MenuActionContext } from './lib/services/app/menu-action-context';
+	import type { ChipProcessor } from './lib/chips/base/processor';
+	import { PROJECT_FIELDS } from './lib/models/project-fields';
 	import { projectStore } from './lib/stores/project.svelte';
 	import AlphaNoticeModal from './lib/components/Modal/AlphaNoticeModal.svelte';
 	import { alphaNoticeStore } from './lib/stores/alpha-notice.svelte';
+	import HistoryFeedback from './lib/components/History/HistoryFeedback.svelte';
+	import { undoRedoStore } from './lib/stores/undo-redo.svelte';
 
 	runAppBootstrap();
 
@@ -75,8 +80,11 @@
 	});
 
 	const projectService = new ProjectService(container.audioService);
+	let chipProcessors = $state<ChipProcessor[]>([]);
 
-	container.audioService.addChipProcessor(AY_CHIP);
+	function syncChipProcessors() {
+		chipProcessors = container.audioService.chipProcessors;
+	}
 
 	$effect(() => {
 		const volume = settingsStore.volume;
@@ -91,34 +99,42 @@
 	$effect(() => {
 		const uiFontFamily = settingsStore.uiFontFamily;
 		if (uiFontFamily) {
-			document.documentElement.style.setProperty(
-				'--font-sans',
-				`"${uiFontFamily}", sans-serif`
-			);
-			document.documentElement.style.setProperty(
-				'--font-mono',
-				`"${uiFontFamily}", monospace`
-			);
+			const isGeneric = uiFontFamily === 'monospace' || uiFontFamily === 'sans-serif';
+			const fontStack = isGeneric ? uiFontFamily : `"${uiFontFamily}"`;
+			document.documentElement.style.setProperty('--font-sans', `${fontStack}, sans-serif`);
+			document.documentElement.style.setProperty('--font-mono', `${fontStack}, monospace`);
 		}
 	});
 
 	let activeSongIndex = $state(0);
+	let songView: SongView | null = $state(null);
+
+	const menuItems = $derived.by(() => {
+		undoRedoStore.nextUndoLabel;
+		undoRedoStore.nextRedoLabel;
+		const chipTypes = projectStore.songs
+			.map((s) => s.chipType)
+			.filter((t): t is string => t !== undefined);
+		return buildMenuItems(
+			buildChipConfiguration(chipTypes),
+			settingsStore.experimentalFeatures
+		);
+	});
 
 	$effect(() => {
 		if (projectStore.initialized) return;
 
 		(async () => {
-			const newProject = await projectService.resetProject(AY_CHIP);
-			projectStore.applyProject(newProject);
-
 			const backup = await autobackupService.getAutobackup();
 			if (backup) {
-				container.audioService.clearChipProcessors();
-				for (const _ of backup.songs) {
-					await container.audioService.addChipProcessor(AY_CHIP);
-				}
+				await projectService.restoreChipProcessorsForSongs(backup.songs);
+				syncChipProcessors();
 				ProjectService.ensureChipSettingsConsistency(backup.songs);
 				projectStore.applyProject(backup);
+			} else {
+				const newProject = await projectService.resetProject();
+				syncChipProcessors();
+				projectStore.applyProject(newProject);
 			}
 			projectStore.initialized = true;
 		})();
@@ -126,14 +142,14 @@
 
 	$effect(() => {
 		if (!projectStore.initialized) return;
-		projectStore.settings;
 		projectStore.songs;
 		projectStore.patterns;
 		projectStore.patternOrder;
 		projectStore.patternOrderColors;
-		projectStore.tables;
-		projectStore.instruments;
-		autobackupService.saveAutobackup(projectStore.getCurrentProject());
+		$state.snapshot(projectStore.settings);
+		$state.snapshot(projectStore.tables);
+		$state.snapshot(projectStore.instruments);
+		autobackupService.scheduleAutobackup(() => projectStore.getCurrentProject());
 	});
 
 	$effect(() => {
@@ -161,6 +177,13 @@
 		if (projectStore.songs.length === 0) return;
 
 		ProjectService.ensureChipSettingsConsistency(projectStore.songs);
+		const sharedInterruptFrequency = projectStore.songs[0]?.interruptFrequency;
+		if (
+			sharedInterruptFrequency > 0 &&
+			projectStore.settings.interruptFrequency !== sharedInterruptFrequency
+		) {
+			projectStore.settings.interruptFrequency = sharedInterruptFrequency;
+		}
 
 		const grouped = new Map<string, Song[]>();
 		for (const song of projectStore.songs) {
@@ -178,15 +201,21 @@
 			const chip = getChipByType(chipType);
 			if (!chip) return;
 
-			const settings = chip.schema.settings || [];
-			settings
-				.filter((s) => s.group === 'chip' && s.notifyAudioService)
-				.forEach((s) => {
-					const value = firstSong[s.key] ?? s.defaultValue;
-					if (value !== undefined) {
-						container.audioService.chipSettings.set(s.key, value);
-					}
-				});
+			const settings = [
+				...(chip.schema.settings || []).filter(
+					(s) => s.group === 'chip' && s.notifyAudioService
+				),
+				...PROJECT_FIELDS.filter((s) => s.notifyAudioService)
+			];
+			settings.forEach((s) => {
+				const value =
+					s.group === 'project'
+						? (projectStore.settings[s.key] ?? s.defaultValue)
+						: (firstSong[s.key] ?? s.defaultValue);
+				if (value !== undefined) {
+					container.audioService.chipSettings.forChip(chipType).set(s.key, value);
+				}
+			});
 		});
 	});
 
@@ -202,9 +231,12 @@
 		removeSong: (index) => {
 			projectStore.removeSong(index);
 			container.audioService.removeChipProcessor(index);
+			container.audioService.updateInstruments(projectStore.instruments);
+			syncChipProcessors();
 		},
 		addSong: (song) => {
 			projectStore.addSong(song);
+			syncChipProcessors();
 		},
 		setActiveSongIndex: (index) => {
 			activeSongIndex = index;
@@ -218,10 +250,23 @@
 		handleFileImport,
 		handleFileExport,
 		clearAutobackup: () => autobackupService.clearAutobackup(),
-		resetPatternEditor: () => patternEditor?.resetToBeginning?.()
+		resetPatternEditor: () => {
+			activeSongIndex = 0;
+			songView?.resetEditorState?.();
+			patternEditor?.resetToBeginning?.();
+		},
+		syncChipProcessors,
+		toggleExpandPanel: () => {
+			songView?.toggleExpandPanel?.();
+		}
 	};
 
-	const handleMenuAction = createMenuActionHandler(menuActionContext);
+	const baseHandleMenuAction = createMenuActionHandler(menuActionContext);
+
+	async function handleMenuAction(data: { action: string; songIndex?: number }) {
+		await baseHandleMenuAction(data);
+		syncChipProcessors();
+	}
 
 	setContext('container', container);
 
@@ -229,13 +274,7 @@
 
 	function handleGlobalKeyDown(event: KeyboardEvent) {
 		if (event.defaultPrevented) return;
-		const target = event.target as HTMLElement;
-		if (
-			target?.closest?.('input, textarea') ||
-			target?.getAttribute?.('contenteditable') === 'true'
-		) {
-			return;
-		}
+		if (isEditableElement(event.target)) return;
 		const shortcut = ShortcutString.fromEvent(event);
 		const action = keybindingsStore.getActionForShortcut(shortcut);
 		if (action !== null && GLOBAL_ACTION_IDS.has(action)) {
@@ -247,7 +286,7 @@
 				return;
 			}
 			if (action === ACTION_OCTAVE_DOWN) {
-				if (editorStateStore.octave > 0) {
+				if (editorStateStore.octave > 1) {
 					editorStateStore.setOctave(editorStateStore.octave - 1);
 				}
 				return;
@@ -281,13 +320,17 @@
 	class="flex h-screen flex-col gap-1 overflow-hidden bg-[var(--color-app-surface-secondary)] font-sans text-xs text-[var(--color-app-text-primary)]">
 	<MenuBar {menuItems} onAction={handleMenuAction} />
 	<div class="flex-1 overflow-hidden">
-		<SongView
-			bind:patternEditor
-			bind:activeEditorIndex={activeSongIndex}
-			onaction={handleMenuAction}
-			chipProcessors={container.audioService.chipProcessors} />
+		{#if projectStore.initialized}
+			<SongView
+				bind:this={songView}
+				bind:patternEditor
+				bind:activeEditorIndex={activeSongIndex}
+				onaction={handleMenuAction}
+				{chipProcessors} />
+		{/if}
 	</div>
 	<ModalContainer />
+	<HistoryFeedback />
 
 	{#if themeEditorStore.editingTheme}
 		<ThemeEditorModal

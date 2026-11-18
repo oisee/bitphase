@@ -1,4 +1,5 @@
-import type { Pattern } from '../../models/song';
+import { NoteName, type Pattern } from '../../models/song';
+import { isPitchedNoteName } from '../../utils/note-utils';
 import type { AutoEnvRatio } from '../../stores/auto-env.svelte';
 
 export class AutoEnvService {
@@ -49,14 +50,16 @@ export class AutoEnvService {
 		}
 
 		const note = noteValue as { name: number; octave: number };
-		if (note.name === 0 || note.name === 1) {
+		if (!isPitchedNoteName(note.name as NoteName)) {
 			return null;
 		}
 
 		const noteIndex = (note.octave - 1) * 12 + (note.name - 2);
 
 		const envelopeShape =
-			typeof row.envelopeShape === 'number' ? row.envelopeShape : parseInt(String(row.envelopeShape) || '0');
+			typeof row.envelopeShape === 'number'
+				? row.envelopeShape
+				: parseInt(String(row.envelopeShape) || '0');
 
 		const envelopeValue = this.calculateEnvelopeValue(
 			noteIndex,
@@ -81,6 +84,29 @@ export class AutoEnvService {
 		updatedPattern.patternRows[rowIndex].envelopeValue = envelopeValue;
 
 		return updatedPattern;
+	}
+
+	static applyAutoEnvelopeIfEligible(
+		pattern: Pattern,
+		rowIndex: number,
+		fieldInfo:
+			| { channelIndex: number; fieldType?: string; fieldKey?: string }
+			| null
+			| undefined,
+		tuningTable: number[],
+		ratio: AutoEnvRatio,
+		enabled: boolean
+	): Pattern {
+		if (!enabled || !fieldInfo || fieldInfo.channelIndex < 0) {
+			return pattern;
+		}
+		if (fieldInfo.fieldType !== 'note' && fieldInfo.fieldKey !== 'envelopeShape') {
+			return pattern;
+		}
+		return (
+			this.applyAutoEnvelope(pattern, rowIndex, fieldInfo.channelIndex, tuningTable, ratio) ??
+			pattern
+		);
 	}
 
 	private static getEnvelopeDivisor(envelopeShape: number): number | null {

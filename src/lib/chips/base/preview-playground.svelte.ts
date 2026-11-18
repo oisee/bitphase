@@ -1,0 +1,473 @@
+import { getContext } from 'svelte';
+import type { Chip } from '../types';
+import type { Instrument, Pattern } from '../../models/song';
+import type { PreviewNoteSupport } from './processor';
+import type { AudioService } from '../../services/audio/audio-service';
+import { formatNoteFromEnum, midiNoteToNoteString } from '../../utils/note-utils';
+import { PatternNoteInput } from '../../services/pattern/editing/pattern-note-input';
+import { editorStateStore } from '../../stores/editor-state.svelte';
+import { settingsStore } from '../../stores/settings.svelte';
+import { midiService } from '../../services/midi/midi-service';
+import { playbackStore } from '../../stores/playback.svelte';
+import { projectStore } from '../../stores/project.svelte';
+import { keybindingsStore } from '../../stores/keybindings.svelte';
+import { ShortcutString } from '../../utils/shortcut-string';
+import { ACTION_TOGGLE_PLAYBACK } from '../../config/keybindings';
+import { filterInstrumentsForChip } from '../../services/instrument/instrument-filter';
+import {
+	buildPreviewPattern,
+	clampVolumeInput,
+	filterVolumeInput,
+	notesForProcessor,
+	placePreviewNotes,
+	previewChannelForNote,
+	previewMacrosReleaseOnKeyUp,
+	previewReleaseTailMs,
+	sanitizeTableInput
+} from './preview-row-utils';
+
+const ROW_INDEX = 0;
+
+export type ChipPreviewPlaygroundOptions = {
+	getChip: () => Chip;
+	getInstrumentId: () => string;
+	getPreviewChannelIndex?: () => number;
+	getPreviewChannelLabels?: () => string[] | undefined;
+	decoratePreviewPattern?: (pattern: Pattern) => void;
+	onMidiNote?: (midiNote: number, velocity: number) => boolean;
+};
+
+export function createChipPreviewPlayground(options: ChipPreviewPlaygroundOptions) {
+	let table = $state('');
+	let volume = $state('F');
+	let left = $state('F');
+	let right = $state('F');
+	let activeNotes = $state<Array<{ key: string; note: string; slot: number }>>([]);
+	let playbackNotes = $state<string[]>([]);
+	let lastPlayedNotes = $state<string[]>(['C-4']);
+	let isPreviewPlaying = $state(false);
+	let noteInputEl = $state<HTMLDivElement | null>(null);
+
+	const containerContext: { audioService: AudioService } = getContext('container');
+	const audioService = containerContext.audioService;
+	let registerPreviewSpaceHandler: ((fn: (() => void) | null) => void) | undefined;
+	try {
+		registerPreviewSpaceHandler = getContext('registerPreviewSpaceHandler');
+	} catch {
+		registerPreviewSpaceHandler = undefined;
+	}
+
+	let hadActiveNotes = false;
+	let wasPlaying = false;
+	let releaseTimer = 0;
+	let savedStereoLayout: string | undefined;
+
+	function channelCount() {
+		const labels = options.getPreviewChannelLabels?.();
+		if (labels && labels.length > 0) return labels.length;
+		return options.getChip().schema.channelLabels?.length ?? 3;
+	}
+
+	function previewStartChannel() {
+		return previewChannelForNote(0, channelCount(), options.getPreviewChannelIndex?.() ?? 0);
+	}
+
+	function currentPreviewProcessors() {
+		const chip = options.getChip();
+		return audioService.chipProcessors.filter(
+			(p) => p.chip === chip && 'playPreviewRow' in p && p.isAudioNodeAvailable()
+		);
+	}
+
+	function maxPoly() {
+		return currentPreviewProcessors().length * channelCount();
+	}
+
+	function currentInstrument(): Instrument | undefined {
+		const chip = options.getChip();
+		const instrumentId = options.getInstrumentId();
+		const normalizedId = instrumentId.toUpperCase().padStart(2, '0');
+		if (!instrumentId) return undefined;
+		return filterInstrumentsForChip(projectStore.instruments, chip.type).find(
+			(instrument) => instrument.id.toUpperCase().padStart(2, '0') === normalizedId
+		);
+	}
+
+	function currentInstrumentMacros() {
+		const instrument = currentInstrument();
+		const timerMacros = (instrument as { timerMacros?: Instrument['macros'] } | undefined)
+			?.timerMacros;
+		return [...Object.values(instrument?.macros ?? {}), ...Object.values(timerMacros ?? {})];
+	}
+
+	function interruptHz(): number {
+		const chip = options.getChip();
+		const index = audioService.chipProcessors.findIndex((processor) => processor.chip === chip);
+		const hz = index >= 0 ? projectStore.songs[index]?.interruptFrequency : 0;
+		return hz > 0 ? hz : 50;
+	}
+
+	function cancelReleaseTail(): void {
+		if (!releaseTimer) return;
+		clearTimeout(releaseTimer);
+		releaseTimer = 0;
+	}
+
+	function previewIsSounding(): boolean {
+		return (
+			hadActiveNotes ||
+			isPreviewPlaying ||
+			activeNotes.length > 0 ||
+			playbackNotes.length > 0
+		);
+	}
+
+	function silencePreview(): void {
+		cancelReleaseTail();
+		const processors = currentPreviewProcessors() as unknown as PreviewNoteSupport[];
+		for (const processor of processors) {
+			processor.stopPreviewNote();
+		}
+		if (processors.length > 0) {
+			audioService.setPreviewActiveForChips(null);
+		}
+		if (savedStereoLayout !== undefined) {
+			audioService.chipSettings
+				.forChip(options.getChip().type)
+				.set('stereoLayout', savedStereoLayout);
+			savedStereoLayout = undefined;
+		}
+	}
+
+	function armReleaseTail(): void {
+		cancelReleaseTail();
+		const ms = previewReleaseTailMs(currentInstrumentMacros(), interruptHz());
+		if (ms == null) return;
+		releaseTimer = window.setTimeout(() => {
+			releaseTimer = 0;
+			playbackNotes = [];
+		}, ms);
+	}
+
+	function attackPreview(): void {
+		cancelReleaseTail();
+		const voiced = activeNotes.map((note, index) => ({ ...note, slot: index }));
+		activeNotes = voiced;
+		playbackNotes = voiced.map((note) => note.note);
+	}
+
+	function releasePreviewSlot(slot: number): void {
+		const count = Math.max(1, channelCount());
+		const processor = currentPreviewProcessors()[Math.floor(slot / count)];
+		if (!processor) return;
+		(processor as unknown as PreviewNoteSupport).releasePreviewNote(
+			previewChannelForNote(slot % count, count, previewStartChannel())
+		);
+	}
+
+	function dropActiveKey(key: string): void {
+		if (isDisabled) return;
+		const held = activeNotes.find((note) => note.key === key);
+		if (!held) return;
+		const nextNotes = activeNotes.filter((note) => note.key !== key);
+		if (nextNotes.length === 0) {
+			lastPlayedNotes = activeNotes.map((note) => note.note);
+		}
+		activeNotes = nextNotes;
+		if (isPreviewPlaying || !previewMacrosReleaseOnKeyUp(currentInstrumentMacros())) {
+			playbackNotes = nextNotes.map((note) => note.note);
+			return;
+		}
+		releasePreviewSlot(held.slot);
+		if (nextNotes.length === 0) armReleaseTail();
+	}
+	const isDisabled = $derived(playbackStore.isPlaying);
+	const playDisabled = $derived(isDisabled || lastPlayedNotes.length === 0);
+	const effectiveNoteStrings = $derived(isPreviewPlaying ? lastPlayedNotes : playbackNotes);
+	const noteDisplay = $derived(
+		activeNotes.length > 0
+			? activeNotes.map((n) => n.note).join(' ')
+			: lastPlayedNotes.length > 0
+				? lastPlayedNotes.join(' ')
+				: '—'
+	);
+	const playbackShortcutDisplay = $derived(
+		ShortcutString.toDisplay(keybindingsStore.getShortcut(ACTION_TOGGLE_PLAYBACK))
+	);
+	const playButtonTitle = $derived(
+		isPreviewPlaying
+			? `Stop preview (${playbackShortcutDisplay})`
+			: `Play preview (${playbackShortcutDisplay})`
+	);
+	const noteTitle = $derived(
+		`Click to focus, then use keyboard. Polyphony: ${maxPoly()} notes (${channelCount()} per chip), starting on the pattern channel under the cursor. Piano: Z–P, Q–I; A = OFF; letters = note with current octave. ${playbackShortcutDisplay} = toggle play.`
+	);
+
+	$effect(() => {
+		if (isDisabled && !wasPlaying) {
+			cancelReleaseTail();
+			activeNotes = [];
+			playbackNotes = [];
+			isPreviewPlaying = false;
+		}
+		wasPlaying = isDisabled;
+	});
+
+	$effect(() => {
+		return () => {
+			if (!previewIsSounding()) return;
+			silencePreview();
+		};
+	});
+
+	$effect(() => {
+		const chip = options.getChip();
+		const instrumentId = options.getInstrumentId();
+		const hasNotes = effectiveNoteStrings.length > 0;
+		const processors = currentPreviewProcessors() as unknown as PreviewNoteSupport[];
+		if (processors.length === 0) return;
+		const chipSettings = audioService.chipSettings.forChip(chip.type);
+		if (!hasNotes) {
+			if (hadActiveNotes) {
+				hadActiveNotes = false;
+				silencePreview();
+			}
+			return;
+		}
+		const stereoLayoutSetting = chip.schema.settings?.find(
+			(setting) => setting.key === 'stereoLayout'
+		);
+		if (stereoLayoutSetting && savedStereoLayout === undefined) {
+			savedStereoLayout =
+				(chipSettings.get('stereoLayout') as string) ??
+				String(stereoLayoutSetting.defaultValue ?? 'mono');
+			chipSettings.set('stereoLayout', 'mono');
+		}
+		hadActiveNotes = true;
+		const chipIndices = audioService.chipProcessors
+			.map((p, i) => (p.chip === chip ? i : -1))
+			.filter((i) => i >= 0);
+		if (chipIndices.length > 0) {
+			audioService.setPreviewActiveForChips(chipIndices);
+		}
+		const normalizedId = instrumentId.toUpperCase().padStart(2, '0');
+		const currentInstrument = instrumentId
+			? filterInstrumentsForChip(projectStore.instruments, chip.type).find(
+					(i) => i.id.toUpperCase().padStart(2, '0') === normalizedId
+				)
+			: undefined;
+		processors.forEach((proc, processorIndex) => {
+			const channelNotes = placePreviewNotes(
+				notesForProcessor(effectiveNoteStrings, processorIndex, channelCount()),
+				channelCount(),
+				previewStartChannel()
+			);
+			const pattern = buildPreviewPattern({
+				schema: chip.schema,
+				instrumentId,
+				table,
+				volume,
+				left,
+				right,
+				noteStrings: channelNotes,
+				channelLabels: options.getPreviewChannelLabels?.()
+			});
+			options.decoratePreviewPattern?.(pattern);
+			proc.playPreviewRow(pattern, ROW_INDEX, currentInstrument);
+		});
+	});
+
+	$effect(() => {
+		const keys = activeNotes.map((n) => n.key);
+		if (keys.length === 0) return;
+		function onWindowKeyUp(e: KeyboardEvent) {
+			const action = keybindingsStore.getActionForShortcut(ShortcutString.fromEvent(e));
+			if (action === ACTION_TOGGLE_PLAYBACK) return;
+			if (keys.includes(e.key)) dropActiveKey(e.key);
+		}
+		window.addEventListener('keyup', onWindowKeyUp);
+		return () => window.removeEventListener('keyup', onWindowKeyUp);
+	});
+
+	$effect(() => {
+		if (!settingsStore.midiInputDeviceId || isDisabled || !midiService.isSupported()) return;
+		return midiService.addNoteListener((midiNote: number, velocity: number) => {
+			if (options.onMidiNote?.(midiNote, velocity)) return;
+			const noteFocused = noteInputEl && document.activeElement === noteInputEl;
+			if (!noteFocused) return;
+			if (velocity > 0) {
+				if (activeNotes.length >= maxPoly()) return;
+				if (activeNotes.some((n) => n.key === `midi-${midiNote}`)) return;
+				const noteStr = midiNoteToNoteString(midiNote);
+				if (!noteStr) return;
+				activeNotes = [...activeNotes, { key: `midi-${midiNote}`, note: noteStr, slot: 0 }];
+				attackPreview();
+			} else {
+				dropActiveKey(`midi-${midiNote}`);
+			}
+		});
+	});
+
+	$effect(() => {
+		registerPreviewSpaceHandler?.(togglePreviewPlaying);
+		return () => registerPreviewSpaceHandler?.(null);
+	});
+
+	function togglePreviewPlaying() {
+		if (playDisabled) return;
+		cancelReleaseTail();
+		if (isPreviewPlaying) {
+			const voiced = activeNotes.map((note, index) => ({ ...note, slot: index }));
+			activeNotes = voiced;
+			playbackNotes = voiced.map((note) => note.note);
+		}
+		isPreviewPlaying = !isPreviewPlaying;
+	}
+
+	function handleNoteKeyDown(event: KeyboardEvent) {
+		if (isDisabled) return;
+		if (event.repeat) return;
+		const key = event.key;
+		if (activeNotes.some((n) => n.key === key)) return;
+		if (activeNotes.length >= maxPoly()) return;
+		const keyLower = key.toLowerCase();
+		let noteStr: string;
+		const pianoNote = PatternNoteInput.mapKeyboardCodeToNote(event.code);
+		if (pianoNote) {
+			event.preventDefault();
+			noteStr = formatNoteFromEnum(pianoNote.noteName, pianoNote.octave);
+		} else if (keyLower === 'a') {
+			event.preventDefault();
+			noteStr = 'OFF';
+		} else {
+			const letterNote = PatternNoteInput.getLetterNote(event.key);
+			if (letterNote) {
+				event.preventDefault();
+				noteStr = formatNoteFromEnum(letterNote, editorStateStore.octave);
+			} else return;
+		}
+		activeNotes = [...activeNotes, { key, note: noteStr, slot: 0 }];
+		attackPreview();
+	}
+
+	function handleNoteKeyUp(event: KeyboardEvent) {
+		dropActiveKey(event.key);
+	}
+
+	function handleNoteBlur() {
+		cancelReleaseTail();
+		activeNotes = [];
+		playbackNotes = [];
+	}
+
+	function focusNoteInput() {
+		noteInputEl?.focus();
+	}
+
+	function ensureMidiAccess() {
+		if (
+			settingsStore.midiInputDeviceId &&
+			midiService.isSupported() &&
+			!midiService.hasAccess()
+		) {
+			midiService.requestAccess();
+		}
+	}
+
+	function handleTableInput(event: Event) {
+		table = sanitizeTableInput((event.currentTarget as HTMLInputElement).value || '');
+	}
+
+	function clampTable() {
+		table = sanitizeTableInput(table);
+	}
+
+	function handleVolumeInput(event: Event) {
+		volume = filterVolumeInput((event.currentTarget as HTMLInputElement).value || '', volume);
+	}
+
+	function clampVolume() {
+		volume = clampVolumeInput(volume);
+	}
+
+	function handleLeftInput(event: Event) {
+		left = filterVolumeInput((event.currentTarget as HTMLInputElement).value || '', left);
+	}
+
+	function clampLeft() {
+		left = clampVolumeInput(left);
+	}
+
+	function handleRightInput(event: Event) {
+		right = filterVolumeInput((event.currentTarget as HTMLInputElement).value || '', right);
+	}
+
+	function clampRight() {
+		right = clampVolumeInput(right);
+	}
+
+	return {
+		get table() {
+			return table;
+		},
+		set table(value: string) {
+			table = value;
+		},
+		get volume() {
+			return volume;
+		},
+		set volume(value: string) {
+			volume = value;
+		},
+		get left() {
+			return left;
+		},
+		set left(value: string) {
+			left = value;
+		},
+		get right() {
+			return right;
+		},
+		set right(value: string) {
+			right = value;
+		},
+		get noteInputEl() {
+			return noteInputEl;
+		},
+		set noteInputEl(value: HTMLDivElement | null) {
+			noteInputEl = value;
+		},
+		get isPreviewPlaying() {
+			return isPreviewPlaying;
+		},
+		get isDisabled() {
+			return isDisabled;
+		},
+		get playDisabled() {
+			return playDisabled;
+		},
+		get noteDisplay() {
+			return noteDisplay;
+		},
+		get playButtonTitle() {
+			return playButtonTitle;
+		},
+		get noteTitle() {
+			return noteTitle;
+		},
+		togglePreviewPlaying,
+		handleNoteKeyDown,
+		handleNoteKeyUp,
+		handleNoteBlur,
+		focusNoteInput,
+		ensureMidiAccess,
+		handleTableInput,
+		clampTable,
+		handleVolumeInput,
+		clampVolume,
+		handleLeftInput,
+		clampLeft,
+		handleRightInput,
+		clampRight
+	};
+}

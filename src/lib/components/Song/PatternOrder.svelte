@@ -1,13 +1,12 @@
 <script lang="ts">
 	import type { Pattern } from '../../models/song';
-	import type { ChipSchema } from '../../chips/base/schema';
 	import { getPatternOrderColors } from '../../utils/pattern-order-colors';
-	import { getFonts } from '../../utils/fonts';
 	import { setupCanvas as setupCanvasUtil } from '../../utils/canvas-utils';
 	import { PatternService } from '../../services/pattern/pattern-service';
 	import { PatternOrderRenderer } from '../../ui-rendering/pattern-order-renderer';
 	import { playbackStore } from '../../stores/playback.svelte';
 	import { themeService } from '../../services/theme/theme-service';
+	import { settingsStore } from '../../stores/settings.svelte';
 	import IconCarbonUnlink from '~icons/carbon/unlink';
 	import IconCarbonCopy from '~icons/carbon/copy';
 	import IconCarbonSubtract from '~icons/carbon/subtract';
@@ -18,14 +17,14 @@
 	import { open } from '../../services/modal/modal-service';
 	import ColorPickerModal from '../Modal/ColorPickerModal.svelte';
 	import { projectStore } from '../../stores/project.svelte';
+	import type { ProjectDiff } from '../../models/history';
+	import { PATTERN_EDITOR_CONSTANTS } from './types';
 
 	interface Props {
 		currentPatternOrderIndex: number;
 		selectedRow: number;
-		chipSchemas?: (ChipSchema | undefined)[];
-		canvasHeight?: number;
 		lineHeight?: number;
-		onPatternSelect?: (index: number) => void;
+		onPatternSelect?: (index: number, immediate?: boolean) => void;
 		onMakeUnique?: (index: number) => void;
 		onPatternOrderEdited?: () => void;
 	}
@@ -33,8 +32,6 @@
 	let {
 		currentPatternOrderIndex = $bindable(),
 		selectedRow = $bindable(),
-		chipSchemas = [],
-		canvasHeight = 600,
 		onPatternSelect,
 		onMakeUnique,
 		onPatternOrderEdited
@@ -42,6 +39,7 @@
 
 	const patternOrder = $derived(projectStore.patternOrder);
 	const patternOrderColors = $derived(projectStore.patternOrderColors);
+	const loopPointId = $derived(projectStore.loopPointId);
 
 	const patternsRecord = $derived.by(() => {
 		const record: Record<number, Pattern> = {};
@@ -62,16 +60,27 @@
 	const BUTTON_SPACING = 2;
 	const BUTTON_COLUMN_WIDTH = BUTTON_SIZE;
 
+	let containerDiv: HTMLDivElement;
 	let canvas: HTMLCanvasElement;
 	let ctx: CanvasRenderingContext2D;
 	const canvasWidth = CELL_WIDTH + PADDING * 2 + BUTTON_COLUMN_WIDTH + BUTTON_SPACING;
+	let canvasHeight = $state(PATTERN_EDITOR_CONSTANTS.DEFAULT_CANVAS_HEIGHT);
 
 	let COLORS = $state(getPatternOrderColors());
-	let FONTS = getFonts();
+	let FONTS = $derived.by(() => {
+		const family = settingsStore.uiFontFamily;
+		const isGeneric = family === 'monospace' || family === 'sans-serif';
+		const fontStack = isGeneric ? family : `"${family}"`;
+		return {
+			mono: `${fontStack}, monospace`,
+			sans: `${fontStack}, sans-serif`
+		};
+	});
 	let renderer: PatternOrderRenderer | null = null;
 
 	let lastDrawnOrderIndex = -1;
 	let lastPatternOrderLength = -1;
+	let lastLoopPointId = -1;
 	let lastHoveredIndex: number | null = null;
 	let lastCanvasHeight = -1;
 	let needsSetup = true;
@@ -79,41 +88,48 @@
 	$effect(() => {
 		if (!canvas) return;
 
+		const orderIndex = currentPatternOrderIndex;
+		const orderLength = patternOrder.length;
+		const loopId = loopPointId;
+		const height = canvasHeight;
+		const hover = hoveredIndex;
+		projectStore.songs.length;
+		patternsRecord;
+		patternOrderColors;
+
 		if (needsSetup || !ctx) {
 			ctx = canvas.getContext('2d')!;
 			setupCanvas();
 			needsSetup = false;
-			lastDrawnOrderIndex = currentPatternOrderIndex;
-			lastPatternOrderLength = patternOrder.length;
-			lastCanvasHeight = canvasHeight;
+			lastDrawnOrderIndex = orderIndex;
+			lastPatternOrderLength = orderLength;
+			lastLoopPointId = loopId;
+			lastCanvasHeight = height;
+			lastHoveredIndex = hover;
 			draw();
 			return;
 		}
 
-		const sizeChanged = canvasHeight !== lastCanvasHeight;
-		const colorsChanged = patternOrderColors;
+		const sizeChanged = height !== lastCanvasHeight;
 		const orderChanged =
-			currentPatternOrderIndex !== lastDrawnOrderIndex ||
-			patternOrder.length !== lastPatternOrderLength ||
-			sizeChanged;
+			orderIndex !== lastDrawnOrderIndex ||
+			orderLength !== lastPatternOrderLength ||
+			sizeChanged ||
+			loopId !== lastLoopPointId;
 
 		if (sizeChanged) {
 			setupCanvas();
 		}
 
-		if (orderChanged || colorsChanged) {
-			lastDrawnOrderIndex = currentPatternOrderIndex;
-			lastPatternOrderLength = patternOrder.length;
-			lastCanvasHeight = canvasHeight;
-			draw();
-			lastHoveredIndex = hoveredIndex;
+		lastDrawnOrderIndex = orderIndex;
+		lastPatternOrderLength = orderLength;
+		lastLoopPointId = loopId;
+		lastCanvasHeight = height;
+		lastHoveredIndex = hover;
+		draw();
 
-			if (lastMouseY !== null && lastMouseX !== null && !isDragging) {
-				updateCursor(lastMouseY, lastMouseX);
-			}
-		} else if (hoveredIndex !== lastHoveredIndex) {
-			draw();
-			lastHoveredIndex = hoveredIndex;
+		if (orderChanged && lastMouseY !== null && lastMouseX !== null && !isDragging) {
+			updateCursor(lastMouseY, lastMouseX);
 		}
 	});
 
@@ -138,10 +154,34 @@
 			fontSize: FONT_SIZE,
 			cellWidth: CELL_WIDTH,
 			cellHeight: CELL_HEIGHT,
-			padding: PADDING,
-			fadeHeight: FADE_HEIGHT
+			padding: PADDING
 		});
 	}
+
+	function updateSize(): void {
+		if (!containerDiv || containerDiv.clientHeight <= 0) return;
+
+		canvasHeight = Math.max(
+			PATTERN_EDITOR_CONSTANTS.MIN_CANVAS_HEIGHT,
+			containerDiv.clientHeight
+		);
+	}
+
+	$effect(() => {
+		if (!containerDiv) return;
+
+		updateSize();
+
+		const resizeObserver = new ResizeObserver(() => {
+			updateSize();
+		});
+
+		resizeObserver.observe(containerDiv);
+
+		return () => {
+			resizeObserver.disconnect();
+		};
+	});
 
 	$effect(() => {
 		const unsubscribe = themeService.onColorChange(() => {
@@ -152,6 +192,34 @@
 			}
 		});
 		return unsubscribe;
+	});
+
+	$effect(() => {
+		const family = settingsStore.uiFontFamily;
+		FONTS;
+		if (!ctx || !canvas) return;
+
+		setupCanvas();
+		draw();
+
+		if (!family || family === 'monospace' || family === 'sans-serif') return;
+
+		const fontSpec = `${FONT_SIZE}px "${family}"`;
+		if (document.fonts.check(fontSpec)) return;
+
+		let cancelled = false;
+		document.fonts
+			.load(fontSpec)
+			.then(() => {
+				if (cancelled || !ctx || !canvas) return;
+				setupCanvas();
+				draw();
+			})
+			.catch(() => {});
+
+		return () => {
+			cancelled = true;
+		};
 	});
 
 	function shiftColorsAfterRemove(removedIndex: number): void {
@@ -190,6 +258,80 @@
 		projectStore.patternOrderColors = next;
 	}
 
+	function adjustLoopPointAfterRemove(removedIndex: number, newLength: number): void {
+		const lp = projectStore.loopPointId;
+		if (lp < removedIndex) return;
+		if (lp > removedIndex) {
+			projectStore.loopPointId = lp - 1;
+			return;
+		}
+		projectStore.loopPointId = Math.min(removedIndex, Math.max(0, newLength - 1));
+	}
+
+	function adjustLoopPointAfterAdd(insertedIndex: number): void {
+		if (projectStore.loopPointId >= insertedIndex) {
+			projectStore.loopPointId++;
+		}
+	}
+
+	function adjustLoopPointAfterMove(fromIndex: number, toIndex: number): void {
+		if (fromIndex === toIndex) return;
+		const lp = projectStore.loopPointId;
+		if (lp === fromIndex) {
+			projectStore.loopPointId = toIndex;
+			return;
+		}
+		if (fromIndex < toIndex) {
+			if (lp > fromIndex && lp <= toIndex) projectStore.loopPointId = lp - 1;
+		} else if (lp >= toIndex && lp < fromIndex) {
+			projectStore.loopPointId = lp + 1;
+		}
+	}
+
+	function recordPatternOrderHistory(
+		type:
+			| 'patternOrder.add'
+			| 'patternOrder.remove'
+			| 'patternOrder.move'
+			| 'patternOrder.setPatternId'
+			| 'patternOrder.clone'
+			| 'patternOrder.makeUnique'
+			| 'patternOrder.loopPoint'
+			| 'patternOrder.color',
+		label: string,
+		before: {
+			patterns?: Pattern[][];
+			patternOrder?: number[];
+			loopPointId?: number;
+			patternOrderColors?: Record<number, string>;
+		}
+	): void {
+		const diffs: ProjectDiff[] = [];
+		if (before.patterns) {
+			diffs.push(projectStore.createSetDiff(['patterns'], before.patterns, projectStore.patterns));
+		}
+		if (before.patternOrder) {
+			diffs.push(
+				projectStore.createSetDiff(['patternOrder'], before.patternOrder, projectStore.patternOrder)
+			);
+		}
+		if (before.loopPointId !== undefined) {
+			diffs.push(
+				projectStore.createSetDiff(['loopPointId'], before.loopPointId, projectStore.loopPointId)
+			);
+		}
+		if (before.patternOrderColors) {
+			diffs.push(
+				projectStore.createSetDiff(
+					['patternOrderColors'],
+					before.patternOrderColors,
+					projectStore.patternOrderColors
+				)
+			);
+		}
+		projectStore.recordHistory({ type, label, affectedDomains: ['patterns', 'patternOrder'] }, diffs);
+	}
+
 	function getVisibleRange() {
 		const visibleCount = Math.floor(canvasHeight / CELL_HEIGHT);
 		const halfVisible = Math.floor(visibleCount / 2);
@@ -201,10 +343,19 @@
 		return { startIndex, endIndex };
 	}
 
+	const scrollIndicators = $derived.by(() => {
+		const { startIndex, endIndex } = getVisibleRange();
+		return {
+			hasMoreAbove: startIndex > 0,
+			hasMoreBelow: endIndex < patternOrder.length - 1
+		};
+	});
+
 	function draw(): void {
 		if (!ctx || !renderer) return;
 
 		const centerY = canvasHeight / 2;
+		const hasSongs = projectStore.songs.length > 0;
 
 		renderer.drawBackground(canvasHeight);
 
@@ -214,7 +365,7 @@
 			if (i < 0 || i >= patternOrder.length) continue;
 
 			const patternId = patternOrder[i];
-			let pattern = patternsRecord[patternId];
+			const pattern = patternsRecord[patternId];
 
 			const y = centerY - (currentPatternOrderIndex - i) * CELL_HEIGHT;
 
@@ -235,7 +386,9 @@
 				editingValue: editingPatternValue,
 				index: i,
 				isDragging: isDraggingThis,
-				orderIndexColor: patternOrderColors[i]
+				orderIndexColor: patternOrderColors[i],
+				isLoopMarker: i === loopPointId,
+				isMissingPattern: hasSongs && pattern === undefined
 			});
 		}
 
@@ -247,11 +400,6 @@
 					: dropY - CELL_HEIGHT / 2;
 			renderer.drawDropIndicator(indicatorY);
 		}
-
-		const hasMoreAbove = startIndex > 0;
-		const hasMoreBelow = endIndex < patternOrder.length - 1;
-
-		renderer.drawScrollIndicators(hasMoreAbove, hasMoreBelow);
 	}
 
 	let editingPatternIndex: number | null = $state(null);
@@ -328,6 +476,11 @@
 			dropTargetIndex !== null &&
 			draggedIndex !== dropTargetIndex
 		) {
+			const before = {
+				patternOrder: [...projectStore.patternOrder],
+				loopPointId: projectStore.loopPointId,
+				patternOrderColors: { ...projectStore.patternOrderColors }
+			};
 			const result = PatternService.movePatternInOrder(
 				patternOrder,
 				draggedIndex,
@@ -335,6 +488,8 @@
 			);
 			projectStore.patternOrder = result.newPatternOrder;
 			moveColor(draggedIndex, dropTargetIndex);
+			adjustLoopPointAfterMove(draggedIndex, dropTargetIndex);
+			recordPatternOrderHistory('patternOrder.move', 'Move pattern order slot', before);
 
 			if (currentPatternOrderIndex === draggedIndex) {
 				currentPatternOrderIndex = dropTargetIndex;
@@ -377,12 +532,42 @@
 		const newIndex = currentPatternOrderIndex + Math.sign(event.deltaY);
 
 		if (newIndex >= 0 && newIndex < patternOrder.length) {
-			switchPattern(newIndex);
+			switchPattern(newIndex, false);
 		}
+	}
+
+	function startPatternEdit(index: number): void {
+		editingPatternIndex = index;
+		editingPatternValue = '';
+		draw();
+	}
+
+	function movePatternSelection(delta: number): void {
+		const newIndex = currentPatternOrderIndex + delta;
+		if (newIndex < 0 || newIndex >= patternOrder.length) return;
+
+		if (editingPatternIndex !== null) {
+			finishPatternEdit();
+		}
+
+		switchPattern(newIndex, false);
+		startPatternEdit(newIndex);
 	}
 
 	function handleKeyDown(event: KeyboardEvent): void {
 		const { key } = event;
+
+		if (key === 'ArrowUp') {
+			event.preventDefault();
+			movePatternSelection(-1);
+			return;
+		}
+
+		if (key === 'ArrowDown') {
+			event.preventDefault();
+			movePatternSelection(1);
+			return;
+		}
 
 		if (editingPatternIndex !== null) {
 			if (key === 'Enter') {
@@ -394,11 +579,12 @@
 			} else if (key >= '0' && key <= '9') {
 				if (editingPatternValue.length < 2) {
 					editingPatternValue += key;
+					applyPatternEditValue(editingPatternValue);
 					if (editingPatternValue.length === 2) {
-						finishPatternEdit();
-					} else {
-						draw();
+						editingPatternIndex = null;
+						editingPatternValue = '';
 					}
+					draw();
 				}
 			} else if (key === 'Backspace') {
 				editingPatternValue = editingPatternValue.slice(0, -1);
@@ -407,64 +593,52 @@
 			return;
 		}
 
-		if (key === 'ArrowUp' && currentPatternOrderIndex > 0) {
-			event.preventDefault();
-			switchPattern(currentPatternOrderIndex - 1);
-		} else if (key === 'ArrowDown' && currentPatternOrderIndex < patternOrder.length - 1) {
-			event.preventDefault();
-			switchPattern(currentPatternOrderIndex + 1);
+		if (key >= '0' && key <= '9') {
+			startPatternEdit(currentPatternOrderIndex);
+			editingPatternValue += key;
+			applyPatternEditValue(editingPatternValue);
+			draw();
+		}
+	}
+
+	function applyPatternEditValue(value: string): void {
+		if (editingPatternIndex === null || value === '') return;
+
+		const displayedValue = value.padStart(2, '0');
+		const newId = parseInt(displayedValue);
+
+		const result = PatternService.setPatternIdInOrderMultiChip(
+			projectStore.patterns,
+			patternOrder,
+			editingPatternIndex,
+			newId,
+			(songIndex) => projectStore.songs[songIndex]?.getSchema(),
+			(songIndex) => projectStore.songs[songIndex]?.getEffectiveChannelLabels(),
+			projectStore.getDefaultPatternLength()
+		);
+
+		if (result) {
+			const before = {
+				patterns: projectStore.patterns.map((songPatterns) => [...songPatterns]),
+				patternOrder: [...projectStore.patternOrder]
+			};
+			result.newPatternsPerSong.forEach((newPatterns, songIndex) => {
+				projectStore.updatePatterns(songIndex, newPatterns);
+			});
+			projectStore.patternOrder = result.newPatternOrder;
+			recordPatternOrderHistory(
+				'patternOrder.setPatternId',
+				`Set pattern order slot to ${newId}`,
+				before
+			);
+			onPatternOrderEdited?.();
 		}
 	}
 
 	function finishPatternEdit(): void {
 		if (editingPatternIndex === null) return;
 
-		if (editingPatternValue !== '') {
-			const displayedValue = editingPatternValue.padStart(2, '0');
-			const newId = parseInt(displayedValue);
-
-			if (
-				chipSchemas.length > 0 &&
-				chipSchemas.length === projectStore.patterns.length
-			) {
-				const result = PatternService.setPatternIdInOrderMultiChip(
-					projectStore.patterns,
-					patternOrder,
-					editingPatternIndex,
-					newId,
-					(songIndex) => chipSchemas[songIndex]
-				);
-
-				if (result) {
-					result.newPatternsPerSong.forEach((newPatterns, songIndex) => {
-						projectStore.updatePatterns(songIndex, newPatterns);
-					});
-					projectStore.patternOrder = result.newPatternOrder;
-					onPatternOrderEdited?.();
-				}
-			} else {
-				const currentPatternId = patternOrder[editingPatternIndex];
-				const currentPattern = patternsRecord[currentPatternId];
-
-				const result = PatternService.setPatternIdInOrder(
-					patternsRecord,
-					patternOrder,
-					editingPatternIndex,
-					newId,
-					currentPattern,
-					chipSchemas[0]
-				);
-
-				if (result) {
-					const newPattern = result.newPatterns[newId];
-					if (newPattern && !patternsRecord[newId]) {
-						projectStore.addPatternToAllSongs(newPattern);
-					}
-					projectStore.patternOrder = result.newPatternOrder;
-					onPatternOrderEdited?.();
-				}
-			}
-		}
+		applyPatternEditValue(editingPatternValue);
 
 		editingPatternIndex = null;
 		editingPatternValue = '';
@@ -525,10 +699,10 @@
 		}
 	}
 
-	function switchPattern(index: number): void {
+	function switchPattern(index: number, immediate = true): void {
 		currentPatternOrderIndex = index;
 		selectedRow = 0;
-		onPatternSelect?.(index);
+		onPatternSelect?.(index, immediate);
 
 		if (lastMouseY !== null && lastMouseX !== null) {
 			updateCursor(lastMouseY, lastMouseX);
@@ -607,49 +781,50 @@
 	}
 
 	function addPatternAtIndex(index: number): void {
-		if (chipSchemas.length > 0 && chipSchemas.length === projectStore.patterns.length) {
-			const result = PatternService.addPatternAfterMultiChip(
-				projectStore.patterns,
-				patternOrder,
-				index,
-				(songIndex) => chipSchemas[songIndex]
-			);
+		if (!canAllocatePatternId) return;
 
-			result.newPatternsPerSong.forEach((newPatterns, songIndex) => {
-				projectStore.updatePatterns(songIndex, newPatterns);
-			});
-			projectStore.patternOrder = result.newPatternOrder;
-			shiftColorsAfterAdd(result.insertIndex);
-			currentPatternOrderIndex = result.insertIndex;
-			selectedRow = 0;
-			onPatternSelect?.(result.insertIndex);
-		} else {
-			const result = PatternService.addPatternAfter(
-				patternsRecord,
-				patternOrder,
-				index,
-				chipSchemas[0]
-			);
+		const before = {
+			patterns: projectStore.patterns.map((songPatterns) => [...songPatterns]),
+			patternOrder: [...projectStore.patternOrder],
+			loopPointId: projectStore.loopPointId,
+			patternOrderColors: { ...projectStore.patternOrderColors }
+		};
+		const result = PatternService.addPatternAfterMultiChip(
+			projectStore.patterns,
+			patternOrder,
+			index,
+			(songIndex) => projectStore.songs[songIndex]?.getSchema(),
+			(songIndex) => projectStore.songs[songIndex]?.getEffectiveChannelLabels(),
+			projectStore.getDefaultPatternLength()
+		);
+		if (!result) return;
 
-			const newPattern = result.newPatterns[result.newPatternId];
-			if (newPattern) {
-				projectStore.addPatternToAllSongs(newPattern);
-			}
-			projectStore.patternOrder = result.newPatternOrder;
-			shiftColorsAfterAdd(result.insertIndex);
-			currentPatternOrderIndex = result.insertIndex;
-			selectedRow = 0;
-			onPatternSelect?.(result.insertIndex);
-		}
+		result.newPatternsPerSong.forEach((newPatterns, songIndex) => {
+			projectStore.updatePatterns(songIndex, newPatterns);
+		});
+		projectStore.patternOrder = result.newPatternOrder;
+		shiftColorsAfterAdd(result.insertIndex);
+		adjustLoopPointAfterAdd(result.insertIndex);
+		recordPatternOrderHistory('patternOrder.add', `Add pattern ${result.newPatternId}`, before);
+		currentPatternOrderIndex = result.insertIndex;
+		selectedRow = 0;
+		onPatternSelect?.(result.insertIndex);
 
 		afterPatternOperation();
 	}
 
 	function removePatternAtIndex(index: number): void {
+		const before = {
+			patternOrder: [...projectStore.patternOrder],
+			loopPointId: projectStore.loopPointId,
+			patternOrderColors: { ...projectStore.patternOrderColors }
+		};
 		const result = PatternService.removePatternAt(patternOrder, index);
 
 		projectStore.patternOrder = result.newPatternOrder;
 		shiftColorsAfterRemove(index);
+		adjustLoopPointAfterRemove(index, result.newPatternOrder.length);
+		recordPatternOrderHistory('patternOrder.remove', `Remove pattern ${patternOrder[index]}`, before);
 
 		currentPatternOrderIndex = PatternService.calculateAdjustedIndex(
 			currentPatternOrderIndex,
@@ -662,81 +837,68 @@
 		afterPatternOperation();
 	}
 
-	function ensurePatternInRecord(patternId: number): Pattern | null {
-		return patternsRecord[patternId] || null;
-	}
-
 	function clonePatternAtIndex(index: number): void {
-		if (chipSchemas.length > 0 && chipSchemas.length === projectStore.patterns.length) {
-			const result = PatternService.clonePatternAfterMultiChip(
-				projectStore.patterns,
-				patternOrder,
-				index,
-				(songIndex) => chipSchemas[songIndex]
-			);
+		if (!canAllocatePatternId) return;
 
-			if (!result) return;
+		const before = {
+			patterns: projectStore.patterns.map((songPatterns) => [...songPatterns]),
+			patternOrder: [...projectStore.patternOrder],
+			loopPointId: projectStore.loopPointId,
+			patternOrderColors: { ...projectStore.patternOrderColors }
+		};
+		const result = PatternService.clonePatternAfterMultiChip(
+			projectStore.patterns,
+			patternOrder,
+			index,
+			(songIndex) => projectStore.songs[songIndex]?.getSchema()
+		);
+		if (!result) return;
 
-			result.newPatternsPerSong.forEach((newPatterns, songIndex) => {
-				projectStore.updatePatterns(songIndex, newPatterns);
-			});
-			projectStore.patternOrder = result.newPatternOrder;
-			shiftColorsAfterAdd(result.insertIndex);
-			currentPatternOrderIndex = result.insertIndex;
-			selectedRow = 0;
-			onPatternSelect?.(result.insertIndex);
-		} else {
-			const targetPatternId = patternOrder[index];
-			const targetPattern = ensurePatternInRecord(targetPatternId);
-
-			if (!targetPattern) return;
-
-			const result = PatternService.clonePatternAfter(
-				patternsRecord,
-				patternOrder,
-				index,
-				targetPattern,
-				chipSchemas[0]
-			);
-
-			if (!result) return;
-
-			const clonedPattern = result.newPatterns[result.newPatternId];
-			if (clonedPattern) {
-				projectStore.addPatternToAllSongs(clonedPattern);
-			}
-			projectStore.patternOrder = result.newPatternOrder;
-			shiftColorsAfterAdd(result.insertIndex);
-			currentPatternOrderIndex = result.insertIndex;
-			selectedRow = 0;
-			onPatternSelect?.(result.insertIndex);
-		}
+		result.newPatternsPerSong.forEach((newPatterns, songIndex) => {
+			projectStore.updatePatterns(songIndex, newPatterns);
+		});
+		projectStore.patternOrder = result.newPatternOrder;
+		shiftColorsAfterAdd(result.insertIndex);
+		adjustLoopPointAfterAdd(result.insertIndex);
+		recordPatternOrderHistory('patternOrder.clone', `Clone pattern ${patternOrder[index]}`, before);
+		currentPatternOrderIndex = result.insertIndex;
+		selectedRow = 0;
+		onPatternSelect?.(result.insertIndex);
 
 		afterPatternOperation();
 	}
 
 	function makePatternUniqueAtIndex(index: number): void {
+		if (!canAllocatePatternId) return;
+
 		if (projectStore.patterns.length > 1 && onMakeUnique) {
 			onMakeUnique(index);
 			return;
 		}
 
 		const targetPatternId = patternOrder[index];
-		const targetPattern = ensurePatternInRecord(targetPatternId);
+		const before = {
+			patterns: projectStore.patterns.map((songPatterns) => [...songPatterns]),
+			patternOrder: [...projectStore.patternOrder]
+		};
 
-		if (!targetPattern) return;
-
-		const result = PatternService.makePatternUnique(
-			patternsRecord,
+		const result = PatternService.makePatternUniqueMultiChip(
+			projectStore.patterns,
 			patternOrder,
 			index,
-			targetPattern
+			(songIndex) => projectStore.songs[songIndex]?.getSchema()
 		);
-
 		if (!result) return;
 
-		projectStore.addPatternToAllSongs(result.newPatterns[result.newPatternId]);
+		result.updatedPatterns.forEach((newPatterns, songIndex) => {
+			projectStore.updatePatterns(songIndex, newPatterns);
+		});
 		projectStore.patternOrder = result.newPatternOrder;
+		recordPatternOrderHistory(
+			'patternOrder.makeUnique',
+			`Make pattern ${targetPatternId} unique`,
+			before
+		);
 
 		if (index === currentPatternOrderIndex) {
 			selectedRow = 0;
@@ -750,6 +912,11 @@
 	const totalHeight = BUTTON_SIZE * 4 + BUTTON_SPACING * 3;
 	const startY = $derived(buttonCenterY - totalHeight / 2);
 	const canRemove = $derived(patternOrder.length > 1);
+	const canAllocatePatternId = $derived(
+		PatternService.findNextAvailablePatternIdFromPatterns(projectStore.patterns, patternOrder) !==
+			null
+	);
+	const noFreePatternTitle = 'No free pattern numbers (00-99 are used)';
 
 	function handleContextMenu(event: MouseEvent): void {
 		event.preventDefault();
@@ -782,10 +949,28 @@
 		const index = contextMenuPatternIndex;
 		closeContextMenu();
 
+		if (data.action === 'loop-set') {
+			const before = { loopPointId: projectStore.loopPointId };
+			projectStore.loopPointId = index;
+			recordPatternOrderHistory('patternOrder.loopPoint', `Set loop marker to ${index}`, before);
+			draw();
+			return;
+		}
+
+		if (data.action === 'loop-clear') {
+			const before = { loopPointId: projectStore.loopPointId };
+			projectStore.loopPointId = 0;
+			recordPatternOrderHistory('patternOrder.loopPoint', 'Clear loop marker', before);
+			draw();
+			return;
+		}
+
 		if (data.action === 'color-clear') {
+			const before = { patternOrderColors: { ...projectStore.patternOrderColors } };
 			const next = { ...patternOrderColors };
 			delete next[index];
 			projectStore.patternOrderColors = next;
+			recordPatternOrderHistory('patternOrder.color', `Clear color for order ${index}`, before);
 			draw();
 			return;
 		}
@@ -796,7 +981,9 @@
 			})
 				.then((color: string | undefined) => {
 					if (color !== undefined) {
+						const before = { patternOrderColors: { ...projectStore.patternOrderColors } };
 						projectStore.patternOrderColors = { ...patternOrderColors, [index]: color };
+						recordPatternOrderHistory('patternOrder.color', `Set color for order ${index}`, before);
 						draw();
 					}
 				})
@@ -823,11 +1010,24 @@
 	}
 
 	const contextMenuItems = $derived.by((): MenuItem[] => {
+		const hideLoopMenuItem = contextMenuPatternIndex === 0 && loopPointId === 0;
+		const loopMenuItem: MenuItem | null =
+			hideLoopMenuItem
+				? null
+				: contextMenuPatternIndex !== null && contextMenuPatternIndex === loopPointId
+					? { label: 'Clear loop marker', type: 'normal', action: 'loop-clear' }
+					: { label: 'Set loop marker', type: 'normal', action: 'loop-set' };
 		const base: MenuItem[] = [
-			{ label: 'Make Unique', type: 'normal', action: 'make-unique' },
+			...(loopMenuItem ? [loopMenuItem] : []),
+			{
+				label: 'Make Unique',
+				type: 'normal',
+				action: 'make-unique',
+				disabled: () => !canAllocatePatternId
+			},
 			{ label: 'Delete', type: 'normal', action: 'delete', disabled: () => !canRemove },
-			{ label: 'Add', type: 'normal', action: 'add' },
-			{ label: 'Clone', type: 'normal', action: 'clone' },
+			{ label: 'Add', type: 'normal', action: 'add', disabled: () => !canAllocatePatternId },
+			{ label: 'Clone', type: 'normal', action: 'clone', disabled: () => !canAllocatePatternId },
 			{ label: 'Color...', type: 'normal', action: 'color-picker' }
 		];
 		const hasCustomColor =
@@ -839,7 +1039,10 @@
 	});
 </script>
 
-<div style="width: {canvasWidth}px; height: {canvasHeight}px;" class="relative overflow-hidden">
+<div
+	bind:this={containerDiv}
+	style="width: {canvasWidth}px;"
+	class="relative h-full overflow-hidden border border-pattern-empty transition-colors duration-150 focus-within:border-pattern-text focus-within:border-opacity-50">
 	<canvas
 		bind:this={canvas}
 		tabindex="0"
@@ -852,8 +1055,27 @@
 		onmouseleave={handleMouseLeave}
 		onmouseenter={handleMouseEnter}
 		oncontextmenu={handleContextMenu}
-		class="focus:border-opacity-50 border-pattern-empty bg-pattern-bg focus:border-pattern-text block border transition-colors duration-150 focus:outline-none"
+		class="bg-pattern-bg block focus:outline-none"
 		style="width: {canvasWidth}px; height: {canvasHeight}px;"></canvas>
+
+	{#if scrollIndicators.hasMoreAbove}
+		<div
+			class="pointer-events-none absolute inset-x-0 top-0 z-[1] flex justify-center"
+			style="height: {FADE_HEIGHT}px; background: linear-gradient(to bottom, var(--color-order-bg), transparent);">
+			<span
+				class="font-mono leading-none text-[var(--color-order-text)]"
+				style="font-size: {FONT_SIZE}px; padding-top: 1px;">▲</span>
+		</div>
+	{/if}
+	{#if scrollIndicators.hasMoreBelow}
+		<div
+			class="pointer-events-none absolute inset-x-0 bottom-0 z-[1] flex items-end justify-center"
+			style="height: {FADE_HEIGHT}px; background: linear-gradient(to top, var(--color-order-bg), transparent);">
+			<span
+				class="font-mono leading-none text-[var(--color-order-text)]"
+				style="font-size: {FONT_SIZE}px; padding-bottom: 1px;">▼</span>
+		</div>
+	{/if}
 
 	<div
 		class="pointer-events-none absolute"
@@ -861,10 +1083,13 @@
 		<PatternOrderButton
 			buttonType="up"
 			isHovered={hoveredButton === 'up'}
-			onClick={() => makePatternUniqueAtIndex(currentPatternOrderIndex)}
-			onMouseEnter={() => (hoveredButton = 'up')}
+			onClick={() => {
+				if (canAllocatePatternId) makePatternUniqueAtIndex(currentPatternOrderIndex);
+			}}
+			onMouseEnter={() => (hoveredButton = canAllocatePatternId ? 'up' : null)}
 			onMouseLeave={() => (hoveredButton = null)}
-			title="Make Unique"
+			disabled={!canAllocatePatternId}
+			title={canAllocatePatternId ? 'Make Unique' : noFreePatternTitle}
 			size={BUTTON_SIZE}>
 			<IconCarbonUnlink
 				class="text-pattern-text"
@@ -888,10 +1113,13 @@
 		<PatternOrderButton
 			buttonType="add"
 			isHovered={hoveredButton === 'add'}
-			onClick={() => addPatternAtIndex(currentPatternOrderIndex)}
-			onMouseEnter={() => (hoveredButton = 'add')}
+			onClick={() => {
+				if (canAllocatePatternId) addPatternAtIndex(currentPatternOrderIndex);
+			}}
+			onMouseEnter={() => (hoveredButton = canAllocatePatternId ? 'add' : null)}
 			onMouseLeave={() => (hoveredButton = null)}
-			title="Add"
+			disabled={!canAllocatePatternId}
+			title={canAllocatePatternId ? 'Add' : noFreePatternTitle}
 			size={BUTTON_SIZE}>
 			<IconCarbonAdd
 				class="text-pattern-text"
@@ -900,10 +1128,13 @@
 		<PatternOrderButton
 			buttonType="clone"
 			isHovered={hoveredButton === 'clone'}
-			onClick={() => clonePatternAtIndex(currentPatternOrderIndex)}
-			onMouseEnter={() => (hoveredButton = 'clone')}
+			onClick={() => {
+				if (canAllocatePatternId) clonePatternAtIndex(currentPatternOrderIndex);
+			}}
+			onMouseEnter={() => (hoveredButton = canAllocatePatternId ? 'clone' : null)}
 			onMouseLeave={() => (hoveredButton = null)}
-			title="Clone"
+			disabled={!canAllocatePatternId}
+			title={canAllocatePatternId ? 'Clone' : noFreePatternTitle}
 			size={BUTTON_SIZE}
 			hasMargin={false}>
 			<IconCarbonCopy

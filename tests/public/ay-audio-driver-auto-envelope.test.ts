@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import AYAudioDriver from '../../public/ay-audio-driver.js';
-import AyumiState from '../../public/ayumi-state.js';
+import { describeAyEffect } from '@/lib/chips/ay/effects';
+import { ayEnvelopeStickyEffectGroup } from '@/lib/chips/ay/playback-carry';
+import AYAudioDriver from '../../public/ay/ay-audio-driver.js';
+import AyumiState from '../../public/ay/ayumi-state.js';
 
 describe('AYAudioDriver - Auto Envelope (EA)', () => {
 	let driver: InstanceType<typeof AYAudioDriver>;
@@ -23,7 +25,14 @@ describe('AYAudioDriver - Auto Envelope (EA)', () => {
 	beforeEach(() => {
 		driver = new AYAudioDriver();
 		state = new AyumiState();
-		state.setTuningTable([3328, 3136, 2960, 2794, 2637, 2489, 2349, 2217, 2093, 1975, 1864, 1760, 1664, 1568, 1480, 1397, 1319, 1245, 1175, 1109, 1047, 988, 932, 880, 832, 784, 740, 699, 659, 622, 587, 554, 523, 494, 466, 440, 416, 392, 370, 349, 330, 311, 294, 277, 262, 247, 233, 220, 208, 196, 185, 175, 165, 156, 147, 139, 131, 124, 117, 110, 104, 98, 93, 87, 82, 78, 74, 69, 66, 62, 59, 55, 52, 49, 46, 44, 41, 39, 37, 35, 33, 31, 29, 28, 26, 25, 23, 22, 21, 20, 18, 17, 16, 15, 14, 13]);
+		state.setTuningTable([
+			3328, 3136, 2960, 2794, 2637, 2489, 2349, 2217, 2093, 1975, 1864, 1760, 1664, 1568,
+			1480, 1397, 1319, 1245, 1175, 1109, 1047, 988, 932, 880, 832, 784, 740, 699, 659, 622,
+			587, 554, 523, 494, 466, 440, 416, 392, 370, 349, 330, 311, 294, 277, 262, 247, 233,
+			220, 208, 196, 185, 175, 165, 156, 147, 139, 131, 124, 117, 110, 104, 98, 93, 87, 82,
+			78, 74, 69, 66, 62, 59, 55, 52, 49, 46, 44, 41, 39, 37, 35, 33, 31, 29, 28, 26, 25, 23,
+			22, 21, 20, 18, 17, 16, 15, 14, 13
+		]);
 	});
 
 	describe('getAutoEnvelopeDivisor', () => {
@@ -115,6 +124,25 @@ describe('AYAudioDriver - Auto Envelope (EA)', () => {
 			driver._processEnvelopeEffects(state, 0, {}, patternRow);
 
 			expect(state.autoEnvelopeActive).toBe(false);
+		});
+
+		it('does not activate for E1-E5 channel-style subcommands', () => {
+			for (const delay of [1, 2, 3, 4, 5]) {
+				state.autoEnvelopeActive = false;
+				driver._processEnvelopeEffects(
+					state,
+					0,
+					{},
+					{
+						envelopeEffect: {
+							effect: 'E'.charCodeAt(0),
+							delay,
+							parameter: 0x32
+						}
+					}
+				);
+				expect(state.autoEnvelopeActive).toBe(false);
+			}
 		});
 
 		it('keeps auto-envelope active when arpeggio effect is set', () => {
@@ -389,7 +417,23 @@ describe('AYAudioDriver - Auto Envelope (EA)', () => {
 			state.setInstruments([
 				{
 					id: '01',
-					rows: [{ tone: true, volume: 15, noise: false, envelope: true, toneAdd: 0, noiseAdd: 0, envelopeAdd: 0, toneAccumulation: false, noiseAccumulation: false, envelopeAccumulation: false, amplitudeSliding: false, amplitudeSlideUp: false, retriggerEnvelope: false }],
+					rows: [
+						{
+							tone: true,
+							volume: 15,
+							noise: false,
+							envelope: true,
+							toneAdd: 0,
+							noiseAdd: 0,
+							envelopeAdd: 0,
+							toneAccumulation: false,
+							noiseAccumulation: false,
+							envelopeAccumulation: false,
+							amplitudeSliding: false,
+							amplitudeSlideUp: false,
+							retriggerEnvelope: false
+						}
+					],
 					loop: 0
 				}
 			]);
@@ -421,12 +465,98 @@ describe('AYAudioDriver - Auto Envelope (EA)', () => {
 			state.autoEnvelopeActive = true;
 			state.autoEnvelopeNumerator = 3;
 			state.autoEnvelopeDenominator = 2;
+			state.autoEnvelopeTableIndex = 1;
 
 			state.reset();
 
 			expect(state.autoEnvelopeActive).toBe(false);
 			expect(state.autoEnvelopeNumerator).toBe(0);
 			expect(state.autoEnvelopeDenominator).toBe(0);
+			expect(state.autoEnvelopeTableIndex).toBe(-1);
+		});
+	});
+
+	describe('EATX', () => {
+		it('steps the ratio, turns off on 00, and stops when a literal EA or period replaces it', () => {
+			state.setTables([{ id: 1, rows: [0x32, 0x00, 0x11], loop: 0 }]);
+			driver._processEnvelopeEffects(
+				state,
+				0,
+				{},
+				{
+					envelopeEffect: {
+						effect: 'E'.charCodeAt(0),
+						delay: 0xa,
+						parameter: 0,
+						tableIndex: 1
+					}
+				}
+			);
+			expect(state.autoEnvelopeActive).toBe(true);
+			expect(state.autoEnvelopeNumerator).toBe(3);
+			expect(state.autoEnvelopeDenominator).toBe(2);
+			expect(state.autoEnvelopeTableIndex).toBe(1);
+			expect(state.envelopeEffectTable).toBe(-1);
+			expect(describeAyEffect({ effect: 'E'.charCodeAt(0), delay: 0xa, tableIndex: 1 })).toBe(
+				'EATY: Auto-Envelope (Y: table)'
+			);
+			expect(
+				ayEnvelopeStickyEffectGroup({
+					effect: 'E'.charCodeAt(0),
+					delay: 0xa,
+					parameter: 0,
+					tableIndex: 1
+				})
+			).toBe('envelope-auto');
+
+			const registerState = createRegisterState();
+			driver.processInstruments(state, registerState);
+			expect(state.autoEnvelopeActive).toBe(false);
+			expect(state.autoEnvelopeTablePosition).toBe(1);
+
+			driver.processInstruments(state, registerState);
+			expect(state.autoEnvelopeActive).toBe(true);
+			expect(state.autoEnvelopeNumerator).toBe(1);
+			expect(state.autoEnvelopeDenominator).toBe(1);
+			expect(state.autoEnvelopeTableIndex).toBe(1);
+
+			driver._processEnvelopeEffects(
+				state,
+				0,
+				{},
+				{
+					envelopeEffect: { effect: 'V'.charCodeAt(0), delay: 0, parameter: 0x44 }
+				}
+			);
+			expect(state.autoEnvelopeTableIndex).toBe(1);
+			expect(state.autoEnvelopeActive).toBe(true);
+
+			driver._processEnvelopeEffects(
+				state,
+				0,
+				{},
+				{
+					envelopeEffect: { effect: 'E'.charCodeAt(0), delay: 0xa, parameter: 0x21 }
+				}
+			);
+			expect(state.autoEnvelopeTableIndex).toBe(-1);
+			expect(state.autoEnvelopeNumerator).toBe(2);
+			expect(state.autoEnvelopeDenominator).toBe(1);
+
+			state.autoEnvelopeTableIndex = 1;
+			state.channelEnvelopeEnabled = [false, false, false];
+			state.channelInstruments = [0, -1, -1];
+			state.channelMuted = [false, false, false];
+			state.setInstruments([{ id: '01', rows: [], loop: 0 }]);
+			driver._processEnvelope(
+				state,
+				0,
+				{ envelopeShape: 12 },
+				{ envelopeValue: 500 },
+				registerState
+			);
+			expect(state.autoEnvelopeActive).toBe(false);
+			expect(state.autoEnvelopeTableIndex).toBe(-1);
 		});
 	});
 });

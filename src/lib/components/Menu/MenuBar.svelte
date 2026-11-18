@@ -7,8 +7,6 @@
 	import IconCarbonSkipBackFilled from '~icons/carbon/skip-back-filled';
 	import IconCarbonPlay from '~icons/carbon/play';
 	import IconCarbonRepeat from '~icons/carbon/repeat';
-	import IconCarbonChevronUp from '~icons/carbon/chevron-up';
-	import IconCarbonChevronDown from '~icons/carbon/chevron-down';
 	import IconCarbonLayers from '~icons/carbon/layers';
 	import IconCarbonArrowDown from '~icons/carbon/arrow-down';
 	import IconCarbonVolumeMute from '~icons/carbon/volume-mute';
@@ -18,8 +16,10 @@
 	import IconCarbonMusic from '~icons/carbon/music';
 	import { settingsStore } from '../../stores/settings.svelte';
 	import { editorStateStore } from '../../stores/editor-state.svelte';
-	import Input from '../Input/Input.svelte';
 	import Checkbox from '../Checkbox/Checkbox.svelte';
+	import { NumberStepper } from '../NumberStepper';
+	import { CommitNumericInput } from '../CommitNumericInput';
+	import { IconButton } from '../IconButton';
 	import IconCarbonTimer from '~icons/carbon/timer';
 	import { autoEnvStore, AUTO_ENV_PRESETS } from '../../stores/auto-env.svelte';
 	import { projectStore } from '../../stores/project.svelte';
@@ -35,28 +35,29 @@
 
 	const hasAYSong = $derived(projectStore.songs.some((song) => song.chipType === 'ay'));
 
-	const speed = $derived(projectStore.songs[0]?.initialSpeed ?? 3);
-
 	function setSpeed(value: number) {
-		const clamped = Math.max(1, Math.min(255, value));
-		for (const song of projectStore.songs) {
-			song.initialSpeed = clamped;
-		}
+		const clamped = Math.max(1, Math.min(255, Math.floor(Number(value)) || 1));
+		if (clamped === projectStore.getInitialSpeed()) return;
+		const beforeSettings = { ...projectStore.settings };
 		projectStore.settings.initialSpeed = clamped;
-	}
-
-	function commitSpeed(e: Event) {
-		const val = parseInt((e.target as HTMLInputElement).value, 10);
-		if (!isNaN(val)) setSpeed(val);
+		projectStore.recordHistory(
+			{
+				type: 'settings.update',
+				label: 'Update Initial Speed',
+				affectedDomains: ['settings']
+			},
+			[projectStore.createSetDiff(['settings'], beforeSettings, projectStore.settings)]
+		);
 	}
 
 	function incrementSpeed() {
-		if (speed < 255) setSpeed(speed + 1);
+		setSpeed(projectStore.getInitialSpeed() + 1);
 	}
 
 	function decrementSpeed() {
-		if (speed > 1) setSpeed(speed - 1);
+		setSpeed(projectStore.getInitialSpeed() - 1);
 	}
+
 	function handleVolumeChange(event: Event) {
 		const target = event.target as HTMLInputElement;
 		settingsStore.set('volume', Number(target.value));
@@ -79,18 +80,20 @@
 	}
 
 	function commitOctave() {
-		const octave = parseInt(editorStateStore.octave.toString(), 10);
-		if (!isNaN(octave) && octave >= 0 && octave <= 8) {
-			editorStateStore.setOctave(octave);
+		const raw = editorStateStore.octave;
+		const parsed = typeof raw === 'number' ? raw : parseInt(String(raw ?? ''), 10);
+		if (!Number.isNaN(parsed) && parsed >= 1 && parsed <= 8) {
+			editorStateStore.setOctave(parsed);
 		} else {
-			editorStateStore.setOctave(0);
+			editorStateStore.setOctave(4);
 		}
 	}
 
 	function commitStep() {
-		const step = parseInt(editorStateStore.step.toString(), 10);
-		if (!isNaN(step) && step >= 0 && step <= 255) {
-			editorStateStore.setStep(step);
+		const raw = editorStateStore.step;
+		const parsed = typeof raw === 'number' ? raw : parseInt(String(raw ?? ''), 10);
+		if (!Number.isNaN(parsed) && parsed >= 0 && parsed <= 255) {
+			editorStateStore.setStep(parsed);
 		} else {
 			editorStateStore.setStep(0);
 		}
@@ -103,7 +106,7 @@
 	}
 
 	function decrementOctave() {
-		if (editorStateStore.octave > 0) {
+		if (editorStateStore.octave > 1) {
 			editorStateStore.setOctave(editorStateStore.octave - 1);
 		}
 	}
@@ -115,24 +118,6 @@
 	function decrementStep() {
 		if (editorStateStore.step > 0) {
 			editorStateStore.setStep(editorStateStore.step - 1);
-		}
-	}
-
-	function commitAutoEnvNumerator() {
-		const num = parseInt(autoEnvStore.numerator.toString(), 10);
-		if (!isNaN(num) && num > 0 && num <= 999) {
-			autoEnvStore.setNumerator(num);
-		} else {
-			autoEnvStore.setNumerator(1);
-		}
-	}
-
-	function commitAutoEnvDenominator() {
-		const denom = parseInt(autoEnvStore.denominator.toString(), 10);
-		if (!isNaN(denom) && denom > 0 && denom <= 999) {
-			autoEnvStore.setDenominator(denom);
-		} else {
-			autoEnvStore.setDenominator(1);
 		}
 	}
 
@@ -166,141 +151,48 @@
 	{/each}
 
 	<div class="ml-auto flex items-center gap-1.5 min-[1880px]:gap-3">
-		<div class="flex items-center gap-1.5" title="Octave">
-			<IconCarbonLayers class="h-3.5 w-3.5 shrink-0 text-[var(--color-app-text-muted)]" />
-			<label
-				for="octave-input"
-				class="hidden text-xs font-medium text-[var(--color-app-text-tertiary)] min-[1880px]:inline"
-				>Octave:</label>
-			<div
-				class="flex items-center rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)]">
-				<Input
-					bind:value={editorStateStore.octave}
-					id="octave-input"
-					type="number"
-					min={0}
-					max={8}
-					class="h-6 w-10 border-0 bg-transparent text-center font-mono text-xs focus:ring-0"
-					onblur={commitOctave}
-					onkeydown={(e: KeyboardEvent) => {
-						if (e.key === 'Enter') {
-							e.preventDefault();
-							commitOctave();
-							(e.target as HTMLInputElement)?.blur();
-						}
-					}} />
-				<div class="flex flex-col border-l border-[var(--color-app-border)]">
-					<button
-						type="button"
-						class="flex h-3 w-4 cursor-pointer items-center justify-center border-b border-[var(--color-app-border)] transition-colors hover:bg-[var(--color-app-surface-hover)]"
-						onclick={incrementOctave}
-						title="Increment octave">
-						<IconCarbonChevronUp
-							class="h-2.5 w-2.5 text-[var(--color-app-text-muted)]" />
-					</button>
-					<button
-						type="button"
-						class="flex h-3 w-4 cursor-pointer items-center justify-center transition-colors hover:bg-[var(--color-app-surface-hover)]"
-						onclick={decrementOctave}
-						title="Decrement octave">
-						<IconCarbonChevronDown
-							class="h-2.5 w-2.5 text-[var(--color-app-text-muted)]" />
-					</button>
-				</div>
-			</div>
-		</div>
-		<div class="flex items-center gap-1.5" title="Step">
-			<IconCarbonArrowDown class="h-3.5 w-3.5 shrink-0 text-[var(--color-app-text-muted)]" />
-			<label
-				for="step-input"
-				class="hidden text-xs font-medium text-[var(--color-app-text-tertiary)] min-[1880px]:inline"
-				>Step:</label>
-			<div
-				class="flex items-center rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)]">
-				<Input
-					bind:value={editorStateStore.step}
-					id="step-input"
-					type="number"
-					class="h-6 w-10 border-0 bg-transparent text-center font-mono text-xs focus:ring-0"
-					onblur={commitStep}
-					onkeydown={(e: KeyboardEvent) => {
-						if (e.key === 'Enter') {
-							e.preventDefault();
-							commitStep();
-							(e.target as HTMLInputElement)?.blur();
-						} else if (e.key === 'ArrowUp') {
-							e.preventDefault();
-							incrementStep();
-							commitStep();
-						} else if (e.key === 'ArrowDown') {
-							e.preventDefault();
-							decrementStep();
-							commitStep();
-						}
-					}} />
-				<div class="flex flex-col border-l border-[var(--color-app-border)]">
-					<button
-						type="button"
-						class="flex h-3 w-4 cursor-pointer items-center justify-center border-b border-[var(--color-app-border)] transition-colors hover:bg-[var(--color-app-surface-hover)]"
-						onclick={incrementStep}
-						title="Increment step">
-						<IconCarbonChevronUp
-							class="h-2.5 w-2.5 text-[var(--color-app-text-muted)]" />
-					</button>
-					<button
-						type="button"
-						class="flex h-3 w-4 cursor-pointer items-center justify-center transition-colors hover:bg-[var(--color-app-surface-hover)]"
-						onclick={decrementStep}
-						title="Decrement step">
-						<IconCarbonChevronDown
-							class="h-2.5 w-2.5 text-[var(--color-app-text-muted)]" />
-					</button>
-				</div>
-			</div>
-		</div>
-		<div class="flex items-center gap-1.5" title="Speed">
-			<IconCarbonTimer class="h-3.5 w-3.5 shrink-0 text-[var(--color-app-text-muted)]" />
-			<label
-				for="speed-input"
-				class="hidden text-xs font-medium text-[var(--color-app-text-tertiary)] min-[1880px]:inline"
-				>Speed:</label>
-			<div
-				class="flex items-center rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)]">
-				<Input
-					value={speed}
-					id="speed-input"
-					type="number"
-					min={1}
-					max={255}
-					class="h-6 w-10 border-0 bg-transparent text-center font-mono text-xs focus:ring-0"
-					onblur={commitSpeed}
-					onkeydown={(e: KeyboardEvent) => {
-						if (e.key === 'Enter') {
-							e.preventDefault();
-							commitSpeed(e);
-							(e.target as HTMLInputElement)?.blur();
-						}
-					}} />
-				<div class="flex flex-col border-l border-[var(--color-app-border)]">
-					<button
-						type="button"
-						class="flex h-3 w-4 cursor-pointer items-center justify-center border-b border-[var(--color-app-border)] transition-colors hover:bg-[var(--color-app-surface-hover)]"
-						onclick={incrementSpeed}
-						title="Increment speed">
-						<IconCarbonChevronUp
-							class="h-2.5 w-2.5 text-[var(--color-app-text-muted)]" />
-					</button>
-					<button
-						type="button"
-						class="flex h-3 w-4 cursor-pointer items-center justify-center transition-colors hover:bg-[var(--color-app-surface-hover)]"
-						onclick={decrementSpeed}
-						title="Decrement speed">
-						<IconCarbonChevronDown
-							class="h-2.5 w-2.5 text-[var(--color-app-text-muted)]" />
-					</button>
-				</div>
-			</div>
-		</div>
+		<NumberStepper
+			id="octave-input"
+			label="Octave"
+			icon={IconCarbonLayers}
+			title="Octave"
+			bind:value={editorStateStore.octave}
+			min={1}
+			max={8}
+			onCommit={commitOctave}
+			onIncrement={incrementOctave}
+			onDecrement={decrementOctave} />
+		<NumberStepper
+			id="step-input"
+			label="Step"
+			icon={IconCarbonArrowDown}
+			title="Step"
+			bind:value={editorStateStore.step}
+			min={0}
+			max={255}
+			onCommit={commitStep}
+			onIncrement={incrementStep}
+			onDecrement={decrementStep}
+			onKeyDown={(e: KeyboardEvent) => {
+				if (e.key === 'ArrowUp') {
+					e.preventDefault();
+					incrementStep();
+				} else if (e.key === 'ArrowDown') {
+					e.preventDefault();
+					decrementStep();
+				}
+			}} />
+		<NumberStepper
+			id="speed-input"
+			label="Speed"
+			icon={IconCarbonTimer}
+			title="Initial speed"
+			bind:value={() => projectStore.getInitialSpeed(), (v) => setSpeed(v)}
+			min={1}
+			max={255}
+			onCommit={() => {}}
+			onIncrement={incrementSpeed}
+			onDecrement={decrementSpeed} />
 		{#if hasAYSong}
 			<div
 				class="auto-env-presets-container relative flex items-center gap-1.5"
@@ -322,43 +214,23 @@
 				{#if autoEnvStore.enabled}
 					<div
 						class="flex items-center gap-0.5 rounded border border-[var(--color-app-border)] bg-[var(--color-app-surface)]">
-						<Input
+						<CommitNumericInput
 							bind:value={autoEnvStore.numerator}
-							type="number"
+							live={false}
 							min={1}
 							max={999}
 							class="h-6 w-10 cursor-pointer border-0 bg-transparent text-center font-mono text-xs focus:ring-0"
-							onblur={commitAutoEnvNumerator}
-							onfocus={(e: FocusEvent) => {
-								(e.target as HTMLInputElement)?.select();
-							}}
-							onkeydown={(e: KeyboardEvent) => {
-								if (e.key === 'Enter') {
-									e.preventDefault();
-									commitAutoEnvNumerator();
-									(e.target as HTMLInputElement)?.blur();
-								}
-							}}
-							title="Auto Env Numerator" />
+							title="Auto Env Numerator"
+							oncommit={(v) => autoEnvStore.setNumerator(v)} />
 						<span class="text-xs text-[var(--color-app-text-muted)]">:</span>
-						<Input
+						<CommitNumericInput
 							bind:value={autoEnvStore.denominator}
-							type="number"
+							live={false}
 							min={1}
 							max={999}
 							class="h-6 w-10 cursor-pointer border-0 bg-transparent text-center font-mono text-xs focus:ring-0"
-							onblur={commitAutoEnvDenominator}
-							onfocus={(e: FocusEvent) => {
-								(e.target as HTMLInputElement)?.select();
-							}}
-							onkeydown={(e: KeyboardEvent) => {
-								if (e.key === 'Enter') {
-									e.preventDefault();
-									commitAutoEnvDenominator();
-									(e.target as HTMLInputElement)?.blur();
-								}
-							}}
-							title="Auto Env Denominator" />
+							title="Auto Env Denominator"
+							oncommit={(v) => autoEnvStore.setDenominator(v)} />
 						<button
 							type="button"
 							class="cursor-pointer border-l border-[var(--color-app-border)] px-1.5 py-1 text-xs text-[var(--color-app-text-muted)] transition-colors hover:bg-[var(--color-app-surface-hover)]"
@@ -388,20 +260,24 @@
 				{/if}
 			</div>
 			<div class="flex items-center gap-1.5" title="Envelope as Note">
-				<label class="flex cursor-pointer items-center gap-1.5">
+				<label for="envelope-as-note" class="cursor-pointer">
 					<IconCarbonMusic
 						class="h-3.5 w-3.5 shrink-0 text-[var(--color-app-text-muted)]" />
-					<Checkbox
-						showStatus={false}
-						bind:checked={editorStateStore.envelopeAsNote}
-						onchange={() => {
-							editorStateStore.setEnvelopeAsNote(!editorStateStore.envelopeAsNote);
-						}}
-						title="Envelope as Note" />
-					<span
-						class="hidden text-xs font-medium text-[var(--color-app-text-tertiary)] min-[1880px]:inline"
-						>Env as Note</span>
 				</label>
+				<Checkbox
+					id="envelope-as-note"
+					showStatus={false}
+					bind:checked={editorStateStore.envelopeAsNote}
+					onchange={(event) => {
+						const target = event.currentTarget;
+						if (!(target instanceof HTMLInputElement)) return;
+						editorStateStore.setEnvelopeAsNote(target.checked);
+					}}
+					title="Envelope as Note" />
+				<label
+					for="envelope-as-note"
+					class="hidden cursor-pointer text-xs font-medium text-[var(--color-app-text-tertiary)] min-[1880px]:inline"
+					>Env as Note</label>
 			</div>
 		{/if}
 		<div
@@ -433,44 +309,28 @@
 	</div>
 
 	<div class="absolute top-3.5 left-1/2 flex -translate-x-1/2 -translate-y-1/2 gap-1">
-		<button
-			class="rounded-sm border border-[var(--color-app-border)] bg-[var(--color-app-surface-active)] p-2 transition-colors hover:cursor-pointer hover:bg-[var(--color-app-surface-hover)]"
+		<IconButton
+			icon={IconCarbonRepeat}
 			title="Play pattern (loop)"
-			onclick={() => {
-				onAction?.({ action: 'playPattern' });
-			}}>
-			<IconCarbonRepeat class="h-4 w-4" />
-		</button>
-
-		<button
-			class="rounded-sm border border-[var(--color-app-border)] bg-[var(--color-app-surface-active)] p-2 transition-colors hover:cursor-pointer hover:bg-[var(--color-app-surface-hover)]"
+			onclick={() => onAction?.({ action: 'playPattern' })} />
+		<IconButton
+			icon={IconCarbonSkipBackFilled}
 			title="Play from beginning"
-			onclick={() => {
-				onAction?.({ action: 'playFromBeginning' });
-			}}>
-			<IconCarbonSkipBackFilled class="h-4 w-4" />
-		</button>
-
-		<button
-			class="rounded-sm border border-[var(--color-app-border)] bg-[var(--color-app-surface-active)] p-2 transition-colors hover:cursor-pointer hover:bg-[var(--color-app-surface-hover)]"
+			onclick={() => onAction?.({ action: 'playFromBeginning' })} />
+		<IconButton
 			title={playbackStore.isPlaying ? 'Pause' : 'Play/Resume'}
-			onclick={() => {
-				onAction?.({ action: 'togglePlayback' });
-			}}>
-			{#if !playbackStore.isPlaying}
-				<IconCarbonPlayFilledAlt class="h-4 w-4" />
-			{:else}
-				<IconCarbonPauseFilled class="h-4 w-4" />
-			{/if}
-		</button>
-
-		<button
-			class="rounded-sm border border-[var(--color-app-border)] bg-[var(--color-app-surface-active)] p-2 transition-colors hover:cursor-pointer hover:bg-[var(--color-app-surface-hover)]"
+			onclick={() => onAction?.({ action: 'togglePlayback' })}>
+			{#snippet children()}
+				{#if !playbackStore.isPlaying}
+					<IconCarbonPlayFilledAlt class="h-4 w-4" />
+				{:else}
+					<IconCarbonPauseFilled class="h-4 w-4" />
+				{/if}
+			{/snippet}
+		</IconButton>
+		<IconButton
+			icon={IconCarbonPlay}
 			title="Play from cursor position"
-			onclick={() => {
-				onAction?.({ action: 'playFromCursor' });
-			}}>
-			<IconCarbonPlay class="h-4 w-4" />
-		</button>
+			onclick={() => onAction?.({ action: 'playFromCursor' })} />
 	</div>
 </div>

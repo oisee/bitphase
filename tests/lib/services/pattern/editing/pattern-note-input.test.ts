@@ -1,19 +1,29 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PatternNoteInput } from '../../../../../src/lib/services/pattern/editing/pattern-note-input';
-import { Pattern, Note, NoteName } from '../../../../../src/lib/models/song';
+import { Pattern, Note, NoteName, Instrument } from '../../../../../src/lib/models/song';
+import { AY_CHIP_SCHEMA } from '../../../../../src/lib/chips/ay/schema';
 import type {
 	EditingContext,
 	FieldInfo
 } from '../../../../../src/lib/services/pattern/editing/editing-context';
 import { PatternValueUpdates } from '../../../../../src/lib/services/pattern/editing/pattern-value-updates';
 import { parseNoteFromString, formatNoteFromEnum } from '../../../../../src/lib/utils/note-utils';
+import { editorStateStore } from '../../../../../src/lib/stores/editor-state.svelte';
+import { settingsStore } from '../../../../../src/lib/stores/settings.svelte';
 
 vi.mock('../../../../../src/lib/stores/editor-state.svelte', () => ({
 	editorStateStore: {
 		octave: 3,
 		step: 1,
 		envelopeAsNote: false,
-		currentInstrument: '01'
+		currentInstrument: '01',
+		getCurrentInstrument: vi.fn(() => '01')
+	}
+}));
+
+vi.mock('../../../../../src/lib/stores/settings.svelte', () => ({
+	settingsStore: {
+		autoEnterInstrument: false
 	}
 }));
 
@@ -86,6 +96,8 @@ describe('PatternNoteInput', () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks();
+		settingsStore.autoEnterInstrument = false;
+		vi.mocked(editorStateStore.getCurrentInstrument).mockReturnValue('01');
 
 		mockUpdateFieldValue = vi.fn(
 			(context: EditingContext, fieldInfo: FieldInfo, value: string | number) => {
@@ -174,7 +186,7 @@ describe('PatternNoteInput', () => {
 			mockUpdateFieldValue as (
 				context: EditingContext,
 				fieldInfo: FieldInfo,
-				newValue: string | number
+				newValue: string | number | Record<string, unknown> | null
 			) => Pattern
 		);
 		vi.mocked(PatternValueUpdates.getFieldValue).mockImplementation(
@@ -184,7 +196,8 @@ describe('PatternNoteInput', () => {
 
 	const createMockContext = (
 		pattern: Pattern,
-		selectedRow: number = DEFAULT_ROW_INDEX
+		selectedRow: number = DEFAULT_ROW_INDEX,
+		overrides: Partial<EditingContext> = {}
 	): EditingContext => {
 		return {
 			pattern,
@@ -193,7 +206,8 @@ describe('PatternNoteInput', () => {
 			cellPositions: [],
 			converter: {} as EditingContext['converter'],
 			formatter: {} as EditingContext['formatter'],
-			schema: {} as EditingContext['schema']
+			schema: {} as EditingContext['schema'],
+			...overrides
 		};
 	};
 
@@ -217,7 +231,7 @@ describe('PatternNoteInput', () => {
 					isGlobal: true
 				};
 
-				const result = PatternNoteInput.handleNoteInput(context, fieldInfo, 'q');
+				const result = PatternNoteInput.handleNoteInput(context, fieldInfo, 'q', 'KeyQ');
 
 				expect(result).toBeNull();
 			});
@@ -227,7 +241,7 @@ describe('PatternNoteInput', () => {
 				const context = createMockContext(pattern);
 				const fieldInfo = createFieldInfo(-1);
 
-				const result = PatternNoteInput.handleNoteInput(context, fieldInfo, 'q');
+				const result = PatternNoteInput.handleNoteInput(context, fieldInfo, 'q', 'KeyQ');
 
 				expect(result).toBeNull();
 			});
@@ -239,35 +253,81 @@ describe('PatternNoteInput', () => {
 				const context = createMockContext(pattern);
 				const fieldInfo = createFieldInfo(DEFAULT_CHANNEL_INDEX);
 
-				const result = PatternNoteInput.handleNoteInput(context, fieldInfo, 'a');
+				const result = PatternNoteInput.handleNoteInput(context, fieldInfo, 'a', 'KeyA');
 
 				expect(result).not.toBeNull();
 				expect(mockUpdateFieldValue).toHaveBeenCalledWith(context, fieldInfo, 'OFF');
 			});
-		});
 
-		describe('piano keyboard input', () => {
-			it('should map Q key to C-4', () => {
+			it('should set note to release when backslash is pressed', () => {
 				const pattern = new Pattern(DEFAULT_PATTERN_ID, DEFAULT_PATTERN_LENGTH);
 				const context = createMockContext(pattern);
 				const fieldInfo = createFieldInfo(DEFAULT_CHANNEL_INDEX);
 
-				const result = PatternNoteInput.handleNoteInput(context, fieldInfo, 'q');
+				const result = PatternNoteInput.handleNoteInput(
+					context,
+					fieldInfo,
+					'\\',
+					'Backslash'
+				);
+
+				expect(result).not.toBeNull();
+				expect(mockUpdateFieldValue).toHaveBeenCalledWith(context, fieldInfo, '===');
+			});
+		});
+
+		describe('piano keyboard input', () => {
+			it('should map KeyQ to C-4', () => {
+				const pattern = new Pattern(DEFAULT_PATTERN_ID, DEFAULT_PATTERN_LENGTH);
+				const context = createMockContext(pattern);
+				const fieldInfo = createFieldInfo(DEFAULT_CHANNEL_INDEX);
+
+				const result = PatternNoteInput.handleNoteInput(context, fieldInfo, 'q', 'KeyQ');
 
 				expect(result).not.toBeNull();
 				expect(result?.shouldMoveNext).toBe(false);
 				expect(mockUpdateFieldValue).toHaveBeenCalledWith(context, fieldInfo, 'C-4');
 			});
 
-			it('should map lowercase c key to E-3', () => {
+			it('should return a non-mutating result when mapped note matches the current note', () => {
+				const pattern = new Pattern(DEFAULT_PATTERN_ID, DEFAULT_PATTERN_LENGTH);
+				pattern.channels[DEFAULT_CHANNEL_INDEX].rows[DEFAULT_ROW_INDEX].note = new Note(
+					NoteName.C,
+					FIXED_OCTAVE
+				);
+				const context = createMockContext(pattern);
+				const fieldInfo = createFieldInfo(DEFAULT_CHANNEL_INDEX);
+
+				const result = PatternNoteInput.handleNoteInput(context, fieldInfo, 'q', 'KeyQ');
+
+				expect(result).toEqual({
+					updatedPattern: pattern,
+					shouldMoveNext: false,
+					didChange: false
+				});
+				expect(mockUpdateFieldValue).not.toHaveBeenCalled();
+			});
+
+			it('should map KeyC to E-3', () => {
 				const pattern = new Pattern(DEFAULT_PATTERN_ID, DEFAULT_PATTERN_LENGTH);
 				const context = createMockContext(pattern);
 				const fieldInfo = createFieldInfo(DEFAULT_CHANNEL_INDEX);
 
-				const result = PatternNoteInput.handleNoteInput(context, fieldInfo, 'c');
+				const result = PatternNoteInput.handleNoteInput(context, fieldInfo, 'c', 'KeyC');
 
 				expect(result).not.toBeNull();
 				expect(mockUpdateFieldValue).toHaveBeenCalledWith(context, fieldInfo, 'E-3');
+			});
+
+			it('should use physical key location regardless of typed character (Colemak layout)', () => {
+				const pattern = new Pattern(DEFAULT_PATTERN_ID, DEFAULT_PATTERN_LENGTH);
+				const context = createMockContext(pattern);
+				const fieldInfo = createFieldInfo(DEFAULT_CHANNEL_INDEX);
+
+				const result = PatternNoteInput.handleNoteInput(context, fieldInfo, 'w', 'KeyQ');
+
+				expect(result).not.toBeNull();
+				expect(mockUpdateFieldValue).toHaveBeenCalledWith(context, fieldInfo, 'C-4');
 			});
 
 			it('should handle multiple piano keys correctly', () => {
@@ -276,17 +336,17 @@ describe('PatternNoteInput', () => {
 				const fieldInfo = createFieldInfo(DEFAULT_CHANNEL_INDEX);
 
 				const testCases = [
-					{ key: 'w', expectedNote: 'D-4' },
-					{ key: 'e', expectedNote: 'E-4' },
-					{ key: 'r', expectedNote: 'F-4' },
-					{ key: 't', expectedNote: 'G-4' },
-					{ key: 'y', expectedNote: 'A-4' },
-					{ key: 'u', expectedNote: 'B-4' }
+					{ key: 'w', code: 'KeyW', expectedNote: 'D-4' },
+					{ key: 'e', code: 'KeyE', expectedNote: 'E-4' },
+					{ key: 'r', code: 'KeyR', expectedNote: 'F-4' },
+					{ key: 't', code: 'KeyT', expectedNote: 'G-4' },
+					{ key: 'y', code: 'KeyY', expectedNote: 'A-4' },
+					{ key: 'u', code: 'KeyU', expectedNote: 'B-4' }
 				];
 
-				testCases.forEach(({ key, expectedNote }) => {
+				testCases.forEach(({ key, code, expectedNote }) => {
 					mockUpdateFieldValue.mockClear();
-					const result = PatternNoteInput.handleNoteInput(context, fieldInfo, key);
+					const result = PatternNoteInput.handleNoteInput(context, fieldInfo, key, code);
 
 					expect(result).not.toBeNull();
 					expect(mockUpdateFieldValue).toHaveBeenCalledWith(
@@ -304,11 +364,213 @@ describe('PatternNoteInput', () => {
 				const context = createMockContext(pattern);
 				const fieldInfo = createFieldInfo(DEFAULT_CHANNEL_INDEX);
 
-				const result = PatternNoteInput.handleNoteInput(context, fieldInfo, 'C');
+				const result = PatternNoteInput.handleNoteInput(context, fieldInfo, 'F', 'KeyF');
 
 				expect(result).not.toBeNull();
 				expect(result?.shouldMoveNext).toBe(false);
 			});
+		});
+
+		describe('auto-enter instrument', () => {
+			it('writes the selected instrument when it exists for the active chip', () => {
+				settingsStore.autoEnterInstrument = true;
+				const pattern = new Pattern(DEFAULT_PATTERN_ID, DEFAULT_PATTERN_LENGTH);
+				const context = createMockContext(pattern, DEFAULT_ROW_INDEX, {
+					schema: AY_CHIP_SCHEMA,
+					instruments: [new Instrument('01', 'AY 01', 'ay')]
+				});
+				const fieldInfo = createFieldInfo(DEFAULT_CHANNEL_INDEX);
+
+				const result = PatternNoteInput.handleNoteInput(context, fieldInfo, 'q', 'KeyQ');
+
+				expect(result).not.toBeNull();
+				expect(mockUpdateFieldValue).toHaveBeenCalledTimes(2);
+				expect(mockUpdateFieldValue.mock.calls[1][1]).toEqual(
+					expect.objectContaining({ fieldKey: 'instrument' })
+				);
+				expect(mockUpdateFieldValue.mock.calls[1][2]).toBe(1);
+			});
+
+			it('overwrites the instrument when re-entering the same note', () => {
+				settingsStore.autoEnterInstrument = true;
+				vi.mocked(editorStateStore.getCurrentInstrument).mockReturnValue('02');
+				const pattern = new Pattern(DEFAULT_PATTERN_ID, DEFAULT_PATTERN_LENGTH);
+				pattern.channels[DEFAULT_CHANNEL_INDEX].rows[DEFAULT_ROW_INDEX].note = new Note(
+					NoteName.C,
+					FIXED_OCTAVE
+				);
+				pattern.channels[DEFAULT_CHANNEL_INDEX].rows[DEFAULT_ROW_INDEX].instrument = 1;
+				const context = createMockContext(pattern, DEFAULT_ROW_INDEX, {
+					schema: AY_CHIP_SCHEMA,
+					instruments: [
+						new Instrument('01', 'AY 01', 'ay'),
+						new Instrument('02', 'AY 02', 'ay')
+					]
+				});
+				const fieldInfo = createFieldInfo(DEFAULT_CHANNEL_INDEX);
+
+				mockGetFieldValue.mockImplementation((ctx: EditingContext, info: FieldInfo) => {
+					if (info.fieldKey === 'instrument') {
+						return ctx.pattern.channels[info.channelIndex].rows[ctx.selectedRow]
+							.instrument;
+					}
+					const row = ctx.pattern.channels[info.channelIndex].rows[ctx.selectedRow];
+					if (row.note.name === NoteName.None) return '---';
+					if (row.note.name === NoteName.Off) return 'OFF';
+					const noteNames = [
+						'',
+						'',
+						'C-',
+						'C#',
+						'D-',
+						'D#',
+						'E-',
+						'F-',
+						'F#',
+						'G-',
+						'G#',
+						'A-',
+						'A#',
+						'B-'
+					];
+					return noteNames[row.note.name] + row.note.octave;
+				});
+
+				const result = PatternNoteInput.handleNoteInput(context, fieldInfo, 'q', 'KeyQ');
+
+				expect(result).not.toBeNull();
+				expect(result?.didChange).not.toBe(false);
+				expect(mockUpdateFieldValue).toHaveBeenCalledTimes(1);
+				expect(mockUpdateFieldValue).toHaveBeenCalledWith(
+					expect.objectContaining({ pattern }),
+					expect.objectContaining({ fieldKey: 'instrument' }),
+					2
+				);
+			});
+
+			it('does not mutate when the same note and instrument are already present', () => {
+				settingsStore.autoEnterInstrument = true;
+				const pattern = new Pattern(DEFAULT_PATTERN_ID, DEFAULT_PATTERN_LENGTH);
+				pattern.channels[DEFAULT_CHANNEL_INDEX].rows[DEFAULT_ROW_INDEX].note = new Note(
+					NoteName.C,
+					FIXED_OCTAVE
+				);
+				pattern.channels[DEFAULT_CHANNEL_INDEX].rows[DEFAULT_ROW_INDEX].instrument = 1;
+				const context = createMockContext(pattern, DEFAULT_ROW_INDEX, {
+					schema: AY_CHIP_SCHEMA,
+					instruments: [new Instrument('01', 'AY 01', 'ay')]
+				});
+				const fieldInfo = createFieldInfo(DEFAULT_CHANNEL_INDEX);
+
+				mockGetFieldValue.mockImplementation((ctx: EditingContext, info: FieldInfo) => {
+					if (info.fieldKey === 'instrument') {
+						return ctx.pattern.channels[info.channelIndex].rows[ctx.selectedRow]
+							.instrument;
+					}
+					const row = ctx.pattern.channels[info.channelIndex].rows[ctx.selectedRow];
+					if (row.note.name === NoteName.None) return '---';
+					if (row.note.name === NoteName.Off) return 'OFF';
+					const noteNames = [
+						'',
+						'',
+						'C-',
+						'C#',
+						'D-',
+						'D#',
+						'E-',
+						'F-',
+						'F#',
+						'G-',
+						'G#',
+						'A-',
+						'A#',
+						'B-'
+					];
+					return noteNames[row.note.name] + row.note.octave;
+				});
+
+				const result = PatternNoteInput.handleNoteInput(context, fieldInfo, 'q', 'KeyQ');
+
+				expect(result).toEqual({
+					updatedPattern: pattern,
+					shouldMoveNext: false,
+					didChange: false
+				});
+				expect(mockUpdateFieldValue).not.toHaveBeenCalled();
+			});
+
+			it('skips stale selected instruments that are missing from the active chip list', () => {
+				settingsStore.autoEnterInstrument = true;
+				const pattern = new Pattern(DEFAULT_PATTERN_ID, DEFAULT_PATTERN_LENGTH);
+				const context = createMockContext(pattern, DEFAULT_ROW_INDEX, {
+					schema: AY_CHIP_SCHEMA,
+					instruments: [new Instrument('02', 'AY 02', 'ay')]
+				});
+				const fieldInfo = createFieldInfo(DEFAULT_CHANNEL_INDEX);
+
+				const result = PatternNoteInput.handleNoteInput(context, fieldInfo, 'q', 'KeyQ');
+
+				expect(result).not.toBeNull();
+				expect(mockUpdateFieldValue).toHaveBeenCalledTimes(1);
+				expect(mockUpdateFieldValue).toHaveBeenCalledWith(context, fieldInfo, 'C-4');
+			});
+		});
+	});
+
+	describe('handleMidiNoteInput', () => {
+		it('should return null when field is global', () => {
+			const pattern = new Pattern(DEFAULT_PATTERN_ID, DEFAULT_PATTERN_LENGTH);
+			const context = createMockContext(pattern);
+			const fieldInfo: FieldInfo = {
+				...createFieldInfo(DEFAULT_CHANNEL_INDEX),
+				isGlobal: true
+			};
+
+			const result = PatternNoteInput.handleMidiNoteInput(context, fieldInfo, 60);
+
+			expect(result).toBeNull();
+		});
+
+		it('should return null when channel index is invalid', () => {
+			const pattern = new Pattern(DEFAULT_PATTERN_ID, DEFAULT_PATTERN_LENGTH);
+			const context = createMockContext(pattern);
+			const fieldInfo = createFieldInfo(-1);
+
+			const result = PatternNoteInput.handleMidiNoteInput(context, fieldInfo, 60);
+
+			expect(result).toBeNull();
+		});
+
+		it('should return null for invalid midi note', () => {
+			const pattern = new Pattern(DEFAULT_PATTERN_ID, DEFAULT_PATTERN_LENGTH);
+			const context = createMockContext(pattern);
+			const fieldInfo = createFieldInfo(DEFAULT_CHANNEL_INDEX);
+
+			expect(PatternNoteInput.handleMidiNoteInput(context, fieldInfo, -1)).toBeNull();
+			expect(PatternNoteInput.handleMidiNoteInput(context, fieldInfo, 128)).toBeNull();
+		});
+
+		it('should map MIDI 60 to C-4 and call updateFieldValue', () => {
+			const pattern = new Pattern(DEFAULT_PATTERN_ID, DEFAULT_PATTERN_LENGTH);
+			const context = createMockContext(pattern);
+			const fieldInfo = createFieldInfo(DEFAULT_CHANNEL_INDEX);
+
+			const result = PatternNoteInput.handleMidiNoteInput(context, fieldInfo, 60);
+
+			expect(result).not.toBeNull();
+			expect(result?.shouldMoveNext).toBe(false);
+			expect(mockUpdateFieldValue).toHaveBeenCalledWith(context, fieldInfo, 'C-4');
+		});
+
+		it('should map MIDI 69 to A-4', () => {
+			const pattern = new Pattern(DEFAULT_PATTERN_ID, DEFAULT_PATTERN_LENGTH);
+			const context = createMockContext(pattern);
+			const fieldInfo = createFieldInfo(DEFAULT_CHANNEL_INDEX);
+
+			const result = PatternNoteInput.handleMidiNoteInput(context, fieldInfo, 69);
+
+			expect(result).not.toBeNull();
+			expect(mockUpdateFieldValue).toHaveBeenCalledWith(context, fieldInfo, 'A-4');
 		});
 	});
 });

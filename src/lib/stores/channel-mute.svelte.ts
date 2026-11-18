@@ -27,8 +27,49 @@ class ChannelMuteStore {
 		this.muteState = new Map(this.muteState);
 	}
 
+	setChannelsMuted(chipIndex: number, channelIndices: number[], muted: boolean): void {
+		if (channelIndices.length === 0) return;
+		const chipMutes = this.ensureChipMutes(chipIndex);
+		for (const channelIndex of channelIndices) {
+			chipMutes[channelIndex] = muted;
+		}
+		this.muteState = new Map(this.muteState);
+	}
+
+	setAll(mutesByChip: Iterable<readonly [number, readonly boolean[]]>): void {
+		const next = new Map<number, boolean[]>();
+		for (const [chipIndex, mutes] of mutesByChip) {
+			next.set(chipIndex, [...mutes]);
+		}
+		this.muteState = next;
+	}
+
+	areChannelsMuted(chipIndex: number, channelIndices: number[]): boolean {
+		return (
+			channelIndices.length > 0 &&
+			channelIndices.every((channelIndex) => this.isChannelMuted(chipIndex, channelIndex))
+		);
+	}
+
 	getAllMuteStates(): ChannelMuteState {
 		return new Map(this.muteState);
+	}
+
+	clear(): void {
+		this.muteState = new Map();
+	}
+
+	removeChip(chipIndex: number): void {
+		if (this.muteState.size === 0) return;
+		const next = new Map<number, boolean[]>();
+		for (const [index, mutes] of this.muteState) {
+			if (index < chipIndex) {
+				next.set(index, mutes);
+			} else if (index > chipIndex) {
+				next.set(index - 1, mutes);
+			}
+		}
+		this.muteState = next;
 	}
 }
 

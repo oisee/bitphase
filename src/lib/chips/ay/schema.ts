@@ -5,11 +5,18 @@ import {
 	generateNaturalTuningTable,
 	getNaturalChipFrequency
 } from '../../models/pt3/tuning-tables';
+import { readAyEnvelopeSticky } from './playback-carry';
+import { ayStickyChannelEffectGroup } from './effects';
+
+export const ATARI_ST_CHIP_FREQUENCY = 2_000_000;
+export const SUNSOFT_5B_CHIP_FREQUENCY = 894_886;
 
 export const AY_CHIP_SCHEMA: ChipSchema = {
 	chipType: 'ay',
 	defaultTuningTable: PT3TuneTables[2],
 	defaultChipVariant: 'AY',
+	readGlobalStickyRow: readAyEnvelopeSticky,
+	stickyChannelEffectGroup: ayStickyChannelEffectGroup,
 	globalTemplate: '{envelopeValue} {envelopeEffect} {noiseValue}',
 	globalFields: {
 		envelopeValue: {
@@ -19,9 +26,17 @@ export const AY_CHIP_SCHEMA: ChipSchema = {
 			color: 'patternEnvelope',
 			allowZeroValue: true,
 			usedForBacktracking: true,
-			backtrackWhen: 'nonZero'
+			backtrackWhen: 'nonZero',
+			previewOnEdit: true,
+			noteEquivalent: true
 		},
-		envelopeEffect: { key: 'envelopeEffect', type: 'hex', length: 4, color: 'patternEffect' },
+		envelopeEffect: {
+			key: 'envelopeEffect',
+			type: 'hex',
+			length: 4,
+			color: 'patternEffect',
+			previewOnEdit: true
+		},
 		noiseValue: {
 			key: 'noiseValue',
 			type: 'hex',
@@ -29,10 +44,12 @@ export const AY_CHIP_SCHEMA: ChipSchema = {
 			color: 'patternNoise',
 			allowZeroValue: true,
 			usedForBacktracking: true,
-			backtrackWhen: 'any'
+			backtrackWhen: 'any',
+			previewOnEdit: true
 		}
 	},
 	channelLabels: ['A', 'B', 'C'],
+	virtualChannelRoles: [{ id: 'timer', label: 'Timer notes', headerMark: 'Timer' }],
 	globalColumnLabels: {
 		envelopeValue: 'Env',
 		envelopeEffect: 'Efx',
@@ -83,8 +100,10 @@ export const AY_CHIP_SCHEMA: ChipSchema = {
 			length: 1,
 			color: 'patternText',
 			selectable: 'character',
+			allowZeroValue: true,
 			usedForBacktracking: true,
-			backtrackWhen: 'nonZero'
+			backtrackWhen: 'nonZero',
+			amplitude: true
 		},
 		effect: {
 			key: 'effect',
@@ -105,7 +124,9 @@ export const AY_CHIP_SCHEMA: ChipSchema = {
 			],
 			defaultValue: 'AY',
 			group: 'chip',
-			notifyAudioService: true
+			notifyAudioService: true,
+			disabledWhen: { key: 'stMixing', value: true },
+			resolveDisplayValue: (value, context) => (context.stMixing === true ? 'YM' : value)
 		},
 		{
 			key: 'chipFrequency',
@@ -113,6 +134,7 @@ export const AY_CHIP_SCHEMA: ChipSchema = {
 			type: 'select',
 			options: [
 				{ label: 'Sinclair QL (0.75 MHz)', value: 750000 },
+				{ label: 'Sunsoft 5B (0.8949 MHz)', value: SUNSOFT_5B_CHIP_FREQUENCY },
 				{ label: 'Amstrad CPC (1 MHz)', value: 1000000 },
 				{ label: 'Natural C (1.507 MHz)', value: 1506963 },
 				{ label: 'Natural C# (1.597 MHz)', value: 1596572 },
@@ -122,7 +144,7 @@ export const AY_CHIP_SCHEMA: ChipSchema = {
 				{ label: 'MSX (1.7897 MHz)', value: 1789700 },
 				{ label: 'Natural D# (1.792 MHz)', value: 1792091 },
 				{ label: 'Natural E (1.899 MHz)', value: 1898655 },
-				{ label: 'Atari ST (2 MHz)', value: 2000000 },
+				{ label: 'Atari ST (2 MHz)', value: ATARI_ST_CHIP_FREQUENCY },
 				{ label: 'Natural F (2.012 MHz)', value: 2011555 },
 				{ label: 'Natural F# (2.131 MHz)', value: 2131168 },
 				{ label: 'Natural G (2.258 MHz)', value: 2257894 },
@@ -133,7 +155,10 @@ export const AY_CHIP_SCHEMA: ChipSchema = {
 			],
 			defaultValue: 1773400,
 			group: 'chip',
-			notifyAudioService: true
+			notifyAudioService: true,
+			disabledWhen: { key: 'stMixing', value: true },
+			resolveDisplayValue: (value, context) =>
+				context.stMixing === true ? ATARI_ST_CHIP_FREQUENCY : value
 		},
 		{
 			key: 'interruptFrequency',
@@ -145,6 +170,8 @@ export const AY_CHIP_SCHEMA: ChipSchema = {
 				{ label: 'NTSC (60 Hz)', value: 60 }
 			],
 			defaultValue: 50,
+			min: 1,
+			max: 1000,
 			group: 'chip',
 			notifyAudioService: true
 		},
@@ -161,7 +188,9 @@ export const AY_CHIP_SCHEMA: ChipSchema = {
 			],
 			defaultValue: 'ABC',
 			group: 'chip',
-			notifyAudioService: true
+			notifyAudioService: true,
+			disabledWhen: { key: 'stMixing', value: true },
+			resolveDisplayValue: (value, context) => (context.stMixing === true ? 'mono' : value)
 		},
 		{
 			key: 'tuningTableIndex',
@@ -199,6 +228,19 @@ export const AY_CHIP_SCHEMA: ChipSchema = {
 			showWhen: { key: 'tuningTableIndex', value: 5 }
 		},
 		{
+			key: 'stMixing',
+			label: 'ST mixing',
+			type: 'toggle',
+			options: [
+				{ label: 'Off', value: false },
+				{ label: 'On', value: true }
+			],
+			defaultValue: false,
+			group: 'chip',
+			notifyAudioService: true,
+			startNewRow: true
+		},
+		{
 			key: 'naturalRoot',
 			label: 'Root note',
 			type: 'select',
@@ -229,7 +271,28 @@ export const AY_CHIP_SCHEMA: ChipSchema = {
 		const naturalRoot = Number(song.naturalRoot ?? 0);
 		return resolveAYTuningTable(index, chipFreq, a4, naturalRoot);
 	},
-	tuningTableSettingKeys: ['tuningTableIndex', 'a4TuningHz', 'chipFrequency', 'naturalRoot']
+	tuningTableSettingKeys: ['tuningTableIndex', 'a4TuningHz', 'chipFrequency', 'naturalRoot'],
+	applySettingSideEffects(key, value) {
+		if (key === 'stMixing' && value === true) {
+			return [
+				{ key: 'chipVariant', value: 'YM' },
+				{ key: 'stereoLayout', value: 'mono' },
+				{ key: 'chipFrequency', value: ATARI_ST_CHIP_FREQUENCY }
+			];
+		}
+		return [];
+	},
+	normalizeSettings(record) {
+		if (record.stMixing === true) {
+			return {
+				...record,
+				chipVariant: 'YM',
+				stereoLayout: 'mono',
+				chipFrequency: ATARI_ST_CHIP_FREQUENCY
+			};
+		}
+		return record;
+	}
 };
 
 export function resolveAYTuningTable(

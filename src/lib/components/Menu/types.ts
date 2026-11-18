@@ -1,9 +1,15 @@
 export type MenuItem = {
 	label: string;
-	type?: 'normal' | 'expandable' | 'divider';
+	type?: 'normal' | 'expandable' | 'divider' | 'header';
 	icon?: string;
 	action?: string;
 	items?: MenuItem[];
 	shortcut?: string;
 	disabled?: boolean | (() => boolean);
+};
+
+export type MenuPanelContext = {
+	getActiveSubmenu: () => string;
+	enterItem: (label: string, expandable: boolean) => void;
+	setActiveSubmenu: (label: string) => void;
 };
