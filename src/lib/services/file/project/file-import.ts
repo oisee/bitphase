@@ -41,6 +41,30 @@ import {
 } from '../../../services/instrument/instrument-legacy-migration';
 import { parseHexColor } from '../../../utils/hex-color';
 
+/**
+ * Projects loaded from a file whose AY songs use virtual channels but do not say whether alpha F is
+ * opaque (`alphaOpaqueSilence` absent: legacy .btp, autooisee output, module imports). The app asks
+ * the user once for these (see needsAlphaOpaqueChoice).
+ */
+const projectsAwaitingAlphaChoice = new WeakSet<Project>();
+
+export function needsAlphaOpaqueChoice(project: Project): boolean {
+	return projectsAwaitingAlphaChoice.has(project);
+}
+
+export function clearAlphaOpaqueChoice(project: Project): void {
+	projectsAwaitingAlphaChoice.delete(project);
+}
+
+export function setAlphaOpaqueSilence(project: Project, value: boolean): void {
+	for (const song of project.songs) {
+		if (song.chipType === 'ay') {
+			(song as unknown as Record<string, unknown>).alphaOpaqueSilence = value;
+		}
+	}
+	projectsAwaitingAlphaChoice.delete(project);
+}
+
 function reconstructProject(data: any, getChip: (chipType: string) => Chip | null): Project {
 	const songs = data.songs?.map((songData: any) => reconstructSong(songData, getChip)) || [];
 	const tables = data.tables?.map((tableData: any) => reconstructTable(tableData)) || [];
@@ -80,6 +104,12 @@ function reconstructProject(data: any, getChip: (chipType: string) => Chip | nul
 		normalizeInitialSpeed(data.initialSpeed ?? legacySong?.initialSpeed),
 		normalizeTempo(data.tempo ?? legacySong?.tempo)
 	);
+	const awaitsChoice = project.songs.some((song, index) => {
+		if (song.chipType !== 'ay') return false;
+		const hasVirtual = Object.values(song.virtualChannelMap ?? {}).some((n) => n > 1);
+		return hasVirtual && data.songs?.[index]?.alphaOpaqueSilence === undefined;
+	});
+	if (awaitsChoice) projectsAwaitingAlphaChoice.add(project);
 	return project;
 }
 

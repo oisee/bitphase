@@ -62,19 +62,35 @@ Branch `merge-upstream` (A) has the same final tree (see the A section at the en
 | 1ef26c0 GenPlan + reports | applied unchanged (`docs/GenPlan.md`, `reports/`); note `docs/` is now a VitePress site, GenPlan.md is built as an unlisted page (build passes) | e9793dd |
 | CLAUDE.md edits (in af0af10, 36678ef) | **dropped**: upstream deleted CLAUDE.md ("I'm not using it"); the old file is in `main` (`git show main:CLAUDE.md`) | - |
 
-## Alpha mask: the one deliberate semantic change (needs Alice's decision)
+## Decisions by Alice (2026-11-18) and what was done
 
-Fork rule (157f95f): primary alpha F = opaque even when silent; alpha is the only gate.
-Ported rule: the mask is active **only while the primary voice plays an instrument row with alpha < F**;
-alpha F, idle/released/muted primary, sample instruments and instruments without an alpha lane use upstream's
-"first sounding virtual channel wins". Why: with the fork rule an alpha lane that defaults to F silently changes
-playback of every existing multi-virtual-channel file. This was measured, not guessed: with the fork rule the
-upstream regression suite (`tests/psg/playback-regression.test.ts`, demo tracks vs reference PSG/TAYM dumps) failed
-on a_bit_steps (TAYM) and man (PSG). With the ported rule all of them pass, and autooisee's `.btp` render to
-byte-identical PSG compared with plain upstream.
-Lost: "opaque silence" (a silent primary with alpha F blocking the channels below). To get it back: in
-`_selectVoiceByAlpha` return `primary` when `primaryAlpha >= 15` (one line) and accept that old files may change
-(then also derive alpha for legacy rows as ef0f849 did).
+### 1. Opaque silence: an option, default OFF
+- Stored per AY song as `alphaOpaqueSilence: boolean` next to the other AY song settings (`stereoLayout`, `stMixing`...), declared in
+  `src/lib/chips/ay/schema.ts`. Absent in a file = off. It is saved in the `.btp` and appears in **Details -> AY settings -> "Opaque silence"**
+  (the project settings panel), so it can be changed later. It reaches the player like `stereoLayout` (chip setting -> `update_alpha_opaque_silence`
+  worklet message) and the offline paths (PSG / WAV / TAYM / VGM exports pass it to `VirtualChannelMixer.configure(..., {alphaOpaqueSilence})`).
+- Import flow: when a loaded file has AY virtual channels and does not say (`alphaOpaqueSilence` absent: legacy `.btp`, autooisee output, module/`.txt` import),
+  an **Import options** dialog asks once: "Opaque silence (alpha F masks lower virtual channels even when silent)", default unchecked
+  (`ImportOptionsModal.svelte`, `needsAlphaOpaqueChoice` / `setAlphaOpaqueSilence` in `file-import.ts`). Cancelling the dialog means off.
+- OFF (default): ported rule, the mask applies only while the primary voice plays a row with alpha < F; alpha F / idle / no lane = upstream
+  "first sounding channel wins". ON: the fork's rule, a primary that plays an instrument row with alpha F wins even when silent (alpha is the only gate).
+  One deliberate difference from her original even when ON: a primary with no sounding instrument (idle, note released, muted, sample instrument) still
+  yields to the channels below; in the original code an idle primary counted as alpha F and blocked them, which silences every echo/overlay channel in
+  autooisee-style files while the primary is empty.
+- Tests: upstream demo regression suite passes with the option off (default); `tests/public/alpha-opaque-silence.test.ts` plays the same project with the
+  option on and off and asserts the PSG frames differ exactly where the primary is silent with alpha F (and are identical in the loud tick and on channels B/C),
+  save -> load keeps the option, the import-choice flag. Export honours it (PSG tested; WAV/TAYM/VGM take the same `configure` call, not separately tested).
+
+### 2. Virtual channel limit 3 -> 8
+- `MAX_VIRTUAL_CHANNELS_PER_HARDWARE_CHANNEL = 8` (`src/lib/models/virtual-channels.ts`); upstream tests that asserted 3 were changed to 8
+  (`virtual-channels.test.ts`, `file-import.test.ts`, `virtual-channel-service.test.ts`).
+- Things sized by it: pattern editor (the pattern canvas sits in a horizontal scroller, `data-song-pattern-scroll`, with cursor-into-view; with
+  tottoro (18 channels) the scroller is 2558 px wide in a 788 px view and scrolls; nothing collapses; no code change needed), mixer / worklet slots (sized by the
+  map, no constant), export paths (take the map). Playback cost: the mixer is O(virtual channels) per tick; imrav (18 virtual channels) renders in a few seconds offline.
+- autooisee outputs, before (limit 3) -> after (limit 8), channels loaded: tottoro_example 9 -> 18, imrav 9 -> 18, flim 7 -> 10, chronos 6 -> 6.
+  PSG frames that changed vs limit 3 (all 16 registers): tottoro 69%, flim 64%, imrav 39%, chronos 0%. autooisee has no PSG renderer of its own
+  (it writes `.btp` and VT2 text downmixed to 3 channels), so there is no reference to compare to; limit 8 is right by construction: it loads exactly the
+  channels the converter wrote, under the same "first sounding channel wins" rule the converter was designed for; limit 3 dropped channels 4-8.
 
 ## Conflicts met while replaying (file, what each side did, choice)
 
@@ -115,11 +131,11 @@ Post-replay fix-ups (found by checks, not by git): BAC added to the TAYM/PSG-reg
 
 ## Risks
 
-1. **Virtual channel cap = 3 per hardware channel (upstream).** autooisee writes up to 8 per hardware channel
+1. (resolved, see decision 2) **Virtual channel cap was 3 per hardware channel (upstream).** autooisee writes up to 8 per hardware channel
    (tottoro 6/4/8 -> 3/3/3: 18 channels become 9; imrav 18 -> 9; flim 10 -> 7; chronos 6 stays 6). Surplus channels are
    dropped on load. The cap is `MAX_VIRTUAL_CHANNELS_PER_HARDWARE_CHANNEL` in `src/lib/models/virtual-channels.ts`
    (upstream tests assert 3). Either autooisee stays within 3, or the constant is raised in the fork (and tests adjusted).
-2. Alpha semantics changed from the fork's own docs (above).
+2. Alpha: with the option off (default) "opaque silence" is not active (see decision 1).
 3. `pnpm build` includes the docs build; `docs/GenPlan.md` and `docs/electron-build.md` are now published as docs pages.
 4. Electron wrapper was not run (no display here); `pnpm electron:build-main` was not run either.
 5. Instrument editor: duplicate-row / add-on-top not available for instruments (macro editor), only for tables.

@@ -21,6 +21,12 @@ export class Ay8910WorkletSlot extends TrackerWorkletSlot {
 		this.virtualChannelMap = {};
 		this.virtualChannelRoles = {};
 		this.hwChannelCount = 3;
+		this.alphaOpaqueSilence = false;
+	}
+
+	handleUpdateAlphaOpaqueSilence({ alphaOpaqueSilence }) {
+		this.alphaOpaqueSilence = alphaOpaqueSilence === true;
+		this.virtualChannelMixer.alphaOpaqueSilence = this.alphaOpaqueSilence;
 	}
 
 	_slotState() {
@@ -85,7 +91,8 @@ export class Ay8910WorkletSlot extends TrackerWorkletSlot {
 		this.virtualChannelMixer.configure(
 			this.virtualChannelMap,
 			this.hwChannelCount,
-			this.virtualChannelRoles
+			this.virtualChannelRoles,
+			{ alphaOpaqueSilence: this.alphaOpaqueSilence }
 		);
 
 		const totalChannels = this.virtualChannelMixer.getTotalVirtualChannelCount();

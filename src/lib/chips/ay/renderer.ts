@@ -658,7 +658,7 @@ export class AYChipRenderer implements ChipRenderer {
 					mixer.configure(
 						virtualChannelMap,
 						TONE_CHANNELS,
-						song.virtualChannelRoles ?? {}
+						song.virtualChannelRoles ?? {}, { alphaOpaqueSilence: (song as { alphaOpaqueSilence?: boolean }).alphaOpaqueSilence === true }
 					);
 				}
 				const patternProcessor = new TrackerPatternProcessor(state, audioDriver, {
@@ -794,7 +794,7 @@ export class AYChipRenderer implements ChipRenderer {
 		const registerState = new AYChipRegisterState(totalChannelCount);
 		const mixer = new VirtualChannelMixer();
 		if (hasVirtual) {
-			mixer.configure(virtualChannelMap, TONE_CHANNELS, song.virtualChannelRoles ?? {});
+			mixer.configure(virtualChannelMap, TONE_CHANNELS, song.virtualChannelRoles ?? {}, { alphaOpaqueSilence: (song as { alphaOpaqueSilence?: boolean }).alphaOpaqueSilence === true });
 		}
 		const patternProcessor = new TrackerPatternProcessor(state, audioDriver, {
 			postMessage: () => {}

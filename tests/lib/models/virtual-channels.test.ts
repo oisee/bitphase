@@ -41,9 +41,9 @@ describe('computeEffectiveChannelLabels', () => {
 		]);
 	});
 
-	it('should cap a hardware channel at 3 virtual channels', () => {
-		expect(computeEffectiveChannelLabels(HW_LABELS, { 1: 9 })).toEqual([
-			'A', 'B1', 'B2', 'B3', 'C'
+	it('should cap a hardware channel at 8 virtual channels', () => {
+		expect(computeEffectiveChannelLabels(HW_LABELS, { 1: 12 })).toEqual([
+			'A', 'B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'C'
 		]);
 	});
 });
@@ -127,32 +127,30 @@ describe('getTotalVirtualChannelCount', () => {
 	});
 
 	it('should cap each hardware channel at the virtual channel limit', () => {
-		expect(getTotalVirtualChannelCount(3, { 1: 9 })).toBe(5);
+		expect(getTotalVirtualChannelCount(3, { 1: 12 })).toBe(10);
 	});
 });
 
 describe('virtual channel limit', () => {
-	it('clamps counts into the range 1..3', () => {
-		expect(MAX_VIRTUAL_CHANNELS_PER_HARDWARE_CHANNEL).toBe(3);
+	it('clamps counts into the range 1..8', () => {
+		expect(MAX_VIRTUAL_CHANNELS_PER_HARDWARE_CHANNEL).toBe(8);
 		expect(clampVirtualChannelCount(undefined)).toBe(1);
 		expect(clampVirtualChannelCount(0)).toBe(1);
 		expect(clampVirtualChannelCount(2.9)).toBe(2);
 		expect(clampVirtualChannelCount(3)).toBe(3);
-		expect(clampVirtualChannelCount(4)).toBe(3);
+		expect(clampVirtualChannelCount(8)).toBe(8);
+		expect(clampVirtualChannelCount(9)).toBe(8);
 	});
 
 	it('drops unsplit channels and caps the stored map', () => {
-		expect(normalizeVirtualChannelMap({ 0: 5, 1: 1, 2: 2 }, 3)).toEqual({ 0: 3, 2: 2 });
+		expect(normalizeVirtualChannelMap({ 0: 11, 1: 1, 2: 2 }, 3)).toEqual({ 0: 8, 2: 2 });
 	});
 
-	it('keeps the first 3 virtual channels in a group and the other hardware channels', () => {
+	it('keeps the first 8 virtual channels in a group and the other hardware channels', () => {
+		const a = Array.from({ length: 10 }, (_, i) => `A${i + 1}`);
 		expect(
-			selectChannelsWithinVirtualLimit(
-				['A1', 'A2', 'A3', 'A4', 'A5', 'B', 'C1', 'C2', 'C3', 'C4'],
-				3,
-				{ 0: 5, 2: 4 }
-			)
-		).toEqual(['A1', 'A2', 'A3', 'B', 'C1', 'C2', 'C3']);
+			selectChannelsWithinVirtualLimit([...a, 'B', 'C1', 'C2'], 3, { 0: 10, 2: 2 })
+		).toEqual([...a.slice(0, 8), 'B', 'C1', 'C2']);
 	});
 });
 

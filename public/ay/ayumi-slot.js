@@ -60,6 +60,9 @@ export class AyumiSlot extends Ay8910WorkletSlot {
 			case 'update_stereo_layout':
 				this.handleUpdateStereoLayout(data);
 				break;
+			case 'update_alpha_opaque_silence':
+				this.handleUpdateAlphaOpaqueSilence(data);
+				break;
 			default:
 				this.dispatchPortMessages(type, data);
 		}

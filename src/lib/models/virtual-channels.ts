@@ -1,4 +1,4 @@
-export const MAX_VIRTUAL_CHANNELS_PER_HARDWARE_CHANNEL = 3;
+export const MAX_VIRTUAL_CHANNELS_PER_HARDWARE_CHANNEL = 8;
 
 export interface VirtualChannelGroup {
 	hardwareChannelIndex: number;

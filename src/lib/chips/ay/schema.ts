@@ -241,6 +241,19 @@ export const AY_CHIP_SCHEMA: ChipSchema = {
 			startNewRow: true
 		},
 		{
+			key: 'alphaOpaqueSilence',
+			label: 'Opaque silence',
+			type: 'toggle',
+			options: [
+				{ label: 'Off', value: false },
+				{ label: 'On', value: true }
+			],
+			defaultValue: false,
+			group: 'chip',
+			notifyAudioService: true,
+			startNewRow: true
+		},
+		{
 			key: 'naturalRoot',
 			label: 'Root note',
 			type: 'select',

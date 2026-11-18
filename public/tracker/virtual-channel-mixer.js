@@ -4,11 +4,15 @@ export class VirtualChannelMixer {
 		this.virtualChannelMap = {};
 		this.virtualChannelRoles = {};
 		this.hwChannelCount = adapters.defaultHwChannelCount;
+		this.alphaOpaqueSilence = false;
 		this.groups = [];
 		this.hardwareRegisterState = adapters.createHardwareState(this.hwChannelCount);
 	}
 
-	configure(virtualChannelMap, hwChannelCount, virtualChannelRoles) {
+	configure(virtualChannelMap, hwChannelCount, virtualChannelRoles, options) {
+		if (options && typeof options === 'object') {
+			this.alphaOpaqueSilence = options.alphaOpaqueSilence === true;
+		}
 		this.virtualChannelMap = virtualChannelMap || {};
 		this.virtualChannelRoles = virtualChannelRoles || {};
 		this.hwChannelCount = hwChannelCount ?? this.adapters.defaultHwChannelCount;
@@ -160,6 +164,8 @@ export class VirtualChannelMixer {
 	// Applies only while the primary (first) voice plays an instrument row with alpha < 15;
 	// otherwise returns -1 and the caller uses the default "first active wins" (alpha 15 = no mask,
 	// so every file written without an alpha lane plays exactly as before).
+	// Option alphaOpaqueSilence (default off): alpha 15 on a playing primary row is opaque, the primary
+	// wins even when silent (the fork's original rule: alpha is the only gate).
 	//   primary alpha < 15: the first lower voice that sounds and has a higher alpha wins,
 	//   otherwise the primary stays
 	_selectVoiceByAlpha(voiceIndices, virtualRegisterState, state) {
@@ -168,7 +174,8 @@ export class VirtualChannelMixer {
 		const primary = voiceIndices[0];
 		const primaryAlpha = getAlpha(state, primary);
 		if (primaryAlpha === null || primaryAlpha === undefined) return -1;
-		if (primaryAlpha < 0 || primaryAlpha >= 15) return -1;
+		if (primaryAlpha < 0) return -1;
+		if (primaryAlpha >= 15) return this.alphaOpaqueSilence ? primary : -1;
 		for (let i = 1; i < voiceIndices.length; i++) {
 			const vch = voiceIndices[i];
 			if (!this._isChannelActive(vch, virtualRegisterState)) continue;

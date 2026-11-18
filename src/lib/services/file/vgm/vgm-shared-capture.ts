@@ -349,7 +349,7 @@ function createAyCaptureSlot(
 	const registerState = new modules.AYChipRegisterState(totalChannelCount);
 	const mixer = new modules.VirtualChannelMixer();
 	if (hasVirtual) {
-		mixer.configure(virtualChannelMap, TONE_CHANNELS, song.virtualChannelRoles ?? {});
+		mixer.configure(virtualChannelMap, TONE_CHANNELS, song.virtualChannelRoles ?? {}, { alphaOpaqueSilence: (song as { alphaOpaqueSilence?: boolean }).alphaOpaqueSilence === true });
 	}
 	const patternProcessor = new modules.TrackerPatternProcessor(state, audioDriver, {
 		postMessage: () => {}

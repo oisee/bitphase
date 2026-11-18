@@ -68,6 +68,7 @@ export type MixerSlotCommand =
 	| { type: 'update_chip_variant'; chipVariant: string }
 	| { type: 'update_st_mixing'; stMixing: boolean }
 	| { type: 'update_stereo_layout'; stereoLayout: string }
+	| { type: 'update_alpha_opaque_silence'; alphaOpaqueSilence: boolean }
 	| { type: 'set_channel_mute'; channelIndex: number; muted: boolean }
 	| {
 			type: 'change_pattern_during_playback';

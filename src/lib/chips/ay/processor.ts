@@ -189,6 +189,14 @@ export class AYProcessor
 		);
 
 		this.settingsUnsubscribers.push(
+			chipSettings.subscribe('alphaOpaqueSilence', (value) => {
+				if (typeof value === 'boolean') {
+					this.sendUpdateAlphaOpaqueSilence(value);
+				}
+			})
+		);
+
+		this.settingsUnsubscribers.push(
 			chipSettings.subscribe('tuningTable', (value) => {
 				if (Array.isArray(value) && value.length > 0) {
 					this.sendInitTuningTable(value as number[]);
@@ -348,6 +356,10 @@ export class AYProcessor
 		this.bridge.sendCommand({ type: 'update_stereo_layout', stereoLayout });
 	}
 
+	sendUpdateAlphaOpaqueSilence(alphaOpaqueSilence: boolean): void {
+		this.bridge.sendCommand({ type: 'update_alpha_opaque_silence', alphaOpaqueSilence });
+	}
+
 	updateParameter(parameter: string, value: unknown): void {
 		if (parameter.startsWith('channelMute_')) {
 			const channelIndex = parseInt(parameter.replace('channelMute_', ''), 10);
@@ -375,6 +387,9 @@ export class AYProcessor
 				break;
 			case 'stereoLayout':
 				this.sendUpdateStereoLayout(value as string);
+				break;
+			case 'alphaOpaqueSilence':
+				this.sendUpdateAlphaOpaqueSilence(value === true);
 				break;
 			default:
 				console.warn(`AY processor: unknown parameter "${parameter}"`);

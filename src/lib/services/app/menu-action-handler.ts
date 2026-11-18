@@ -2,6 +2,11 @@ import { Project } from '../../models/project';
 import { Pattern } from '../../models/song';
 import { undoRedoStore } from '../../stores/undo-redo.svelte';
 import ConfirmModal from '../../components/Modal/ConfirmModal.svelte';
+import ImportOptionsModal from '../../components/Modal/ImportOptionsModal.svelte';
+import {
+	needsAlphaOpaqueChoice,
+	setAlphaOpaqueSilence
+} from '../file/project/file-import';
 import SettingsModal from '../../components/Settings/SettingsModal.svelte';
 import AboutModal from '../../components/Modal/AboutModal.svelte';
 import EffectsModal from '../../components/Modal/EffectsModal.svelte';
@@ -411,6 +416,12 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
 
 			const importedProject = await ctx.handleFileImport(data.action);
 			if (importedProject) {
+				if (needsAlphaOpaqueChoice(importedProject)) {
+					const choice = (await ctx.open(ImportOptionsModal, {})) as
+						| { alphaOpaqueSilence: boolean }
+						| undefined;
+					setAlphaOpaqueSilence(importedProject, choice?.alphaOpaqueSilence === true);
+				}
 				ctx.playbackStore.isPlaying = false;
 				ctx.container.audioService.stop();
 				await ctx.projectService.restoreChipProcessorsForSongs(importedProject.songs);
