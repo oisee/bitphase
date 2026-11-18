@@ -57,6 +57,14 @@
 	import EmptySongPatternBackdrop from './EmptySongPatternBackdrop.svelte';
 	import { getVirtualIndicesForHardwareChannel } from '../../models/virtual-channels';
 	import { findLastSpeedCommand } from '../../services/audio/playback-speed';
+	import {
+		loadRightPanelWidth,
+		RIGHT_PANEL_MAX_WIDTH,
+		RIGHT_PANEL_MIN_WIDTH,
+		rightPanelWidthAfterDrag,
+		rightPanelWidthAfterKey,
+		saveRightPanelWidth
+	} from './right-panel-width';
 
 	let {
 		chipProcessors,
@@ -78,6 +86,38 @@
 	let tuningTableVersion = $state(0);
 	let rightPanelActiveTabId = $state('instruments');
 	let isRightPanelExpanded = $state(false);
+	let rightPanelWidth = $state(loadRightPanelWidth(globalThis.localStorage));
+	let rightPanelResize: { startX: number; startWidth: number } | null = $state(null);
+
+	function beginRightPanelResize(e: PointerEvent) {
+		e.preventDefault();
+		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+		rightPanelResize = { startX: e.clientX, startWidth: rightPanelWidth };
+	}
+
+	function moveRightPanelResize(e: PointerEvent) {
+		if (!rightPanelResize) return;
+		rightPanelWidth = rightPanelWidthAfterDrag(
+			rightPanelResize.startWidth,
+			rightPanelResize.startX,
+			e.clientX
+		);
+	}
+
+	function handleRightPanelResizeKey(e: KeyboardEvent) {
+		const next = rightPanelWidthAfterKey(rightPanelWidth, e.key);
+		if (next === null) return;
+		e.preventDefault();
+		e.stopPropagation();
+		rightPanelWidth = next;
+		saveRightPanelWidth(globalThis.localStorage, rightPanelWidth);
+	}
+
+	function endRightPanelResize() {
+		if (!rightPanelResize) return;
+		rightPanelResize = null;
+		saveRightPanelWidth(globalThis.localStorage, rightPanelWidth);
+	}
 	let selectedColumn = $state(0);
 	let selectedFieldKey = $state<string | null>(null);
 	let selectedChannelIndex = $state(-1);
@@ -996,9 +1036,10 @@
 			role="region"
 			aria-label="Instruments and tables"
 			tabindex={0}
-			class="relative z-10 flex h-full shrink-0 flex-col border-l border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] transition-all duration-300 outline-none focus:outline-none {isRightPanelExpanded
+			class="relative z-10 flex h-full shrink-0 flex-col border-l border-[var(--color-app-border)] bg-[var(--color-app-surface-secondary)] outline-none focus:outline-none {isRightPanelExpanded
 				? 'w-[1200px]'
-				: 'w-[32rem]'}"
+				: ''} {rightPanelResize ? '' : 'transition-all duration-300'}"
+			style:width={isRightPanelExpanded ? undefined : `${rightPanelWidth}px`}
 			onmousedown={(e: MouseEvent) => {
 				const target = e.target as HTMLElement;
 				if (
@@ -1007,6 +1048,26 @@
 					rightPanelEl?.focus();
 				}
 			}}>
+			{#if !isRightPanelExpanded}
+				<div
+					class="absolute inset-y-0 left-0 z-20 w-1 cursor-col-resize touch-none outline-none hover:bg-[var(--color-app-primary)]/50 focus-visible:bg-[var(--color-app-primary)]/50 {rightPanelResize
+						? 'bg-[var(--color-app-primary)]/50'
+						: ''}"
+					role="separator"
+					aria-orientation="vertical"
+					aria-label="Resize panel"
+					aria-valuenow={rightPanelWidth}
+					aria-valuemin={RIGHT_PANEL_MIN_WIDTH}
+					aria-valuemax={RIGHT_PANEL_MAX_WIDTH}
+					tabindex="0"
+					title="Drag to resize the panel (or focus and use the arrow keys)"
+					onkeydown={handleRightPanelResizeKey}
+					onpointerdown={beginRightPanelResize}
+					onpointermove={moveRightPanelResize}
+					onpointerup={endRightPanelResize}
+					onpointercancel={endRightPanelResize}>
+				</div>
+			{/if}
 			<div class="min-h-0 flex-1 overflow-hidden">
 				<TabView tabs={rightPanelTabs} bind:activeTabId={rightPanelActiveTabId}>
 					{#snippet children(tabId)}
