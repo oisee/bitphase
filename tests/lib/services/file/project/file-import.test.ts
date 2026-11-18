@@ -43,29 +43,24 @@ describe('FileImportService', () => {
 		expect(project.tempo).toBe(140);
 	});
 
-	it('caps each hardware channel at 3 virtual channels when loading', async () => {
+	it('caps each hardware channel at 8 virtual channels when loading', async () => {
 		const channel = (label: string, noteName?: number) => ({
 			label,
 			rows: noteName === undefined ? [] : [{ note: { name: noteName, octave: 4 } }]
 		});
+		const a = Array.from({ length: 10 }, (_, i) =>
+			channel(`A${i + 1}`, i === 0 ? NoteName.C : i === 9 ? NoteName.E : undefined)
+		);
 		const json = JSON.stringify({
 			name: 'split',
 			songs: [
 				{
-					virtualChannelMap: { 0: 5 },
+					virtualChannelMap: { 0: 10 },
 					patterns: [
 						{
 							id: 0,
 							length: 1,
-							channels: [
-								channel('A1', NoteName.C),
-								channel('A2'),
-								channel('A3'),
-								channel('A4', NoteName.E),
-								channel('A5'),
-								channel('B', NoteName.D),
-								channel('C')
-							]
+							channels: [...a, channel('B', NoteName.D), channel('C')]
 						}
 					]
 				}
@@ -78,11 +73,15 @@ describe('FileImportService', () => {
 		const project = await FileImportService.reconstructFromJsonAsync(json);
 		const pattern = project.songs[0].patterns[0];
 
-		expect(project.songs[0].virtualChannelMap).toEqual({ 0: 3 });
+		expect(project.songs[0].virtualChannelMap).toEqual({ 0: 8 });
 		expect(project.songs[0].virtualChannelRoles).toEqual({});
-		expect(pattern.channels.map((item) => item.label)).toEqual(['A1', 'A2', 'A3', 'B', 'C']);
+		expect(pattern.channels.map((item) => item.label)).toEqual([
+			...a.slice(0, 8).map((item) => item.label),
+			'B',
+			'C'
+		]);
 		expect(pattern.channels[0].rows[0].note.name).toBe(NoteName.C);
-		expect(pattern.channels[3].rows[0].note.name).toBe(NoteName.D);
+		expect(pattern.channels[8].rows[0].note.name).toBe(NoteName.D);
 	});
 
 	it('keeps an AY timer role and drops roles the chip does not declare', async () => {
