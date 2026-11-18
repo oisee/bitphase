@@ -30,17 +30,28 @@ class ProjectStore {
 		defaultPatternLength: DEFAULT_PATTERN_LENGTH
 	});
 	initialized = $state(false);
+	private settingsHistoryBase: Record<string, unknown> = { ...this.settings };
 
 	recordHistory(metadata: ProjectHistoryMetadata, diffs: ProjectDiff[]): void {
 		if (undoRedoStore.isApplying) return;
 		const entry = ProjectHistoryEntryFactory.create(metadata, diffs);
 		if (entry) undoRedoStore.pushProjectEntry(entry);
+		if (metadata.affectedDomains.includes('settings')) this.markSettingsHistoryBase();
 	}
 
 	applyHistoryEntry(entry: ProjectHistoryEntry, direction: 'undo' | 'redo'): void {
 		const diffs = direction === 'undo' ? entry.inverseDiffs : entry.diffs;
 		ProjectDiffService.applyAll(this, diffs);
 		this.refreshHistoryDomains(entry);
+		if (entry.affectedDomains.includes('settings')) this.markSettingsHistoryBase();
+	}
+
+	getSettingsHistoryBase(): Record<string, unknown> {
+		return { ...this.settingsHistoryBase };
+	}
+
+	markSettingsHistoryBase(): void {
+		this.settingsHistoryBase = { ...this.settings };
 	}
 
 	createSetDiff(path: (string | number)[], before: unknown, after: unknown): ProjectDiff {
@@ -94,6 +105,7 @@ class ProjectStore {
 				firstSong && firstSong.interruptFrequency > 0 ? firstSong.interruptFrequency : 50,
 			defaultPatternLength: firstSong?.defaultPatternLength ?? DEFAULT_PATTERN_LENGTH
 		};
+		this.markSettingsHistoryBase();
 		this.patterns = project.songs.map((song) => song.patterns);
 		this.songs = project.songs;
 		this.patternOrder = project.patternOrder;
@@ -147,6 +159,7 @@ class ProjectStore {
 		) {
 			song.defaultPatternLength = projectDefaultPatternLength;
 		}
+		this.markSettingsHistoryBase();
 		const nextIndex = this.songs.length;
 		this.songs = [...this.songs, song];
 		this.patterns = [...this.patterns.slice(0, nextIndex), song.patterns];

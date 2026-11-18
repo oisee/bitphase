@@ -84,12 +84,11 @@
 
 	let chipSettingOverrides = $state<Record<string, Record<string, unknown>>>({});
 	let previousSongsRef = $state<Song[] | undefined>(undefined);
-	let settingsHistorySnapshot = $state<Record<string, unknown>>({});
 	$effect(() => {
 		if (songs !== previousSongsRef) {
 			previousSongsRef = songs;
 			chipSettingOverrides = {};
-			settingsHistorySnapshot = { ...projectStore.settings };
+			projectStore.markSettingsHistoryBase();
 		}
 	});
 
@@ -118,7 +117,7 @@
 	}
 
 	function handleSettingChange(key: string, value: unknown, setting: ChipSetting) {
-		const beforeSettings = { ...settingsHistorySnapshot };
+		const beforeSettings = projectStore.getSettingsHistoryBase();
 		const normalized = setting.type === 'number' ? normalizeProjectNumber(value, setting) : value;
 		const writesSong = key !== 'initialSpeed' && key !== 'tempo';
 		const beforeSongs = writesSong ? projectStore.cloneForHistory(projectStore.songs) : null;
@@ -128,7 +127,6 @@
 			}
 		}
 		projectStore.settings[key] = normalized;
-		settingsHistorySnapshot = { ...projectStore.settings };
 		const diffs = [
 			projectStore.createSetDiff(['settings'], beforeSettings, projectStore.settings)
 		];

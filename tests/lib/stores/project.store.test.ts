@@ -4,6 +4,7 @@ import { AY_CHIP_SCHEMA } from '../../../src/lib/chips/ay/schema';
 import { NES_CHIP_SCHEMA } from '../../../src/lib/chips/nes/schema';
 import { projectStore } from '../../../src/lib/stores/project.svelte';
 import { Project } from '../../../src/lib/models/project';
+import { undoRedoStore } from '../../../src/lib/stores/undo-redo.svelte';
 
 describe('projectStore.addSong', () => {
 	beforeEach(() => {
@@ -160,5 +161,50 @@ describe('projectStore.addSong', () => {
 			'Noise',
 			'DPCM'
 		]);
+	});
+});
+
+describe('projectStore settings history base', () => {
+	// What DetailsView does for a project field: the input has already written the value into
+	// settings, the "before" state comes from the history base.
+	function editDetailsField(key: string, value: unknown): void {
+		const before = projectStore.getSettingsHistoryBase();
+		projectStore.settings[key] = value;
+		projectStore.recordHistory(
+			{ type: 'settings.update', label: `Update ${key}`, affectedDomains: ['settings'] },
+			[projectStore.createSetDiff(['settings'], before, projectStore.settings)]
+		);
+	}
+
+	beforeEach(() => {
+		projectStore.applyProject(new Project());
+		projectStore.settings.tempo = 125;
+		projectStore.markSettingsHistoryBase();
+		undoRedoStore.clear();
+	});
+
+	it('does not bring back an undone value with the next edit', () => {
+		editDetailsField('tempo', 100);
+		undoRedoStore.undo();
+		expect(projectStore.getTempo()).toBe(125);
+
+		editDetailsField('initialSpeed', 6);
+		undoRedoStore.undo();
+		expect(projectStore.getInitialSpeed()).toBe(3);
+		expect(projectStore.getTempo()).toBe(125);
+
+		undoRedoStore.redo();
+		expect(projectStore.getInitialSpeed()).toBe(6);
+		expect(projectStore.getTempo()).toBe(125);
+	});
+
+	it('follows redo and loading a project', () => {
+		editDetailsField('tempo', 100);
+		undoRedoStore.undo();
+		undoRedoStore.redo();
+		expect(projectStore.getSettingsHistoryBase().tempo).toBe(100);
+
+		projectStore.applyProject(new Project('loaded'));
+		expect(projectStore.getSettingsHistoryBase().title).toBe('loaded');
 	});
 });
