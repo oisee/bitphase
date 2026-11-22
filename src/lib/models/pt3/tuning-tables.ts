@@ -70,6 +70,43 @@ const TABLE_LENGTH = 96;
 const MIN_PERIOD = 1;
 const DEFAULT_MAX_PERIOD = 4095;
 
+// 5-limit just intonation, semitones 0-11 above the root (the ratios table #4 is built from)
+const JUST_INTONATION_RATIOS = [
+	1,
+	16 / 15,
+	9 / 8,
+	6 / 5,
+	5 / 4,
+	4 / 3,
+	64 / 45,
+	3 / 2,
+	8 / 5,
+	5 / 3,
+	16 / 9,
+	15 / 8
+];
+const NATURAL_BASE_PERIOD = 2880;
+
+// Table #4 with its pure intervals counted from another root (0 = C ... 11 = B). The root keeps
+// period 2880, so the matching "Natural" chip frequency puts it at pitch. Root 0 is table #4.
+export function generateNaturalTuningTable(
+	rootSemitone: number,
+	maxPeriod: number = DEFAULT_MAX_PERIOD
+): number[] {
+	const root = ((Math.trunc(rootSemitone) % 12) + 12) % 12;
+	const result: number[] = [];
+	for (let i = 0; i < TABLE_LENGTH; i++) {
+		const semitone = i % 12;
+		const octave = Math.floor(i / 12) - (semitone < root ? 1 : 0);
+		const ratio = JUST_INTONATION_RATIOS[(semitone - root + 12) % 12];
+		let period = Math.round(NATURAL_BASE_PERIOD / ratio / Math.pow(2, octave));
+		if (period > maxPeriod) period = maxPeriod;
+		if (period < MIN_PERIOD) period = MIN_PERIOD;
+		result.push(period);
+	}
+	return result;
+}
+
 export function generate12TETTuningTable(
 	chipFrequencyHz: number,
 	a4Hz: number = 440,

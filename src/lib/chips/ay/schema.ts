@@ -1,10 +1,17 @@
 import type { ChipSchema } from '../base/schema';
-import { PT3TuneTables, generate12TETTuningTable } from '../../models/pt3/tuning-tables';
+import {
+	PT3TuneTables,
+	generate12TETTuningTable,
+	generateNaturalTuningTable
+} from '../../models/pt3/tuning-tables';
 import { readAyEnvelopeSticky } from './playback-carry';
 import { ayStickyChannelEffectGroup } from './effects';
 
 export const ATARI_ST_CHIP_FREQUENCY = 2_000_000;
 export const SUNSOFT_5B_CHIP_FREQUENCY = 894_886;
+export const NATURAL_TUNING_TABLE_INDEX = 4;
+
+const NATURAL_ROOT_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
 export const AY_CHIP_SCHEMA: ChipSchema = {
 	chipType: 'ay',
@@ -134,7 +141,19 @@ export const AY_CHIP_SCHEMA: ChipSchema = {
 				{ label: 'ZX Spectrum (1.7734 MHz)', value: 1773400 },
 				{ label: 'Pentagon (1.75 MHz)', value: 1750000 },
 				{ label: 'MSX (1.7897 MHz)', value: 1789700 },
-				{ label: 'Atari ST (2 MHz)', value: ATARI_ST_CHIP_FREQUENCY }
+				{ label: 'Atari ST (2 MHz)', value: ATARI_ST_CHIP_FREQUENCY },
+				{ label: 'Natural C (1.507 MHz)', value: 1506963 },
+				{ label: 'Natural C# (1.597 MHz)', value: 1596572 },
+				{ label: 'Natural D (1.692 MHz)', value: 1691509 },
+				{ label: 'Natural D# (1.792 MHz)', value: 1792091 },
+				{ label: 'Natural E (1.899 MHz)', value: 1898655 },
+				{ label: 'Natural F (2.012 MHz)', value: 2011555 },
+				{ label: 'Natural F# (2.131 MHz)', value: 2131168 },
+				{ label: 'Natural G (2.258 MHz)', value: 2257894 },
+				{ label: 'Natural G# (2.392 MHz)', value: 2392155 },
+				{ label: 'Natural A (2.534 MHz)', value: 2534400 },
+				{ label: 'Natural A# (2.685 MHz)', value: 2685103 },
+				{ label: 'Natural B (2.845 MHz)', value: 2844768 }
 			],
 			defaultValue: 1773400,
 			group: 'chip',
@@ -210,6 +229,18 @@ export const AY_CHIP_SCHEMA: ChipSchema = {
 			showWhen: { key: 'tuningTableIndex', value: 5 }
 		},
 		{
+			key: 'naturalRoot',
+			label: 'Natural root',
+			type: 'select',
+			options: NATURAL_ROOT_NAMES.map((label, value) => ({ label, value })),
+			defaultValue: 0,
+			min: 0,
+			max: 11,
+			group: 'chip',
+			notifyAudioService: true,
+			showWhen: { key: 'tuningTableIndex', value: NATURAL_TUNING_TABLE_INDEX }
+		},
+		{
 			key: 'stMixing',
 			label: 'ST mixing',
 			type: 'toggle',
@@ -227,9 +258,10 @@ export const AY_CHIP_SCHEMA: ChipSchema = {
 		const index = Number(song.tuningTableIndex ?? 2);
 		const chipFreq = Number(song.chipFrequency ?? 1773400);
 		const a4 = Math.min(880, Math.max(220, Number(song.a4TuningHz ?? 440)));
-		return resolveAYTuningTable(index, chipFreq, a4);
+		const naturalRoot = Number(song.naturalRoot ?? 0);
+		return resolveAYTuningTable(index, chipFreq, a4, naturalRoot);
 	},
-	tuningTableSettingKeys: ['tuningTableIndex', 'a4TuningHz', 'chipFrequency'],
+	tuningTableSettingKeys: ['tuningTableIndex', 'a4TuningHz', 'chipFrequency', 'naturalRoot'],
 	applySettingSideEffects(key, value) {
 		if (key === 'stMixing' && value === true) {
 			return [
@@ -256,8 +288,12 @@ export const AY_CHIP_SCHEMA: ChipSchema = {
 export function resolveAYTuningTable(
 	index: number,
 	chipFrequencyHz: number,
-	a4TuningHz: number
+	a4TuningHz: number,
+	naturalRoot: number = 0
 ): number[] {
+	if (index === NATURAL_TUNING_TABLE_INDEX && naturalRoot > 0 && naturalRoot < 12) {
+		return generateNaturalTuningTable(naturalRoot);
+	}
 	if (index >= 0 && index < PT3TuneTables.length) {
 		return [...PT3TuneTables[index]];
 	}
